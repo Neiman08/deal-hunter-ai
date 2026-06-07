@@ -1,0 +1,43 @@
+{
+  "expo": {
+    "name": "Deal Hunter AI",
+    "slug": "deal-hunter-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "dealhunter",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#05050a"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "ai.dealhunter.app",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Scan product barcodes in stores",
+        "NSLocationWhenInUseUsageDescription": "Find deals near your current location"
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#05050a"
+      },
+      "package": "ai.dealhunter.app",
+      "permissions": ["CAMERA", "ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
+    },
+    "plugins": [
+      "expo-barcode-scanner",
+      "expo-notifications",
+      [
+        "expo-location",
+        { "locationAlwaysAndWhenInUsePermission": "Find deals near you." }
+      ]
+    ],
+    "extra": {
+      "eas": { "projectId": "your-eas-project-id" }
+    }
+  }
+}

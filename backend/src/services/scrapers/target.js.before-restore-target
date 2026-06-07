@@ -1,0 +1,192 @@
+/**
+ * Target Playwright Scraper (Phase 2)
+ *
+ * Target uses React with server-side rendering.
+ * Their product pages embed full product data in __PRELOADED_QUERIES__.
+ *
+ * Extraction order:
+ *  1. window.__PRELOADED_QUERIES__ (Target's Apollo cache)
+ *  2. LD+JSON schema.org
+ *  3. DOM selectors
+ */
+
+const { withPage }      = require('../browserEngine');
+const {
+  withRetry, respectDomainDelay, makeProduct,
+  extractPrice, extractFromPageJSON, calcDiscount, saveProductData,
+} = require('../scraperBase');
+const { query }  = require('../../config/database');
+const logger     = require('../../utils/logger');
+
+const STORE_SLUG = 'target';
+const DOMAIN     = 'target.com';
+
+const PRICE_SELECTORS = [
+  '[data-test="product-price"]',
+  '[class*="Price__StyledCurrentPrice"]',
+  '[class*="h-text-bs"]',
+  'div[class*="style__PriceFontSize"]',
+  '[data-qa="product-price"]',
+];
+
+const STRIKE_SELECTORS = [
+  '[data-test="product-regular-price"]',
+  '[class*="Price__StyledCrossedOutPrice"]',
+  '[class*="sr-only"] + span',
+];
+
+function buildUrl(tcin) {
+  return `https://www.target.com/p/-/A-${tcin}`;
+}
+
+async function scrapeTargetProduct(url) {
+  logger.info(`[Target] Scraping ${url}`);
+  await respectDomainDelay(DOMAIN);
+
+  return withRetry(async () => withPage(url, async (page) => {
+
+    try {
+      await page.waitForSelector('[data-test="product-price"], [class*="Price__StyledCurrentPrice"]', { timeout: 15000 });
+    } catch {
+      logger.warn('[Target] Price selector timeout — trying fallback');
+    }
+
+    // ── M1: __PRELOADED_QUERIES__ (Apollo cache) ──────────────────────────
+    const apollo = await extractFromPageJSON(page, () => {
+      try {
+        const q = window?.__PRELOADED_QUERIES__?.queries;
+        if (!q) return null;
+        // Find product query in Apollo cache
+        for (const [, data] of Object.entries(q)) {
+          const item = data?.data?.product;
+          if (item?.item?.enrichment?.images) {
+            const price = item.price?.current_retail;
+            const reg   = item.price?.regular_retail;
+            return {
+              name:         item.item?.product_description?.title,
+              brand:        item.item?.product_description?.bullet_descriptions?.[0],
+              price,
+              reg,
+              inStock:      item.item?.fulfillment?.is_out_of_stock === false,
+              imageUrl:     item.item?.enrichment?.images?.primary_image_url,
+              clearance:    item.price?.is_clearance,
+            };
+          }
+        }
+        return null;
+      } catch { return null; }
+    }, '__PRELOADED_QUERIES__');
+
+    if (apollo?.price) {
+      logger.info(`[Target] ✅ Apollo | "${apollo.name}" | $${apollo.price}`);
+      return makeProduct({
+        name: apollo.name, brand: apollo.brand,
+        currentPrice: apollo.price,
+        regularPrice: apollo.reg || apollo.price * 1.2,
+        discountPercent: calcDiscount(apollo.price, apollo.reg),
+        inStock: apollo.inStock, imageUrl: apollo.imageUrl, productUrl: url,
+        clearance: apollo.clearance,
+        pageText: apollo.clearance ? 'clearance' : '',
+        source: 'target_playwright_apollo',
+      });
+    }
+
+    // ── M2: LD+JSON ───────────────────────────────────────────────────────
+    const ld = await extractFromPageJSON(page, () => {
+      try {
+        const scripts = [...document.querySelectorAll('script[type="application/ld+json"]')];
+        for (const s of scripts) {
+          const d = JSON.parse(s.textContent);
+          if (d?.offers?.price) return {
+            name: d.name, brand: d.brand?.name,
+            price: d.offers.price,
+            inStock: d.offers.availability?.includes('InStock'),
+            imageUrl: d.image,
+          };
+        }
+        return null;
+      } catch { return null; }
+    }, 'LD+JSON');
+
+    if (ld?.price) {
+      logger.info(`[Target] ✅ LD+JSON | "${ld.name}" | $${ld.price}`);
+      return makeProduct({
+        name: ld.name, brand: ld.brand,
+        currentPrice: ld.price,
+        regularPrice: ld.price * 1.2,
+        inStock: ld.inStock, imageUrl: ld.imageUrl, productUrl: url,
+        source: 'target_playwright_ldjson',
+      });
+    }
+
+    // ── M3: DOM ───────────────────────────────────────────────────────────
+    const currentPrice = await extractPrice(page, PRICE_SELECTORS, 'target price');
+    if (!currentPrice) {
+      const title = await page.title().catch(() => '');
+      throw new Error(`No price on Target page. Title: "${title}"`);
+    }
+
+    const regularPrice = await extractPrice(page, STRIKE_SELECTORS, 'target regular');
+    const name         = await page.$eval('h1', el => el.textContent?.trim()).catch(() => null);
+    const imageUrl     = await page.$eval('[data-test="heroImageContainer"] img, [data-test="product-image"]', el => el.src).catch(() => null);
+    const inStock      = await page.$('button[data-test="shippingATCButton"], button[data-test="orderPickupButton"]').then(Boolean).catch(() => true);
+    const clearance    = await page.$('[data-test="clearancePill"], [class*="clearance"]').then(Boolean).catch(() => false);
+    const pageText     = await page.$eval('body', el => el.innerText?.slice(0, 1000)).catch(() => '');
+
+    logger.info(`[Target] ✅ DOM | "${name}" | $${currentPrice}`);
+    return makeProduct({
+      name, currentPrice,
+      regularPrice: regularPrice || currentPrice * 1.2,
+      discountPercent: calcDiscount(currentPrice, regularPrice),
+      inStock, imageUrl, productUrl: url, clearance,
+      pageText: clearance ? 'clearance ' + pageText : pageText,
+      source: 'target_playwright_dom',
+    });
+
+  }, { waitUntil: 'domcontentloaded' }),
+  { maxAttempts: 3, baseDelay: 2500, label: `Target` });
+}
+
+async function scanTargetDeals() {
+  logger.info('\n' + '═'.repeat(55));
+  logger.info('🎯 TARGET PLAYWRIGHT SCAN');
+  logger.info('═'.repeat(55));
+
+  const rows = await query(`
+    SELECT p.id, p.name, p.brand, p.sku, p.product_url,
+           p.category_id, c.slug as cat_slug
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.id
+    JOIN stores s ON p.store_id = s.id
+    WHERE s.slug = 'target'
+      AND p.product_url IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM prices pr WHERE pr.product_id = p.id
+          AND pr.recorded_at > NOW() - INTERVAL '30 minutes'
+      )
+    ORDER BY RANDOM()
+    LIMIT ${parseInt(process.env.SCAN_BATCH_SIZE) || 10}
+  `);
+
+  logger.info(`[Target] ${rows.rows.length} products queued`);
+  const stats = { scanned: 0, deals: 0, errors: 0 };
+
+  for (const p of rows.rows) {
+    if (!p.product_url) continue;
+    try {
+      const scraped = await scrapeTargetProduct(p.product_url);
+      if (!scraped?.currentPrice) { stats.errors++; continue; }
+      stats.scanned++;
+      const r = await saveProductData(p, scraped, STORE_SLUG);
+      if (r?.discountPct >= 15) stats.deals++;
+    } catch (err) {
+      logger.error(`[Target] FAIL "${p.name}": ${err.message}`);
+      stats.errors++;
+    }
+  }
+
+  logger.info(`[Target] COMPLETE | scanned:${stats.scanned} deals:${stats.deals} errors:${stats.errors}`);
+  return { products_scanned: stats.scanned, deals_found: stats.deals, errors: stats.errors };
+}
+
+module.exports = { scrapeTargetProduct, scanTargetDeals };

@@ -1,0 +1,568 @@
+/**
+ * Best Buy Discovery Engine
+ *
+ * DIAGNÓSTICO (2026-06-03):
+ *   ✅ searchpage.jsp carga correctamente
+ *   ❌ product pages → ERR_HTTP2_PROTOCOL_ERROR (rechazo TCP/TLS)
+ *   ❌ axios directo → timeout
+ *
+ * ESTRATEGIA: extraer datos directamente de los cards de búsqueda.
+ * No abrir páginas de producto. Search → cards → price/deal.
+ *
+ * Los cards de Best Buy exponen en __INITIAL_STATE__ y en el DOM:
+ *   name, skuId, currentPrice, regularPrice, imageUrl, inStock
+ *
+ * Flujo:
+ *   1. Abrir searchpage.jsp?st={keyword}
+ *   2. Extraer datos de todos los product cards visibles
+ *   3. Dedup contra products.product_url
+ *   4. Upsert en products + prices + deals directamente
+ *      SIN abrir la página del producto
+ */
+
+const { newBestBuyContext }  = require('../browserEngine');
+const { saveProductData }    = require('../scraperBase');
+const { query }              = require('../../config/database');
+const logger                 = require('../../utils/logger');
+
+const STORE_SLUG = 'best-buy';
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// ── Keywords de búsqueda ──────────────────────────────────────────────────────
+const SEARCH_KEYWORDS = [
+  { label: 'airpods-4',        kw: 'airpods 4' },
+  { label: 'airpods-pro',      kw: 'apple airpods pro' },
+  { label: 'macbook',          kw: 'macbook' },
+  { label: 'ipad',             kw: 'ipad' },
+  { label: 'apple-watch',      kw: 'apple watch' },
+  { label: 'sony-headphones',  kw: 'sony headphones' },
+  { label: 'beats-headphones', kw: 'beats headphones' },
+  { label: 'samsung-tv',       kw: 'samsung tv' },
+  { label: 'lg-oled',          kw: 'lg oled' },
+  { label: 'gaming-laptop',    kw: 'gaming laptop' },
+  { label: 'dyson',            kw: 'dyson' },
+  { label: 'ipad-air',         kw: 'ipad air' },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Cerrar popups y overlays antes de extraer cards
+// Popups observados en Best Buy: ubicación, login, traductor de Google
+// ─────────────────────────────────────────────────────────────────────────────
+async function dismissOverlays(page) {
+  // Selectores de botones de cierre (probados en orden de especificidad)
+  const closeSelectors = [
+    // Popup de ubicación "wants to know your location"
+    'button[aria-label="Close"]',
+    'button[aria-label="close"]',
+    '[data-testid="close-button"]',
+    // Modal genérico / dialog
+    '[role="dialog"] button[aria-label*="lose"]',
+    '[role="dialog"] button[aria-label*=" dismiss"]',
+    '[role="dialog"] button[aria-label*="cancel"]',
+    // Modales por clase
+    '.modal button[aria-label*="lose"]',
+    '.c-modal-close',
+    '.c-close-button',
+    // Popup de login "Sign In"
+    '[data-testid*="modal"] button[aria-label*="lose"]',
+    '[data-testid*="modal"] .c-close-button',
+    // Overlay genérico con botón × o X
+    '.overlay-close',
+    'button.close',
+  ];
+
+  let closed = 0;
+
+  for (const sel of closeSelectors) {
+    try {
+      // Busca TODOS los botones que coincidan (puede haber varios overlays)
+      const buttons = await page.$$(sel);
+      for (const btn of buttons) {
+        const visible = await btn.isVisible().catch(() => false);
+        if (visible) {
+          await btn.click({ timeout: 2000 }).catch(() => {});
+          await sleep(400);
+          closed++;
+          logger.info(`[Discovery:BB]   Closed overlay: "${sel}"`);
+        }
+      }
+    } catch {}
+  }
+
+  // Escapar con teclado como fallback (cierra la mayoría de modales)
+  if (closed === 0) {
+    await page.keyboard.press('Escape').catch(() => {});
+    await sleep(300);
+  }
+
+  // Verificar que no queden dialogs bloqueando
+  const dialogCount = await page.$$eval(
+    '[role="dialog"]:not([hidden]), .modal:not(.hidden)',
+    els => els.filter(el => {
+      const style = window.getComputedStyle(el);
+      return style.display !== 'none' && style.visibility !== 'hidden';
+    }).length
+  ).catch(() => 0);
+
+  if (dialogCount > 0) {
+    logger.warn(`[Discovery:BB]   ${dialogCount} dialog(s) still visible after dismissal`);
+  } else if (closed > 0) {
+    logger.info(`[Discovery:BB]   All overlays dismissed (${closed} closed)`);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Extraer datos de product cards desde una search page
+// Devuelve array de objetos con datos completos — sin abrir ninguna página extra
+// ─────────────────────────────────────────────────────────────────────────────
+async function extractCardsFromSearchPage(keyword, maxCards = 20) {
+  const url = `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(keyword)}`;
+  logger.info(`[Discovery:BB] Search: "${keyword}" | ${url}`);
+
+  const ctx  = await newBestBuyContext();
+  const page = await ctx.newPage();
+  const cards = [];
+
+  try {
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+    // Detectar chrome-error en search page
+    const finalUrl = page.url();
+    if (finalUrl.startsWith('chrome-error://')) {
+      logger.warn(`[Discovery:BB] chrome-error en search page para "${keyword}"`);
+      return [];
+    }
+
+    const title = await page.title().catch(() => '');
+    logger.info(`[Discovery:BB]   title: "${title}"`);
+
+    if (/captcha|robot|access denied/i.test(title)) {
+      logger.warn(`[Discovery:BB]   Blocked: "${title}"`);
+      return [];
+    }
+
+    // ── Cerrar popups / overlays antes de extraer ─────────────────────────
+    // Best Buy muestra: popup de ubicación, popup de login, barra del traductor.
+    // Hay que cerrarlos antes de que tapen los cards o el DOM extraction falle.
+    await dismissOverlays(page);
+
+    // Esperar a que los cards sean visibles (después de cerrar overlays)
+    try {
+      await page.waitForSelector('.sku-item', { timeout: 20000 });
+      logger.info('[Discovery:BB]   .sku-item visible');
+    } catch {
+      logger.warn('[Discovery:BB]   .sku-item timeout — extracting anyway');
+    }
+
+    // Scroll profundo para cargar cards lazy-loaded
+    // BB carga progresivamente: primera pantalla → scroll → más cards → scroll → más
+    const itemsBefore = await page.$$eval('.sku-item', els => els.length).catch(() => 0);
+    logger.info(`[Discovery:BB]   Cards antes del scroll: ${itemsBefore}`);
+
+    await page.evaluate(async () => {
+      const step  = 600;
+      const pause = 500;
+      const limit = Math.max(document.body.scrollHeight, 5000);
+      let   pos   = 0;
+      while (pos < limit) {
+        window.scrollBy(0, step);
+        pos += step;
+        await new Promise(r => setTimeout(r, pause));
+      }
+      // Volver arriba para que el DOM quede estable
+      window.scrollTo(0, 0);
+    });
+    await sleep(1200);
+
+    const itemsAfter = await page.$$eval('.sku-item', els => els.length).catch(() => 0);
+    logger.info(`[Discovery:BB]   Cards después del scroll: ${itemsAfter}`);
+
+    // ── Extracción principal: __INITIAL_STATE__ ──────────────────────────────
+    // Best Buy embebe datos completos de todos los cards en el estado React
+    const stateCards = await page.evaluate((max) => {
+      try {
+        const s = window?.__INITIAL_STATE__;
+        if (!s) return [];
+
+        // Rutas conocidas donde BB guarda los search results
+        const items =
+          s?.search?.searchResults?.items
+          || s?.search?.results
+          || s?.searchResults?.items
+          || s?.page?.data?.searchResults?.items
+          || [];
+
+        if (!Array.isArray(items) || !items.length) return [];
+
+        return items.slice(0, max).map(item => {
+          const sku          = item.sku || item.skuId || item.productId;
+          const currentPrice = item.priceInfo?.currentPrice?.price
+                            || item.salePrice
+                            || item.currentPrice
+                            || item.price;
+          const regularPrice = item.priceInfo?.wasPrice?.price
+                            || item.regularPrice
+                            || item.wasPrice;
+          const imageUrl     = item.imageInfo?.thumbnailUrl
+                            || item.image
+                            || item.thumbnailImage;
+          const productUrl   = item.url
+                            ? (item.url.startsWith('http') ? item.url : 'https://www.bestbuy.com' + item.url)
+                            : (sku ? `https://www.bestbuy.com/site/-/${sku}.p` : null);
+          const inStock      = item.availabilityStatus === 'IN_STOCK'
+                            || item.inStock
+                            || item.onlineAvailability !== false;
+
+          if (!currentPrice) return null;
+
+          return {
+            name:         item.name || item.productName,
+            brand:        item.brand || item.manufacturer || null,
+            sku:          String(sku || ''),
+            currentPrice: parseFloat(currentPrice),
+            regularPrice: regularPrice ? parseFloat(regularPrice) : null,
+            imageUrl,
+            productUrl,
+            inStock:      Boolean(inStock),
+            clearance:    Boolean(item.clearance),
+            source:       'bestbuy_search_state',
+          };
+        }).filter(Boolean);
+      } catch { return []; }
+    }, maxCards);
+
+    if (stateCards.length) {
+      logger.info(`[Discovery:BB]   __INITIAL_STATE__: ${stateCards.length} cards con precio`);
+      cards.push(...stateCards);
+    }
+
+    // ── Fallback: DOM extraction si __INITIAL_STATE__ no devolvió nada ───────
+    if (!cards.length) {
+      logger.info('[Discovery:BB]   Fallback: DOM extraction...');
+      const domCards = await page.evaluate((max) => {
+        const results = [];
+        const items   = document.querySelectorAll('.sku-item');
+
+        for (const item of [...items].slice(0, max)) {
+          try {
+            // Nombre
+            const nameEl = item.querySelector('.sku-header a, [class*="productTitle"], h4 a');
+            const name   = nameEl?.textContent?.trim();
+            if (!name) continue;
+
+            // URL
+            const href = nameEl?.getAttribute('href') || '';
+            const productUrl = href.startsWith('http') ? href : 'https://www.bestbuy.com' + href;
+
+            // SKU del data attribute o de la URL
+            const skuAttr = item.getAttribute('data-sku-id')
+                         || item.dataset?.skuId
+                         || productUrl.match(/\/(\d{5,8})\.p/)?.[1];
+
+            // Precio actual
+            const priceEl = item.querySelector(
+              '[data-testid="customer-price"] [aria-hidden="true"], ' +
+              '.priceView-customer-price [aria-hidden="true"], ' +
+              '.sku-item-price .sr-only + span'
+            );
+            const currentPriceText = priceEl?.textContent?.trim();
+            const currentPrice     = currentPriceText
+              ? parseFloat(currentPriceText.replace(/[^0-9.]/g, ''))
+              : null;
+            if (!currentPrice || currentPrice < 0.5) continue;
+
+            // Precio regular
+            const wasEl       = item.querySelector('[data-testid="regular-price"] [aria-hidden="true"], .priceView-was-price [aria-hidden="true"]');
+            const regularPrice = wasEl?.textContent
+              ? parseFloat(wasEl.textContent.replace(/[^0-9.]/g, ''))
+              : null;
+
+            // Imagen
+            const imgEl   = item.querySelector('img.product-image, [class*="ProductImage"] img');
+            const imageUrl = imgEl?.src || imgEl?.dataset?.src;
+
+            // Stock
+            const addBtn  = item.querySelector('button[data-button-state="ADD_TO_CART"]');
+            const inStock = Boolean(addBtn);
+
+            results.push({
+              name,
+              sku:          String(skuAttr || ''),
+              currentPrice,
+              regularPrice: regularPrice && regularPrice > currentPrice ? regularPrice : null,
+              imageUrl:     imageUrl || null,
+              productUrl,
+              inStock,
+              clearance:    item.textContent?.toLowerCase().includes('clearance') ?? false,
+              source:       'bestbuy_search_dom',
+            });
+          } catch {}
+        }
+        return results;
+      }, maxCards);
+
+      if (domCards.length) {
+        logger.info(`[Discovery:BB]   DOM: ${domCards.length} cards extraídos`);
+        cards.push(...domCards);
+      }
+    }
+
+    // ── Fallback 3: a[href*="skuId"] links — mínimo viable, solo URL + nombre ──
+    // Se ejecuta cuando los otros dos no devolvieron nada (cards todavía vacío).
+    // Extrae todos los links que contienen skuId en el href — sin precio,
+    // pero permite dedup y guardado en DB para scans futuros.
+    if (!cards.length) {
+      logger.info('[Discovery:BB]   Fallback 3: extrayendo a[href*="skuId"] links...');
+      const linkCards = await page.evaluate((max) => {
+        const found = new Map(); // skuId → card (dedup)
+
+        // Todos los anchors con skuId en el href (formato nuevo de BB)
+        document.querySelectorAll('a[href*="skuId"]').forEach(a => {
+          const href  = a.getAttribute('href') || '';
+          const match = href.match(/skuId=(\d{5,8})/);
+          if (!match) return;
+          const sku = match[1];
+          if (found.has(sku)) return;
+
+          const abs = href.startsWith('http') ? href : 'https://www.bestbuy.com' + href;
+
+          // Intentar extraer nombre del texto del anchor o de un ancestro
+          const text = a.textContent?.trim()
+            || a.closest('[class*="ProductCard"]')?.querySelector('h4, [class*="productTitle"]')?.textContent?.trim()
+            || a.closest('.sku-item')?.querySelector('.sku-header')?.textContent?.trim()
+            || '';
+
+          // Intentar precio del ancestro
+          const card   = a.closest('.sku-item, [class*="ProductCard"]');
+          const priceEl = card?.querySelector('[data-testid="customer-price"] [aria-hidden="true"], .priceView-customer-price [aria-hidden="true"]');
+          const priceText = priceEl?.textContent?.trim();
+          const price     = priceText ? parseFloat(priceText.replace(/[^0-9.]/g, '')) : null;
+
+          if (text.length > 3) {
+            found.set(sku, {
+              name:         text.slice(0, 200),
+              sku,
+              currentPrice: price && price > 0.5 ? price : null,
+              productUrl:   abs.split('?')[0] + '?skuId=' + sku,
+              source:       'bestbuy_skuid_link',
+            });
+          }
+          if (found.size >= max) return;
+        });
+
+        return [...found.values()];
+      }, maxCards);
+
+      if (linkCards.length) {
+        logger.info(`[Discovery:BB]   skuId links: ${linkCards.length} encontrados`);
+        cards.push(...linkCards);
+      }
+    }
+
+    logger.info(`[Discovery:BB]   Total: ${cards.length} cards para "${keyword}"`);
+
+  } catch (err) {
+    logger.error(`[Discovery:BB]   Error en "${keyword}": ${err.message}`);
+  } finally {
+    await page.close().catch(() => {});
+    await ctx.close().catch(() => {});
+  }
+
+  return cards;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Dedup: filtrar cards cuya product_url ya existe en DB
+// ─────────────────────────────────────────────────────────────────────────────
+async function filterNewCards(cards) {
+  if (!cards.length) return [];
+
+  const urls     = cards.map(c => c.productUrl).filter(Boolean);
+  if (!urls.length) return cards;
+
+  const existing = await query(
+    `SELECT product_url FROM products WHERE product_url = ANY($1::text[])`,
+    [urls]
+  );
+  const existingSet = new Set(existing.rows.map(r => r.product_url));
+
+  const newCards = cards.filter(c => !c.productUrl || !existingSet.has(c.productUrl));
+  logger.info(`[Discovery:BB] Dedup: ${cards.length} → ${existingSet.size} en DB → ${newCards.length} nuevos`);
+  return newCards;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Guardar un card directamente en products + prices + deals
+// SIN abrir la página del producto
+// ─────────────────────────────────────────────────────────────────────────────
+async function saveCard(card, storeId) {
+  const { name, brand, sku, currentPrice, regularPrice, imageUrl, productUrl, inStock, clearance } = card;
+
+  if (!currentPrice || currentPrice < 0.5) return 'no_price';
+
+  try {
+    // ── Upsert product ───────────────────────────────────────────────────────
+    const catRes = await query(
+      `SELECT id FROM categories WHERE slug = 'electronics' LIMIT 1`
+    );
+    const catId = catRes.rows[0]?.id || null;
+
+    const productRes = await query(`
+      INSERT INTO products
+        (name, brand, sku, bestbuy_sku, bestbuy_sku_valid, store_id, category_id, image_url, product_url, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
+      ON CONFLICT (sku, store_id) DO UPDATE SET
+        name        = COALESCE(EXCLUDED.name, products.name),
+        brand       = COALESCE(EXCLUDED.brand, products.brand),
+        image_url   = COALESCE(EXCLUDED.image_url, products.image_url),
+        product_url = COALESCE(EXCLUDED.product_url, products.product_url),
+        updated_at  = NOW()
+      RETURNING id, category_id,
+        (SELECT slug FROM categories WHERE id = products.category_id) as cat_slug
+    `, [
+      name || `Best Buy Product ${sku}`,
+      brand || null,
+      sku   || `bb-disc-${Date.now()}`,
+      /^\d{5,8}$/.test(sku) ? sku : null,
+      /^\d{5,8}$/.test(sku) ? true : null,
+      storeId,
+      catId,
+      imageUrl   || null,
+      productUrl || null,
+    ]);
+
+    const dbProduct = productRes.rows[0];
+    if (!dbProduct) return 'db_error';
+
+    // ── Construir objeto scraped compatible con saveProductData ───────────────
+    const regPrice = regularPrice && regularPrice > currentPrice ? regularPrice : currentPrice * 1.25;
+    const scraped  = {
+      name,
+      brand,
+      currentPrice,
+      regularPrice:    regPrice,
+      discountPercent: Math.round(((regPrice - currentPrice) / regPrice) * 100),
+      inStock:         Boolean(inStock),
+      imageUrl:        imageUrl || null,
+      productUrl:      productUrl || null,
+      clearance:       Boolean(clearance),
+      pageText:        clearance ? 'clearance' : '',
+      source:          card.source || 'bestbuy_search_card',
+      data_source:     'live',
+    };
+
+    await saveProductData(
+      { ...dbProduct, cat_slug: dbProduct.cat_slug || 'electronics' },
+      scraped,
+      STORE_SLUG
+    );
+
+    logger.info(`[Discovery:BB] ✅ "${name}" | $${currentPrice} | ${card.source}`);
+    return 'saved';
+
+  } catch (err) {
+    logger.error(`[Discovery:BB] Error guardando "${name}": ${err.message}`);
+    return 'error';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENTRADA PRINCIPAL
+// ─────────────────────────────────────────────────────────────────────────────
+async function runBestBuyDiscovery(options = {}) {
+  const maxPerSearch = options.maxPerPage  || parseInt(process.env.BB_DISCOVERY_MAX_PER_SEARCH) || 20;
+  const maxTotal     = options.maxTotal    || parseInt(process.env.BB_DISCOVERY_MAX_TOTAL)      || 60;
+  const delayMs      = options.delayMs     || parseInt(process.env.BB_DISCOVERY_DELAY_MS)       || 3000;
+  const keywords     = options.keywords    || SEARCH_KEYWORDS;
+
+  logger.info('\n' + '═'.repeat(60));
+  logger.info('🟦 BEST BUY DISCOVERY — Search Cards (no product pages)');
+  logger.info(`   keywords=${keywords.length}  maxPerSearch=${maxPerSearch}  maxTotal=${maxTotal}`);
+  logger.info('═'.repeat(60));
+
+  const stats = {
+    searches_run:    0,
+    cards_found:     0,
+    cards_new:       0,
+    saved:           0,
+    no_price:        0,
+    errors:          0,
+  };
+
+  // Obtener storeId de Best Buy
+  const storeRes = await query(`SELECT id FROM stores WHERE slug = 'best-buy' LIMIT 1`);
+  if (!storeRes.rows[0]) {
+    logger.error('[Discovery:BB] Store "best-buy" no encontrada en DB. Ejecuta seed primero.');
+    return stats;
+  }
+  const storeId = storeRes.rows[0].id;
+
+  // ── Fase 1: recolectar cards desde search pages ──────────────────────────
+  const allCards = [];
+
+  for (const { label, kw } of keywords) {
+    if (allCards.length >= maxTotal * 2) break;
+
+    logger.info(`\n[Discovery:BB] ── Keyword: "${label}"`);
+
+    const cards = await extractCardsFromSearchPage(kw, maxPerSearch);
+    stats.searches_run++;
+    stats.cards_found += cards.length;
+    allCards.push(...cards);
+
+    await sleep(2500);
+  }
+
+  if (!allCards.length) {
+    logger.warn('[Discovery:BB] 0 cards encontrados. Revisar si searchpage.jsp sigue funcionando.');
+    return stats;
+  }
+
+  // ── Fase 2: dedup ─────────────────────────────────────────────────────────
+  // Dedup interno (misma URL en keywords distintas)
+  const seen      = new Set();
+  const uniqueAll = allCards.filter(c => {
+    const key = c.productUrl || `${c.sku}-${c.name}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const newCards   = await filterNewCards(uniqueAll);
+  stats.cards_new  = newCards.length;
+  const toProcess  = newCards.slice(0, maxTotal);
+
+  if (!toProcess.length) {
+    logger.info('[Discovery:BB] Todos los cards ya están en DB.');
+    return stats;
+  }
+
+  logger.info(`\n[Discovery:BB] Guardando ${toProcess.length} cards nuevos...`);
+
+  // ── Fase 3: guardar directamente en DB ────────────────────────────────────
+  for (let i = 0; i < toProcess.length; i++) {
+    const card   = toProcess[i];
+    const result = await saveCard(card, storeId);
+
+    if (result === 'saved')    stats.saved++;
+    if (result === 'no_price') stats.no_price++;
+    if (result === 'error')    stats.errors++;
+
+    if (i < toProcess.length - 1) await sleep(delayMs);
+  }
+
+  // ── Resumen ───────────────────────────────────────────────────────────────
+  logger.info('\n' + '═'.repeat(60));
+  logger.info('🟦 BEST BUY DISCOVERY — COMPLETE');
+  logger.info(`   searches_run:  ${stats.searches_run}`);
+  logger.info(`   cards_found:   ${stats.cards_found}`);
+  logger.info(`   cards_new:     ${stats.cards_new}`);
+  logger.info(`   saved:         ${stats.saved}`);
+  logger.info(`   no_price:      ${stats.no_price}`);
+  logger.info(`   errors:        ${stats.errors}`);
+  logger.info('═'.repeat(60) + '\n');
+
+  return stats;
+}
+
+module.exports = { runBestBuyDiscovery, extractCardsFromSearchPage, SEARCH_KEYWORDS };

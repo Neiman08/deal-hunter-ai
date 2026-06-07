@@ -1,0 +1,101 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { font-family: 'Space Grotesk', system-ui, sans-serif; }
+  body { @apply bg-dark-900 text-white; }
+  input::placeholder, textarea::placeholder { color: #94A3B8; }
+  input, select, textarea { color: white; }
+}
+
+@layer components {
+  .neon-border {
+    border: 1px solid rgba(0, 255, 136, 0.2);
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.05), inset 0 0 20px rgba(0, 255, 136, 0.02);
+  }
+  .neon-border:hover {
+    border-color: rgba(0, 255, 136, 0.4);
+    box-shadow: 0 0 30px rgba(0, 255, 136, 0.1), inset 0 0 30px rgba(0, 255, 136, 0.05);
+  }
+  .card {
+    @apply bg-dark-600 rounded-2xl border border-dark-400 transition-all duration-300;
+  }
+  .card:hover {
+    @apply border-dark-300;
+    transform: translateY(-2px);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  }
+  .btn-primary {
+    @apply bg-neon-green text-dark-900 font-bold py-3 px-6 rounded-xl transition-all duration-200;
+    box-shadow: 0 0 20px rgba(0, 255, 136, 0.3);
+  }
+  .btn-primary:hover {
+    @apply opacity-90;
+    box-shadow: 0 0 30px rgba(0, 255, 136, 0.5);
+    transform: translateY(-1px);
+  }
+  .btn-ghost {
+    @apply text-gray-400 border border-dark-300 py-2 px-4 rounded-xl hover:border-neon-green hover:text-neon-green transition-all duration-200;
+  }
+  .score-badge {
+    @apply font-mono text-xs font-bold py-1 px-2 rounded-lg;
+  }
+  .glass {
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+  }
+}
+
+/* Deal score colors */
+.score-excellent { @apply bg-green-500/20 text-green-400 border border-green-500/30; }
+.score-great { @apply bg-blue-500/20 text-blue-400 border border-blue-500/30; }
+.score-good { @apply bg-yellow-500/20 text-yellow-400 border border-yellow-500/30; }
+.score-ok { @apply bg-gray-500/20 text-gray-400 border border-gray-500/30; }
+
+/* Store badge colors */
+.store-walmart { background: #0071CE20; border-color: #0071CE40; color: #0071CE; }
+.store-home-depot { background: #F9630220; border-color: #F9630240; color: #F96302; }
+.store-target { background: #CC000020; border-color: #CC000040; color: #CC0000; }
+.store-best-buy { background: #00308720; border-color: #00308740; color: #4a90d9; }
+.store-lowes { background: #00499020; border-color: #00499040; color: #0077cc; }
+
+/* Animations */
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+.scanline::after {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #00ff8830, transparent);
+  animation: scanline 4s linear infinite;
+  pointer-events: none;
+}
+
+/* Leaflet map dark theme */
+.leaflet-container {
+  background: #0a0a13 !important;
+  border-radius: 16px;
+}
+.leaflet-tile {
+  filter: brightness(0.6) saturate(0.5) hue-rotate(200deg);
+}
+.leaflet-popup-content-wrapper {
+  background: #141A26 !important;
+  color: white !important;
+  border: 1px solid #273449;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+.leaflet-popup-tip {
+  background: #141A26 !important;
+}
+.leaflet-popup-content {
+  color: white;
+}

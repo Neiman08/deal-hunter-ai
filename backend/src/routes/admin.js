@@ -1,0 +1,407 @@
+const express = require('express');
+const router = express.Router();
+const { authenticate, requireAdmin } = require('../middleware/auth');
+const { query } = require('../config/database');
+
+// All admin routes require authentication + admin role
+router.use(authenticate, requireAdmin);
+
+// GET /admin/dashboard
+router.get('/dashboard', async (req, res) => {
+  try {
+    const [users, deals, scans, stores] = await Promise.all([
+      query(`SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE plan = 'pro') as pro,
+        COUNT(*) FILTER (WHERE plan = 'elite') as elite,
+        COUNT(*) FILTER (WHERE plan = 'free') as free,
+        COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '7 days') as new_this_week
+        FROM users WHERE is_active = true`),
+      query(`SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE is_active) as active,
+        COUNT(*) FILTER (WHERE NOT is_active) as expired,
+        COUNT(*) FILTER (WHERE is_error_price AND is_active) as error_prices,
+        AVG(opportunity_score) FILTER (WHERE is_active) as avg_score
+        FROM deals`),
+      query(`SELECT
+        COUNT(*) as total,
+        COUNT(*) FILTER (WHERE status = 'success') as success,
+        COUNT(*) FILTER (WHERE status = 'error') as failed,
+        MAX(started_at) as last_scan
+        FROM scan_logs`),
+      query(`SELECT COUNT(*) as total, COUNT(*) FILTER (WHERE is_active) as active FROM stores`),
+    ]);
+
+    res.json({
+      users: users.rows[0],
+      deals: deals.rows[0],
+      scans: scans.rows[0],
+      stores: stores.rows[0],
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /admin/scan-logs
+router.get('/scan-logs', async (req, res) => {
+  try {
+    const r = await query(`
+      SELECT sl.*, s.name as store_name, s.slug as store_slug
+      FROM scan_logs sl LEFT JOIN stores s ON sl.store_id = s.id
+      ORDER BY sl.started_at DESC LIMIT 50
+    `);
+    res.json({ logs: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /admin/users
+router.get('/users', async (req, res) => {
+  try {
+    const { limit = 50, offset = 0, search } = req.query;
+    let cond = '', params = [];
+    if (search) {
+      cond = `WHERE name ILIKE $1 OR email ILIKE $1`;
+      params.push(`%${search}%`);
+    }
+    const r = await query(`
+      SELECT id, email, name, plan, zip_code, is_admin, is_active,
+        stripe_customer_id, created_at, updated_at
+      FROM users ${cond}
+      ORDER BY created_at DESC
+      LIMIT ${parseInt(limit)} OFFSET ${parseInt(offset)}
+    `, params);
+    res.json({ users: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /admin/users/:id/plan
+router.put('/users/:id/plan', async (req, res) => {
+  const { plan } = req.body;
+  if (!['free', 'pro', 'elite'].includes(plan)) return res.status(400).json({ error: 'Invalid plan' });
+  try {
+    await query(`UPDATE users SET plan = $1, updated_at = NOW() WHERE id = $2`, [plan, req.params.id]);
+    res.json({ updated: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /admin/scan — trigger manual scan
+router.post('/scan', async (req, res) => {
+  const { store } = req.body;
+  res.json({ message: `Scan triggered for ${store || 'all stores'}`, queued: true });
+
+  // Fire and forget
+  setImmediate(async () => {
+    try {
+      if (store === 'walmart' || !store || store === 'all') {
+        const { scanWalmartDeals } = require('../services/walmartScraper');
+        await scanWalmartDeals();
+      }
+      if (store === 'home-depot' || !store || store === 'all') {
+        const { scanHomeDepotDeals } = require('../services/homeDepotScraper');
+        await scanHomeDepotDeals();
+      }
+    } catch (err) {
+      console.error('Manual scan error:', err.message);
+    }
+  });
+});
+
+// DELETE /admin/deals/expired
+router.delete('/deals/expired', async (req, res) => {
+  try {
+    const r = await query(`
+      UPDATE deals SET is_active = false
+      WHERE is_active = true AND (
+        expires_at < NOW() OR last_seen_at < NOW() - INTERVAL '48 hours'
+      )
+      RETURNING id
+    `);
+    res.json({ message: `Deactivated ${r.rowCount} expired deals`, count: r.rowCount });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /admin/stores/:slug/toggle
+router.put('/stores/:slug/toggle', async (req, res) => {
+  try {
+    const r = await query(`
+      UPDATE stores SET is_active = NOT is_active WHERE slug = $1 RETURNING is_active, name
+    `, [req.params.slug]);
+    if (!r.rows.length) return res.status(404).json({ error: 'Store not found' });
+    res.json(r.rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Submitted Deals Admin ─────────────────────────────────────────────────────
+
+// GET /admin/submitted-deals
+router.get('/submitted-deals', async (req, res) => {
+  try {
+    const { status = 'pending', limit = 50, offset = 0 } = req.query;
+    const r = await query(
+      `SELECT sd.*,
+              s.name AS store_name, s.slug AS store_slug, s.color AS store_color,
+              u.name AS submitter_name, u.email AS submitter_email,
+              cp.display_name, cp.level, cp.points AS collab_points,
+              cp.approved_deals_count, cp.rejected_deals_count, cp.reputation_score
+       FROM submitted_deals sd
+       LEFT JOIN stores s ON sd.store_id = s.id
+       LEFT JOIN users u ON sd.user_id = u.id
+       LEFT JOIN collaborator_profiles cp ON sd.collaborator_id = cp.id
+       WHERE ($1::text = 'all' OR sd.status = $1)
+       ORDER BY sd.created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [status, parseInt(limit), parseInt(offset)]
+    );
+    const counts = await query(
+      `SELECT status, COUNT(*) FROM submitted_deals GROUP BY status`
+    );
+    const countMap = {};
+    counts.rows.forEach(row => { countMap[row.status] = parseInt(row.count); });
+    res.json({ submissions: r.rows, counts: countMap });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /admin/submitted-deals/:id/approve
+router.post('/submitted-deals/:id/approve', async (req, res) => {
+  try {
+    const { admin_notes } = req.body;
+    const submRes = await query(
+      'SELECT * FROM submitted_deals WHERE id = $1',
+      [req.params.id]
+    );
+    if (!submRes.rows[0]) return res.status(404).json({ error: 'Submission not found' });
+    const sub = submRes.rows[0];
+
+    if (sub.status === 'approved') return res.status(409).json({ error: 'Already approved' });
+
+    // Get store
+    const storeRes = await query('SELECT * FROM stores WHERE id = $1', [sub.store_id]);
+    if (!storeRes.rows[0]) return res.status(400).json({ error: 'Store not found' });
+    const store = storeRes.rows[0];
+
+    // Get or create category
+    let catId = null;
+    const catRes = await query("SELECT id FROM categories WHERE slug = 'other' LIMIT 1");
+    if (catRes.rows[0]) catId = catRes.rows[0].id;
+
+    // Upsert product
+    let productId;
+    const existingProduct = await query(
+      `SELECT id FROM products WHERE store_id = $1 AND (
+         ($2::text IS NOT NULL AND upc = $2) OR
+         ($3::text IS NOT NULL AND sku = $3) OR
+         name ILIKE $4
+       ) LIMIT 1`,
+      [store.id, sub.upc || null, sub.sku || null, sub.product_name || '']
+    );
+
+    if (existingProduct.rows[0]) {
+      productId = existingProduct.rows[0].id;
+      await query(
+        `UPDATE products SET
+           name = COALESCE($1, name), brand = COALESCE($2, brand),
+           image_url = COALESCE($3, image_url), updated_at = NOW()
+         WHERE id = $4`,
+        [sub.product_name, sub.brand, sub.image_url, productId]
+      );
+    } else {
+      const newProduct = await query(
+        `INSERT INTO products (store_id, category_id, name, brand, sku, upc, image_url, product_url)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        [
+          store.id, catId, sub.product_name || 'Submitted Deal',
+          sub.brand, sub.sku, sub.upc, sub.image_url, sub.product_url,
+        ]
+      );
+      productId = newProduct.rows[0].id;
+    }
+
+    // Record price
+    await query(
+      `INSERT INTO prices (product_id, regular_price, current_price, source)
+       VALUES ($1, $2, $3, 'collaborator')`,
+      [productId, sub.regular_price || sub.found_price, sub.found_price]
+    );
+
+    // Calculate discount and profit
+    const discountPct = sub.regular_price
+      ? Math.round(((sub.regular_price - sub.found_price) / sub.regular_price) * 100)
+      : 0;
+    const savings = sub.regular_price ? sub.regular_price - sub.found_price : 0;
+
+    // Upsert deal
+    let dealId;
+    const existingDeal = await query(
+      'SELECT id FROM deals WHERE product_id = $1 AND store_id = $2 LIMIT 1',
+      [productId, store.id]
+    );
+    if (existingDeal.rows[0]) {
+      dealId = existingDeal.rows[0].id;
+      await query(
+        `UPDATE deals SET
+           deal_price = $1, regular_price = $2, discount_percent = $3,
+           is_active = true, data_source = 'live', last_seen_at = NOW()
+         WHERE id = $4`,
+        [sub.found_price, sub.regular_price || sub.found_price, discountPct, dealId]
+      );
+    } else {
+      const newDeal = await query(
+        `INSERT INTO deals
+           (product_id, store_id, deal_price, regular_price, discount_percent,
+            is_active, data_source, opportunity_score, opportunity_label)
+         VALUES ($1, $2, $3, $4, $5, true, 'live', $6, $7) RETURNING id`,
+        [
+          productId, store.id, sub.found_price,
+          sub.regular_price || sub.found_price, discountPct,
+          Math.min(100, discountPct + 10),
+          discountPct >= 70 ? '🔥 Excelente' : discountPct >= 50 ? '⭐ Bueno' : 'Regular',
+        ]
+      );
+      dealId = newDeal.rows[0].id;
+    }
+
+    // Mark submission approved
+    await query(
+      `UPDATE submitted_deals SET
+         status = 'approved', approved_by = $1, approved_at = NOW(),
+         admin_notes = $2, created_deal_id = $3, updated_at = NOW()
+       WHERE id = $4`,
+      [req.user.id, admin_notes || null, dealId, sub.id]
+    );
+
+    // Update feed post status — make it active so it shows in the public feed
+    await query(
+      `UPDATE deal_posts SET status = 'active', deal_id = $1, updated_at = NOW()
+       WHERE submitted_deal_id = $2`,
+      [dealId, sub.id]
+    );
+
+    // Award points to collaborator
+    if (sub.collaborator_id) {
+      const { getLevel } = require('./collaborators');
+      const pointsToAdd = [];
+      pointsToAdd.push({ action: 'approved', pts: 10, desc: 'Deal approved by admin' });
+      if (sub.image_url || sub.shelf_image_url || sub.price_tag_image_url) {
+        pointsToAdd.push({ action: 'photo_approved', pts: 5, desc: 'Photo evidence rewarded' });
+      }
+      if (sub.receipt_image_url) {
+        pointsToAdd.push({ action: 'receipt_approved', pts: 10, desc: 'Receipt evidence rewarded' });
+      }
+      if (discountPct >= 50) {
+        pointsToAdd.push({ action: 'high_discount', pts: 10, desc: '50%+ discount deal' });
+      }
+      if (sub.estimated_profit >= 30) {
+        pointsToAdd.push({ action: 'high_profit', pts: 10, desc: '$30+ profit potential' });
+      }
+
+      let totalPoints = 0;
+      for (const p of pointsToAdd) {
+        await query(
+          `INSERT INTO collaborator_points_log (collaborator_id, submitted_deal_id, action, points, description)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [sub.collaborator_id, sub.id, p.action, p.pts, p.desc]
+        );
+        totalPoints += p.pts;
+      }
+
+      const updRes = await query(
+        `UPDATE collaborator_profiles SET
+           points = points + $1,
+           approved_deals_count = approved_deals_count + 1,
+           pending_deals_count = GREATEST(0, pending_deals_count - 1),
+           updated_at = NOW()
+         WHERE id = $2 RETURNING points`,
+        [totalPoints, sub.collaborator_id]
+      );
+      const newPoints = updRes.rows[0]?.points || 0;
+      const newLevel = getLevel(newPoints);
+      await query(
+        `UPDATE collaborator_profiles SET level = $1 WHERE id = $2`,
+        [newLevel, sub.collaborator_id]
+      );
+
+      // Update team points if member of a team
+      const cpTeam = await query('SELECT team_id FROM collaborator_profiles WHERE id = $1', [sub.collaborator_id]);
+      if (cpTeam.rows[0]?.team_id) {
+        await query(
+          `UPDATE teams SET points = points + $1, approved_deals_count = approved_deals_count + 1
+           WHERE id = $2`,
+          [totalPoints, cpTeam.rows[0].team_id]
+        );
+      }
+    }
+
+    res.json({ message: 'Deal approved and created', deal_id: dealId, product_id: productId });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /admin/submitted-deals/:id/reject
+router.post('/submitted-deals/:id/reject', async (req, res) => {
+  try {
+    const { rejection_reason, admin_notes } = req.body;
+    if (!rejection_reason?.trim()) return res.status(400).json({ error: 'rejection_reason required' });
+
+    const submRes = await query(
+      'SELECT * FROM submitted_deals WHERE id = $1',
+      [req.params.id]
+    );
+    if (!submRes.rows[0]) return res.status(404).json({ error: 'Submission not found' });
+    const sub = submRes.rows[0];
+
+    await query(
+      `UPDATE submitted_deals SET
+         status = 'rejected', rejection_reason = $1, admin_notes = $2,
+         approved_by = $3, approved_at = NOW(), updated_at = NOW()
+       WHERE id = $4`,
+      [rejection_reason.trim(), admin_notes || null, req.user.id, sub.id]
+    );
+
+    // Update feed post
+    await query(
+      `UPDATE deal_posts SET status = 'rejected', updated_at = NOW()
+       WHERE submitted_deal_id = $1`,
+      [sub.id]
+    );
+
+    // Update collaborator counts (no points)
+    if (sub.collaborator_id) {
+      await query(
+        `UPDATE collaborator_profiles SET
+           rejected_deals_count = rejected_deals_count + 1,
+           pending_deals_count = GREATEST(0, pending_deals_count - 1),
+           updated_at = NOW()
+         WHERE id = $1`,
+        [sub.collaborator_id]
+      );
+
+      await query(
+        `INSERT INTO collaborator_points_log (collaborator_id, submitted_deal_id, action, points, description)
+         VALUES ($1, $2, 'rejected', 0, $3)`,
+        [sub.collaborator_id, sub.id, `Rejected: ${rejection_reason}`]
+      );
+    }
+
+    res.json({ message: 'Submission rejected' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+module.exports = router;

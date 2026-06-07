@@ -108,14 +108,14 @@ router.get('/stats/trends', async (req, res) => {
   try {
     const result = await query(`
       SELECT
-        TO_CHAR(day::date, 'Dy') AS day,
-        COALESCE(deal_count, 0)  AS deals,
-        COALESCE(profit_sum, 0)  AS profit
+        TO_CHAR(series_day::date, 'Dy') AS day,
+        COALESCE(deal_count, 0)          AS deals,
+        COALESCE(profit_sum, 0)          AS profit
       FROM generate_series(
         (NOW() - INTERVAL '6 days')::date,
         NOW()::date,
         '1 day'::interval
-      ) AS day
+      ) AS series_day
       LEFT JOIN (
         SELECT
           detected_at::date AS d,
@@ -125,13 +125,40 @@ router.get('/stats/trends', async (req, res) => {
         WHERE is_active = true
           AND detected_at >= NOW() - INTERVAL '7 days'
         GROUP BY detected_at::date
-      ) sub ON sub.d = day::date
-      ORDER BY day ASC
+      ) sub ON sub.d = series_day::date
+      ORDER BY series_day::date ASC
     `);
     res.json({ trends: result.rows });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch trends' });
+  }
+});
+
+// GET /deals/live — active deals alias (for external validation / scrapers)
+router.get('/live', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 20;
+    const r = await query(`
+      SELECT
+        d.id, d.regular_price, d.deal_price, d.discount_percent,
+        d.estimated_profit, d.roi_percent, d.opportunity_score, d.opportunity_label,
+        d.stock_quantity, d.is_error_price, d.detected_at, d.last_seen_at,
+        p.name, p.brand, p.image_url,
+        s.name as store_name, s.slug as store_slug, s.color as store_color,
+        c.name as category_name
+      FROM deals d
+      JOIN products p ON d.product_id = p.id
+      JOIN stores s ON d.store_id = s.id
+      LEFT JOIN categories c ON p.category_id = c.id
+      WHERE d.is_active = true
+      ORDER BY d.opportunity_score DESC NULLS LAST, d.discount_percent DESC
+      LIMIT $1
+    `, [limit]);
+    res.json({ deals: r.rows, total: r.rowCount });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch live deals' });
   }
 });
 

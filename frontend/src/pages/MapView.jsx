@@ -176,16 +176,15 @@ export default function MapView() {
           fetchNearby(lat, lng);
         },
         () => {
-          // Permission denied — fall back to DB store_locations without user pin
-          api.get('/stores/map').then(r2 => {
-            if (r2.data?.locations?.length) setLocations(r2.data.locations);
-          }).catch(() => {}).finally(() => setLoadingMap(false));
+          // Permission denied — show empty state; don't display unrelated city stores
+          setLocations([]);
+          setLoadingMap(false);
         }
       );
     } else {
-      api.get('/stores/map').then(r2 => {
-        if (r2.data?.locations?.length) setLocations(r2.data.locations);
-      }).catch(() => {}).finally(() => setLoadingMap(false));
+      // Geolocation not supported — empty state
+      setLocations([]);
+      setLoadingMap(false);
     }
   }, []);
 
@@ -275,7 +274,15 @@ export default function MapView() {
 
         {/* Store list */}
         <div className="flex-1 overflow-y-auto p-2 space-y-1.5">
-          <p className="text-gray-400 text-xs px-2 py-1">{filtered.length} stores with deals</p>
+          <p className="text-gray-400 text-xs px-2 py-1">
+            {filtered.length > 0 ? `${filtered.length} stores with deals` : 'Enable location to see nearby stores'}
+          </p>
+          {filtered.length === 0 && !loadingMap && (
+            <div className="p-4 text-center">
+              <p className="text-3xl mb-2">📍</p>
+              <p className="text-gray-400 text-xs">Click "Me" to enable location and find stores near you with live deals.</p>
+            </div>
+          )}
           {filtered.map(loc => {
             const sc = scoreColor(loc.top_score);
             const stC = storeColor[loc.store_slug] || '#6b7280';
@@ -339,6 +346,15 @@ export default function MapView() {
           <div className="absolute inset-0 flex flex-col items-center justify-center z-20 bg-dark-900/80 gap-3">
             <div className="w-8 h-8 border-2 border-neon-green border-t-transparent rounded-full animate-spin" />
             <p className="text-gray-400 text-sm">Locating nearby stores…</p>
+          </div>
+        )}
+        {!loadingMap && filtered.length === 0 && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-10 pointer-events-none gap-3">
+            <div className="glass rounded-2xl px-6 py-5 text-center border border-dark-600 pointer-events-auto">
+              <p className="text-3xl mb-2">📍</p>
+              <p className="text-white font-semibold text-sm">No nearby stores with live deals yet</p>
+              <p className="text-gray-400 text-xs mt-1">Enable location permissions and click "Me" to find stores near you.</p>
+            </div>
           </div>
         )}
 

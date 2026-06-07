@@ -268,7 +268,7 @@ router.post('/submitted-deals/:id/approve', async (req, res) => {
           productId, store.id, sub.found_price,
           sub.regular_price || sub.found_price, discountPct,
           Math.min(100, discountPct + 10),
-          discountPct >= 70 ? '🔥 Excelente' : discountPct >= 50 ? '⭐ Bueno' : 'Regular',
+          discountPct >= 70 ? '🔥 Excellent' : discountPct >= 50 ? '✅ Good Deal' : '📦 Average',
         ]
       );
       dealId = newDeal.rows[0].id;
@@ -400,6 +400,40 @@ router.post('/submitted-deals/:id/reject', async (req, res) => {
 
     res.json({ message: 'Submission rejected' });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /admin/db-cleanup — remove seed/demo data and normalize labels
+router.post('/db-cleanup', async (req, res) => {
+  try {
+    const SEED_TS = '2026-06-07T16:32:01';
+    const deleted = await query(
+      `DELETE FROM deals WHERE detected_at::text LIKE $1 RETURNING id`,
+      [`${SEED_TS}%`]
+    );
+
+    // Normalize ALL active deal labels to English based on score
+    const updated = await query(`
+      UPDATE deals SET
+        opportunity_label = CASE
+          WHEN opportunity_score >= 91 THEN '🔥 Excellent'
+          WHEN opportunity_score >= 81 THEN '💎 Excellent Deal'
+          WHEN opportunity_score >= 71 THEN '✅ Good Deal'
+          WHEN opportunity_score >= 41 THEN '📦 Average'
+          ELSE '⬇️ Skip'
+        END
+      WHERE is_active = true
+      RETURNING id
+    `);
+
+    res.json({
+      message: 'Cleanup complete',
+      deals_deleted: deleted.rowCount,
+      labels_normalized: updated.rowCount,
+    });
+  } catch (err) {
+    console.error(err);
     res.status(500).json({ error: err.message });
   }
 });

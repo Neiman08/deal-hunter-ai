@@ -407,10 +407,12 @@ router.post('/submitted-deals/:id/reject', async (req, res) => {
 // POST /admin/db-cleanup — remove seed/demo data and normalize labels
 router.post('/db-cleanup', async (req, res) => {
   try {
-    const SEED_TS = '2026-06-07T16:32:01';
+    // Seed deals all have the same detected_at second — delete by exact second window
     const deleted = await query(
-      `DELETE FROM deals WHERE detected_at::text LIKE $1 RETURNING id`,
-      [`${SEED_TS}%`]
+      `DELETE FROM deals
+       WHERE detected_at >= '2026-06-07 16:32:00'::timestamptz
+         AND detected_at <  '2026-06-07 16:32:03'::timestamptz
+       RETURNING id`
     );
 
     // Normalize ALL active deal labels to English based on score

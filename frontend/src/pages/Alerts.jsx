@@ -27,7 +27,7 @@ const DEMO_ALERTS = [
   },
   {
     id: '2',
-    name: 'Electrónicos Apple',
+    name: 'Apple Electronics',
     product_keyword: 'iPad',
     store_name: 'Walmart',
     min_discount_percent: 30,
@@ -165,10 +165,10 @@ export default function Alerts() {
 
           <div>
             <p className="text-sm font-semibold text-orange-400">
-              Plan Free: máximo 3 alertas
+              Free Plan: max 3 alerts
             </p>
             <p className="text-xs text-slate-300 mt-0.5">
-              Actualiza a Pro para alertas ilimitadas y WhatsApp
+              Upgrade to Pro for unlimited alerts and WhatsApp
             </p>
           </div>
 
@@ -244,7 +244,7 @@ export default function Alerts() {
 
               <div>
                 <label className="text-xs text-slate-300 mb-1.5 block">
-                  Descuento mínimo: {form.min_discount_percent}%
+                  Minimum discount: {form.min_discount_percent}%
                 </label>
 
                 <input
@@ -265,7 +265,7 @@ export default function Alerts() {
 
               <div>
                 <label className="text-xs text-slate-300 mb-1.5 block">
-                  Ganancia mínima: ${form.min_profit}
+                  Minimum profit: ${form.min_profit}
                 </label>
 
                 <input
@@ -310,7 +310,7 @@ export default function Alerts() {
 
               <div>
                 <label className="text-xs text-slate-300 mb-1.5 block">
-                  Distancia máxima: {form.max_distance_miles} millas
+                  Max distance: {form.max_distance_miles} miles
                 </label>
 
                 <input

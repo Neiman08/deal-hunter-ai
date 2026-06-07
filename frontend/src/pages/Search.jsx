@@ -30,10 +30,10 @@ export default function Search() {
       }
     } catch (err) {
       if (err.response?.status === 404) {
-        setError('No se encontraron productos con ese criterio');
+        setError('No products found for that search term.');
         setResults([]);
       } else {
-        setError('Error en la búsqueda. Verifica tu conexión.');
+        setError('Search error. Please check your connection.');
       }
     } finally {
       setLoading(false);
@@ -44,15 +44,15 @@ export default function Search() {
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-black mb-1">Buscar Ofertas</h1>
-        <p style={{ color: '#CBD5E1' }} className="text-sm">Busca por nombre, SKU, UPC o categoría</p>
+        <h1 className="text-2xl font-black mb-1">Search Deals</h1>
+        <p style={{ color: '#CBD5E1' }} className="text-sm">Search by name, SKU, UPC or category</p>
       </div>
 
       {/* Search modes */}
       <div className="flex gap-2">
         {[
-          { id: 'keyword', label: '🔍 Por nombre' },
-          { id: 'upc', label: '📦 Por UPC/SKU' },
+          { id: 'keyword', label: '🔍 By name' },
+          { id: 'upc', label: '📦 By UPC/SKU' },
         ].map(mode => (
           <button
             key={mode.id}
@@ -82,8 +82,8 @@ export default function Search() {
             onChange={e => searchMode === 'upc' ? setUpc(e.target.value) : setQuery(e.target.value)}
             placeholder={
               searchMode === 'upc'
-                ? 'Ingresa código UPC o SKU (ej: 047871190219)'
-                : 'Buscar producto (ej: DeWalt drill, iPad, 65 TV...)'
+                ? 'Enter UPC or SKU (e.g. 047871190219)'
+                : 'Search product (e.g. DeWalt drill, iPad, 65" TV...)'
             }
             className="w-full bg-dark-600 border border-dark-300 rounded-2xl pl-12 pr-32 py-4 text-white focus:outline-none focus:border-neon-green/50 text-lg transition-all"
           />
@@ -101,7 +101,7 @@ export default function Search() {
             disabled={loading}
             className="absolute right-3 top-1/2 -translate-y-1/2 btn-primary py-2 px-5 text-sm"
           >
-            {loading ? <Loader size={16} className="animate-spin" /> : 'Buscar'}
+            {loading ? <Loader size={16} className="animate-spin" /> : 'Search'}
           </button>
         </div>
       </form>
@@ -109,7 +109,7 @@ export default function Search() {
       {/* Quick searches */}
       {!results && (
         <div>
-          <p className="text-xs mb-3 font-mono uppercase tracking-wider" style={{ color: '#94A3B8' }}>Búsquedas populares</p>
+          <p className="text-xs mb-3 font-mono uppercase tracking-wider" style={{ color: '#94A3B8' }}>Popular searches</p>
           <div className="flex flex-wrap gap-2">
             {['DeWalt', 'iPhone', 'iPad', 'Samsung TV', 'PlayStation', 'Milwaukee', 'Dyson', 'Roomba'].map(term => (
               <button
@@ -136,7 +136,7 @@ export default function Search() {
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-bold">
-              {results.length} resultado{results.length !== 1 ? 's' : ''}
+              {results.length} result{results.length !== 1 ? 's' : ''}
             </h2>
           </div>
 
@@ -149,9 +149,9 @@ export default function Search() {
           ) : (
             <div className="text-center py-16">
               <p className="text-4xl mb-4">🔍</p>
-              <p className="font-semibold" style={{ color: '#CBD5E1' }}>Sin resultados</p>
+              <p className="font-semibold" style={{ color: '#CBD5E1' }}>No results</p>
               <p className="text-sm mt-1" style={{ color: '#94A3B8' }}>
-                Intenta con otro término o revisa el UPC
+                Try a different term or check the UPC
               </p>
             </div>
           )}

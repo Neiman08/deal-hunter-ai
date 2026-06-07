@@ -66,7 +66,7 @@ function LeafletMap({ locations, selected, onSelect, userPos, radius }) {
 
         L.default.circleMarker([userPos.lat, userPos.lng], {
           radius: 8, color: '#00d4ff', fillColor: '#00d4ff', fillOpacity: 1, weight: 2,
-        }).addTo(leafletMap.current).bindPopup('<b style="color:#000">📍 Tu ubicación</b>');
+        }).addTo(leafletMap.current).bindPopup('<b style="color:#000">📍 Your location</b>');
       }
 
       // Store markers

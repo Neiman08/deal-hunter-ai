@@ -131,7 +131,7 @@ export default function Scanner() {
         style={{ borderColor: '#4ADE80', background: 'rgba(74,222,128,0.05)', color: '#4ADE80' }}
       >
         <Camera size={20} />
-        <span className="font-semibold text-sm">Escanear con cámara</span>
+        <span className="font-semibold text-sm">Scan with camera</span>
       </button>
 
       {/* Manual input */}
@@ -148,7 +148,7 @@ export default function Scanner() {
           />
         </div>
         <button onClick={() => lookup()} disabled={loading} className="btn-primary flex items-center gap-2 px-5 disabled:opacity-50">
-          <Search size={16} /> {loading ? 'Buscando...' : 'Buscar'}
+          <Search size={16} /> {loading ? 'Searching...' : 'Search'}
         </button>
       </div>
 
@@ -166,8 +166,8 @@ export default function Scanner() {
         <div className="card flex items-center gap-3 py-4">
           <AlertTriangle size={20} className="text-yellow-400 flex-shrink-0" />
           <div>
-            <p className="text-white font-semibold text-sm">Producto no encontrado</p>
-            <p style={{ color: '#94A3B8' }} className="text-xs mt-0.5">No hay deals activos para este código: <span className="font-mono text-neon-blue">{query}</span></p>
+            <p className="text-white font-semibold text-sm">Product not found</p>
+            <p style={{ color: '#94A3B8' }} className="text-xs mt-0.5">No active deals found for: <span className="font-mono text-neon-blue">{query}</span></p>
           </div>
         </div>
       )}

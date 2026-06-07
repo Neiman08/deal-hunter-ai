@@ -23,11 +23,11 @@ const DISCOUNTS = [
 ];
 
 const SORTS = [
-  { value: 'score', label: 'Mejor score' },
-  { value: 'discount', label: 'Mayor descuento' },
-  { value: 'savings', label: 'Mayor ahorro' },
-  { value: 'profit', label: 'Mayor ganancia' },
-  { value: 'newest', label: 'Más recientes' },
+  { value: 'score', label: 'Best score' },
+  { value: 'discount', label: 'Biggest discount' },
+  { value: 'savings', label: 'Most savings' },
+  { value: 'profit', label: 'Most profit' },
+  { value: 'newest', label: 'Newest' },
 ];
 
 export default function FilterBar({ filters, onChange }) {

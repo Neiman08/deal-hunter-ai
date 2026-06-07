@@ -335,7 +335,7 @@ router.get('/teams/:id', async (req, res) => {
     const teamRes = await query(
       `SELECT t.*, u.name AS owner_name FROM teams t
        LEFT JOIN users u ON t.owner_user_id = u.id
-       WHERE t.id = $1 OR t.slug = $1`,
+       WHERE t.slug = $1 OR t.id::text = $1`,
       [req.params.id]
     );
     if (!teamRes.rows[0]) return res.status(404).json({ error: 'Team not found' });
@@ -363,7 +363,7 @@ router.get('/teams/:id', async (req, res) => {
 router.post('/teams/:id/join', async (req, res) => {
   try {
     const teamRes = await query(
-      'SELECT id FROM teams WHERE (id = $1 OR slug = $1) AND is_active = true',
+      'SELECT id FROM teams WHERE (slug = $1 OR id::text = $1) AND is_active = true',
       [req.params.id]
     );
     if (!teamRes.rows[0]) return res.status(404).json({ error: 'Team not found' });

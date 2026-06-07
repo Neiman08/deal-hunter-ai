@@ -1,60 +1,30 @@
 /**
- * PRO HUNTER MODE — Top 100 National Opportunities
- * Full-screen immersive deal hunting experience.
- * Sortable by ROI, Profit, Score, Discount.
- * Real-time auto-refresh every 60 seconds.
+ * PRO HUNTER MODE — Top 100 Live Opportunities
+ * Full-screen immersive deal hunting. Real data only.
  */
 import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Crosshair, RefreshCw, TrendingUp, DollarSign,
-  Star, ArrowUpDown, Filter, Zap, Clock, AlertTriangle,
-  ChevronUp, ChevronDown, Package
+  Star, Zap, Clock, AlertTriangle,
+  ChevronUp, ChevronDown, Filter
 } from 'lucide-react';
 import api from '../utils/api';
 
-const DEMO_TOP100 = Array.from({ length: 24 }, (_, i) => ({
-  rank: i + 1,
-  id: String(i + 1),
-  name: [
-    'DeWalt 20V Max Drill Kit', 'Milwaukee M18 FUEL Combo', 'Dyson V11 Cordless Vacuum',
-    'LG 65" OLED TV C3', 'KitchenAid 5Qt Stand Mixer', 'Makita 18V Circular Saw',
-    'iRobot Roomba i3+ Self-Empty', 'Apple AirPods Pro 2nd Gen', 'Sony WH-1000XM5',
-    'DeWalt 60V FlexVolt Chainsaw', 'Milwaukee M18 Sawzall', 'Dyson Airwrap Complete',
-    'Samsung 75" QLED TV', 'Ninja Professional Blender', 'Ryobi 18V Drill Driver',
-    'Cuisinart 14-Cup Food Processor', 'Black+Decker 20V Trimmer', 'Dewalt Tool Chest',
-    'Milwaukee Work Light', 'Bosch 12V Drill Kit', 'Makita Air Compressor',
-    'Rigid 18V Oscillating Tool', 'Porter-Cable Jig Saw', 'Skil 20V Reciprocating Saw',
-  ][i],
-  brand: ['DeWalt','Milwaukee','Dyson','LG','KitchenAid','Makita','iRobot','Apple','Sony','DeWalt','Milwaukee','Dyson','Samsung','Ninja','Ryobi','Cuisinart','B+D','DeWalt','Milwaukee','Bosch','Makita','Rigid','Porter-Cable','Skil'][i],
-  store_name: ['Home Depot','Home Depot','Walmart','Best Buy','Target','Home Depot','Walmart','Target','Best Buy','Home Depot','Home Depot','Target','Best Buy','Walmart','Home Depot','Target','Walmart','Home Depot','Home Depot','Home Depot','Home Depot','Home Depot','Home Depot','Walmart'][i],
-  store_slug: ['home-depot','home-depot','walmart','best-buy','target','home-depot','walmart','target','best-buy','home-depot','home-depot','target','best-buy','walmart','home-depot','target','walmart','home-depot','home-depot','home-depot','home-depot','home-depot','home-depot','walmart'][i],
-  store_color: ['#F96302','#F96302','#0071CE','#003087','#CC0000','#F96302','#0071CE','#CC0000','#003087','#F96302','#F96302','#CC0000','#003087','#0071CE','#F96302','#CC0000','#0071CE','#F96302','#F96302','#F96302','#F96302','#F96302','#F96302','#0071CE'][i],
-  regular_price: [199,349,599,1299,449,189,499,249,399,429,229,599,1799,99,129,179,89,599,179,169,399,129,89,129][i],
-  deal_price: [49,119,149,499,179,79,149,149,129,89,59,149,449,29,39,49,19,149,39,49,99,29,19,29][i],
-  discount_percent: [75,66,75,62,60,58,70,40,68,79,74,75,75,71,70,73,79,75,78,71,75,78,79,78][i],
-  estimated_profit: [81,174,248,487,148,62,168,34,142,224,118,248,847,34,52,91,34,291,98,74,168,62,38,62][i],
-  roi_percent: [165,146,166,97,82,78,113,23,110,252,200,166,189,117,133,186,179,195,251,151,170,214,200,214][i],
-  opportunity_score: [98,93,96,88,84,79,91,72,87,97,95,94,92,85,83,88,90,96,95,86,91,93,92,91][i],
-  opportunity_label: ['🔥 Excelente','🔥 Excelente','🔥 Excelente','💎 Muy Buena','💎 Muy Buena','💎 Muy Buena','🔥 Excelente','✅ Regular','💎 Muy Buena','🔥 Excelente','🔥 Excelente','🔥 Excelente','🔥 Excelente','💎 Muy Buena','💎 Muy Buena','💎 Muy Buena','🔥 Excelente','🔥 Excelente','🔥 Excelente','💎 Muy Buena','🔥 Excelente','🔥 Excelente','🔥 Excelente','🔥 Excelente'][i],
-  is_error_price: [true,false,true,false,false,false,false,false,false,true,true,true,true,false,false,false,true,true,true,false,false,true,true,true][i],
-  liquidation_type: ['CLEARANCE','MARKDOWN','CLEARANCE',null,null,'MARKDOWN','CLEARANCE',null,'MARKDOWN','CLEARANCE','CLEARANCE','CLEARANCE','CLEARANCE','MARKDOWN',null,'MARKDOWN','ROLLBACK','CLEARANCE','CLEARANCE','MARKDOWN','MARKDOWN','CLEARANCE','CLEARANCE','ROLLBACK'][i],
-  liquidation_badge: ['🔴 CLEARANCE','🟡 MARKDOWN','🔴 CLEARANCE',null,null,'🟡 MARKDOWN','🔴 CLEARANCE',null,'🟡 MARKDOWN','🔴 DEEP CLEARANCE','🔴 CLEARANCE','🔴 CLEARANCE','🔴 CLEARANCE','🟡 MARKDOWN',null,'🟡 MARKDOWN','🔵 ROLLBACK','🔴 CLEARANCE','🔴 CLEARANCE','🟡 MARKDOWN','🟡 MARKDOWN','🔴 CLEARANCE','🔴 CLEARANCE','🔵 ROLLBACK'][i],
-  stock_quantity: [3,2,1,4,6,8,2,12,5,1,2,1,2,15,9,7,22,3,2,11,4,2,3,8][i],
-  category_name: ['Power Tools','Power Tools','Appliances','Electronics','Kitchen','Power Tools','Appliances','Electronics','Electronics','Power Tools','Power Tools','Appliances','Electronics','Kitchen','Power Tools','Kitchen','Outdoor','Power Tools','Power Tools','Power Tools','Power Tools','Power Tools','Power Tools','Power Tools'][i],
-  state: 'TX',
-  city: ['Houston','Houston','Dallas','Austin','Houston','Dallas','San Antonio','Austin','Houston','Houston','Dallas','Austin','Houston','Dallas','San Antonio','Austin','Houston','Houston','Dallas','Austin','San Antonio','Houston','Dallas','Austin'][i],
-}));
-
 const SORT_OPTIONS = [
-  { key: 'opportunity_score', label: 'Score', icon: <Star size={13} /> },
-  { key: 'roi_percent', label: 'ROI %', icon: <TrendingUp size={13} /> },
-  { key: 'estimated_profit', label: 'Profit $', icon: <DollarSign size={13} /> },
-  { key: 'discount_percent', label: 'Discount %', icon: <Zap size={13} /> },
+  { key: 'opportunity_score', label: 'Score',      icon: <Star size={13} /> },
+  { key: 'roi_percent',       label: 'ROI %',      icon: <TrendingUp size={13} /> },
+  { key: 'estimated_profit',  label: 'Profit $',   icon: <DollarSign size={13} /> },
+  { key: 'discount_percent',  label: 'Discount %', icon: <Zap size={13} /> },
 ];
 
 function scoreColor(s) {
   return s >= 91 ? '#00ff88' : s >= 71 ? '#00d4ff' : s >= 41 ? '#fbbf24' : '#ef4444';
+}
+
+function fmt(v, prefix = '', suffix = '') {
+  if (v == null || isNaN(parseFloat(v))) return '—';
+  return `${prefix}${Math.round(parseFloat(v))}${suffix}`;
 }
 
 function RankBadge({ rank }) {
@@ -65,13 +35,13 @@ function RankBadge({ rank }) {
 }
 
 export default function ProHunter() {
-  const [deals, setDeals] = useState(DEMO_TOP100);
+  const [deals, setDeals] = useState([]);
   const [sort, setSort] = useState('opportunity_score');
   const [sortDir, setSortDir] = useState('desc');
   const [filters, setFilters] = useState({ store: '', category: '', min_roi: 0, only_clearance: false });
   const [showFilters, setShowFilters] = useState(false);
   const [countdown, setCountdown] = useState(60);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const timerRef = useRef(null);
 
   useEffect(() => {
@@ -95,11 +65,15 @@ export default function ProHunter() {
     setLoading(true);
     try {
       const r = await api.get('/deals', {
-        params: { sort, limit: 100, min_discount: 20, min_score: 60 }
+        params: { sort, limit: 100, min_discount: 20, min_score: 60 },
       });
-      if (r.data.deals?.length) setDeals(r.data.deals.map((d, i) => ({ ...d, rank: i + 1 })));
-    } catch { /* use demo */ }
-    setLoading(false);
+      const data = r.data.deals || [];
+      setDeals(data.map((d, i) => ({ ...d, rank: i + 1 })));
+    } catch (err) {
+      console.error('ProHunter fetch error:', err);
+    } finally {
+      setLoading(false);
+    }
   }
 
   function handleSort(key) {
@@ -111,18 +85,20 @@ export default function ProHunter() {
     .filter(d => {
       if (filters.store && d.store_slug !== filters.store) return false;
       if (filters.category && d.category_name !== filters.category) return false;
-      if (filters.min_roi && d.roi_percent < filters.min_roi) return false;
+      if (filters.min_roi && (d.roi_percent || 0) < filters.min_roi) return false;
       if (filters.only_clearance && !d.liquidation_type) return false;
       return true;
     })
     .sort((a, b) => {
       const mult = sortDir === 'desc' ? -1 : 1;
-      return mult * ((a[sort] || 0) - (b[sort] || 0));
+      return mult * ((parseFloat(a[sort]) || 0) - (parseFloat(b[sort]) || 0));
     })
     .map((d, i) => ({ ...d, rank: i + 1 }));
 
-  const totalProfit = sorted.reduce((s, d) => s + (d.estimated_profit || 0), 0);
-  const avgROI = sorted.length ? Math.round(sorted.reduce((s, d) => s + (d.roi_percent || 0), 0) / sorted.length) : 0;
+  const totalProfit = sorted.reduce((s, d) => s + (parseFloat(d.estimated_profit) || 0), 0);
+  const avgROI = sorted.length
+    ? Math.round(sorted.reduce((s, d) => s + (parseFloat(d.roi_percent) || 0), 0) / sorted.length)
+    : 0;
 
   return (
     <div className="flex flex-col h-screen bg-dark-900 overflow-hidden">
@@ -135,7 +111,7 @@ export default function ProHunter() {
             </div>
             <div>
               <h1 className="text-white font-black text-base leading-none">Pro Hunter</h1>
-              <p className="text-gray-400 text-xs">Top {sorted.length} national opportunities</p>
+              <p className="text-gray-400 text-xs">Top {sorted.length} live opportunities</p>
             </div>
           </div>
 
@@ -156,7 +132,6 @@ export default function ProHunter() {
           </div>
 
           <div className="ml-auto flex items-center gap-2">
-            {/* Countdown */}
             <div className="flex items-center gap-1.5 text-xs text-gray-400 bg-dark-900 px-3 py-1.5 rounded-xl border border-dark-700">
               <Clock size={12} className="text-neon-green" />
               <span>Refresh in <span className="text-white font-mono">{countdown}s</span></span>
@@ -182,6 +157,8 @@ export default function ProHunter() {
               <option value="home-depot">Home Depot</option>
               <option value="target">Target</option>
               <option value="best-buy">Best Buy</option>
+              <option value="macys">Macy's</option>
+              <option value="gamestop">GameStop</option>
             </select>
             <select value={filters.category} onChange={e => setFilters({ ...filters, category: e.target.value })}
               className="bg-dark-900 border border-dark-700 text-white text-xs rounded-xl px-3 py-1.5">
@@ -190,6 +167,7 @@ export default function ProHunter() {
               <option value="Electronics">Electronics</option>
               <option value="Appliances">Appliances</option>
               <option value="Kitchen">Kitchen</option>
+              <option value="Clothing">Clothing</option>
             </select>
             <div className="flex items-center gap-2">
               <label className="text-gray-400 text-xs">Min ROI: {filters.min_roi}%</label>
@@ -216,9 +194,7 @@ export default function ProHunter() {
                 sort === opt.key ? 'bg-neon-green/15 text-neon-green border border-neon-green/30' : 'text-gray-400 hover:text-white'
               }`}>
               {opt.icon} {opt.label}
-              {sort === opt.key && (
-                sortDir === 'desc' ? <ChevronDown size={11} /> : <ChevronUp size={11} />
-              )}
+              {sort === opt.key && (sortDir === 'desc' ? <ChevronDown size={11} /> : <ChevronUp size={11} />)}
             </button>
           ))}
         </div>
@@ -226,79 +202,103 @@ export default function ProHunter() {
 
       {/* ── Deal List ── */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto">
-          {sorted.map((deal) => {
-            const sc = scoreColor(deal.opportunity_score);
-            const stC = deal.store_color;
-            const savings = (deal.regular_price - deal.deal_price).toFixed(0);
+        {loading ? (
+          <div className="flex justify-center items-center h-48">
+            <div className="w-8 h-8 border-2 border-neon-green border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : sorted.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-48 gap-3">
+            <p className="text-3xl">🎯</p>
+            <p className="text-white font-semibold">No live opportunities yet</p>
+            <p className="text-gray-400 text-sm">Run the scanner to find deals. They'll appear here automatically.</p>
+          </div>
+        ) : (
+          <div className="max-w-7xl mx-auto">
+            {sorted.map((deal) => {
+              const sc = scoreColor(deal.opportunity_score);
+              const stC = deal.store_color || '#6b7280';
+              const savings = fmt((parseFloat(deal.regular_price || 0) - parseFloat(deal.deal_price || 0)));
 
-            return (
-              <Link key={deal.id} to={`/deal/${deal.id}`}
-                className="flex items-center gap-3 px-4 py-3 border-b border-dark-800 hover:bg-dark-800/60 transition-colors group">
-                {/* Rank */}
-                <RankBadge rank={deal.rank} />
+              return (
+                <Link key={deal.id} to={`/deal/${deal.id}`}
+                  className="flex items-center gap-3 px-4 py-3 border-b border-dark-800 hover:bg-dark-800/60 transition-colors group">
+                  <RankBadge rank={deal.rank} />
 
-                {/* Score ring */}
-                <div className="w-10 h-10 rounded-full border-2 flex-shrink-0 flex items-center justify-center"
-                  style={{ borderColor: sc }}>
-                  <span className="text-xs font-black" style={{ color: sc }}>{deal.opportunity_score}</span>
-                </div>
-
-                {/* Main info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                    <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full"
-                      style={{ background: `${stC}25`, color: stC }}>
-                      {deal.store_name}
+                  {/* Score ring */}
+                  <div className="w-10 h-10 rounded-full border-2 flex-shrink-0 flex items-center justify-center"
+                    style={{ borderColor: sc }}>
+                    <span className="text-xs font-black" style={{ color: sc }}>
+                      {deal.opportunity_score ?? '—'}
                     </span>
-                    {deal.liquidation_badge && (
-                      <span className="text-xs font-bold">{deal.liquidation_badge}</span>
-                    )}
-                    {deal.is_error_price && <span className="text-yellow-400 text-xs">⚠️ Err</span>}
                   </div>
-                  <p className="text-white text-sm font-semibold truncate group-hover:text-neon-green transition-colors">
-                    {deal.name}
-                  </p>
-                  <p className="text-gray-400 text-xs">{deal.brand} · {deal.category_name} · {deal.city}, {deal.state}</p>
-                </div>
 
-                {/* Price */}
-                <div className="flex-shrink-0 text-right hidden sm:block">
-                  <p className="text-white font-black text-base">${deal.deal_price}</p>
-                  <p className="text-gray-400 text-xs line-through">${deal.regular_price}</p>
-                </div>
-
-                {/* Discount */}
-                <div className="w-14 flex-shrink-0 text-center">
-                  <span className="text-red-400 font-black text-sm">-{Math.round(deal.discount_percent)}%</span>
-                  <p className="text-gray-400 text-xs">save ${savings}</p>
-                </div>
-
-                {/* Profit */}
-                <div className="w-20 flex-shrink-0 text-center hidden md:block">
-                  <p className="text-neon-green font-black text-sm">+${Math.round(deal.estimated_profit)}</p>
-                  <p className="text-gray-400 text-xs">profit</p>
-                </div>
-
-                {/* ROI */}
-                <div className="w-16 flex-shrink-0 text-center hidden lg:block">
-                  <p className="text-neon-blue font-black text-sm">{Math.round(deal.roi_percent)}%</p>
-                  <p className="text-gray-400 text-xs">ROI</p>
-                </div>
-
-                {/* Stock */}
-                <div className="w-14 flex-shrink-0 text-center hidden lg:block">
-                  {deal.stock_quantity !== null && (
-                    <p className={`text-xs font-semibold ${deal.stock_quantity <= 3 ? 'text-yellow-400' : 'text-gray-400'}`}>
-                      {deal.stock_quantity <= 3 ? `⚡ ${deal.stock_quantity}` : deal.stock_quantity}
+                  {/* Main info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                      <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full"
+                        style={{ background: `${stC}25`, color: stC }}>
+                        {deal.store_name}
+                      </span>
+                      {deal.liquidation_badge && (
+                        <span className="text-xs font-bold">{deal.liquidation_badge}</span>
+                      )}
+                      {deal.is_error_price && <span className="text-yellow-400 text-xs">⚠️ Err</span>}
+                      {deal.opportunity_label && (
+                        <span className="text-xs" style={{ color: sc }}>{deal.opportunity_label}</span>
+                      )}
+                    </div>
+                    <p className="text-white text-sm font-semibold truncate group-hover:text-neon-green transition-colors">
+                      {deal.name}
                     </p>
-                  )}
-                  <p className="text-gray-400 text-xs">units</p>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
+                    <p className="text-gray-400 text-xs">{deal.brand} · {deal.category_name}</p>
+                  </div>
+
+                  {/* Price */}
+                  <div className="flex-shrink-0 text-right hidden sm:block">
+                    <p className="text-white font-black text-base">${parseFloat(deal.deal_price || 0).toFixed(2)}</p>
+                    {deal.regular_price && (
+                      <p className="text-gray-400 text-xs line-through">${parseFloat(deal.regular_price).toFixed(2)}</p>
+                    )}
+                  </div>
+
+                  {/* Discount */}
+                  <div className="w-14 flex-shrink-0 text-center">
+                    <span className="text-red-400 font-black text-sm">
+                      {deal.discount_percent ? `-${Math.round(parseFloat(deal.discount_percent))}%` : '—'}
+                    </span>
+                    <p className="text-gray-400 text-xs">save ${savings}</p>
+                  </div>
+
+                  {/* Profit */}
+                  <div className="w-20 flex-shrink-0 text-center hidden md:block">
+                    <p className="text-neon-green font-black text-sm">
+                      {deal.estimated_profit ? `+$${Math.round(parseFloat(deal.estimated_profit))}` : '—'}
+                    </p>
+                    <p className="text-gray-400 text-xs">profit</p>
+                  </div>
+
+                  {/* ROI */}
+                  <div className="w-16 flex-shrink-0 text-center hidden lg:block">
+                    <p className="text-neon-blue font-black text-sm">
+                      {deal.roi_percent ? `${Math.round(parseFloat(deal.roi_percent))}%` : '—'}
+                    </p>
+                    <p className="text-gray-400 text-xs">ROI</p>
+                  </div>
+
+                  {/* Stock */}
+                  <div className="w-14 flex-shrink-0 text-center hidden lg:block">
+                    {deal.stock_quantity != null && (
+                      <p className={`text-xs font-semibold ${deal.stock_quantity <= 3 ? 'text-yellow-400' : 'text-gray-400'}`}>
+                        {deal.stock_quantity <= 3 ? `⚡ ${deal.stock_quantity}` : deal.stock_quantity}
+                      </p>
+                    )}
+                    <p className="text-gray-400 text-xs">units</p>
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

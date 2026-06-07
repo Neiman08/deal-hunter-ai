@@ -17,14 +17,6 @@ const storeColor = { walmart: '#0071CE', 'home-depot': '#F96302', target: '#CC00
 
 const CHICAGO_CENTER = { lat: 41.8781, lng: -87.6298 };
 
-const DEMO_LOCATIONS = [
-  { id: '1', store_name: 'Home Depot', store_slug: 'home-depot', address: '2665 N Halsted St', city: 'Chicago', state: 'IL', latitude: 41.9282, longitude: -87.6492, deal_count: 18, top_score: 98, top_profit: 81, top_discount: 75, top_deal: 'DeWalt Drill Kit — 75% off', distance_miles: 3.5 },
-  { id: '2', store_name: 'Best Buy', store_slug: 'best-buy', address: '1000 W North Ave', city: 'Chicago', state: 'IL', latitude: 41.9100, longitude: -87.6553, deal_count: 12, top_score: 91, top_profit: 48, top_discount: 60, top_deal: 'Samsung TV — 60% off', distance_miles: 2.1 },
-  { id: '3', store_name: 'Target', store_slug: 'target', address: '2656 N Elston Ave', city: 'Chicago', state: 'IL', latitude: 41.9254, longitude: -87.6790, deal_count: 9, top_score: 84, top_profit: 62, top_discount: 55, top_deal: 'KitchenAid Mixer — 55% off', distance_miles: 4.8 },
-  { id: '4', store_name: 'Walmart', store_slug: 'walmart', address: '4650 W North Ave', city: 'Chicago', state: 'IL', latitude: 41.9096, longitude: -87.7401, deal_count: 7, top_score: 79, top_profit: 89, top_discount: 62, top_deal: 'Dyson V8 — 62% off', distance_miles: 6.2 },
-  { id: '5', store_name: 'Home Depot', store_slug: 'home-depot', address: '2111 S Wentworth Ave', city: 'Chicago', state: 'IL', latitude: 41.8555, longitude: -87.6324, deal_count: 5, top_score: 72, top_profit: 38, top_discount: 45, top_deal: 'Makita Saw — 45% off', distance_miles: 1.7 },
-];
-
 // ── Leaflet fallback map (no Mapbox token needed) ─────────────────────────────
 function LeafletMap({ locations, selected, onSelect, userPos, radius }) {
   const mapRef = useRef(null);
@@ -118,10 +110,11 @@ function LeafletMap({ locations, selected, onSelect, userPos, radius }) {
 
 // ── Main Map Page ─────────────────────────────────────────────────────────────
 export default function MapView() {
-  const [locations, setLocations] = useState(DEMO_LOCATIONS);
+  const [locations, setLocations] = useState([]);
   const [selected, setSelected] = useState(null);
-  const [userPos, setUserPos] = useState(CHICAGO_CENTER);
+  const [userPos, setUserPos] = useState(null);
   const [locating, setLocating] = useState(false);
+  const [loadingMap, setLoadingMap] = useState(true);
   const [showFilters, setShowFilters] = useState(false);
   const [zip, setZip] = useState('');
   const [filters, setFilters] = useState({
@@ -139,7 +132,6 @@ export default function MapView() {
       api.get(`/stores/nearby?lat=${lat}&lng=${lng}&radius=${Math.round(radiusMeters)}`)
         .then(r => {
           if (r.data?.stores?.length) {
-            // Map Google Places result to our location shape
             const mapped = r.data.stores.map((s, i) => ({
               id: s.place_id || String(i),
               store_name: s.name,
@@ -161,17 +153,18 @@ export default function MapView() {
               open_now: s.open_now,
             }));
             setLocations(mapped);
+            setLoadingMap(false);
           } else {
             // No Google Places key or no results — fall back to DB store_locations
             api.get('/stores/map').then(r2 => {
               if (r2.data?.locations?.length) setLocations(r2.data.locations);
-            }).catch(() => {});
+            }).catch(() => {}).finally(() => setLoadingMap(false));
           }
         })
         .catch(() => {
           api.get('/stores/map').then(r2 => {
             if (r2.data?.locations?.length) setLocations(r2.data.locations);
-          }).catch(() => {});
+          }).catch(() => {}).finally(() => setLoadingMap(false));
         });
     }
 
@@ -183,12 +176,16 @@ export default function MapView() {
           fetchNearby(lat, lng);
         },
         () => {
-          // Permission denied — fetch nearby with Chicago fallback
-          fetchNearby(CHICAGO_CENTER.lat, CHICAGO_CENTER.lng);
+          // Permission denied — fall back to DB store_locations without user pin
+          api.get('/stores/map').then(r2 => {
+            if (r2.data?.locations?.length) setLocations(r2.data.locations);
+          }).catch(() => {}).finally(() => setLoadingMap(false));
         }
       );
     } else {
-      fetchNearby(CHICAGO_CENTER.lat, CHICAGO_CENTER.lng);
+      api.get('/stores/map').then(r2 => {
+        if (r2.data?.locations?.length) setLocations(r2.data.locations);
+      }).catch(() => {}).finally(() => setLoadingMap(false));
     }
   }, []);
 
@@ -337,6 +334,13 @@ export default function MapView() {
           userPos={userPos}
           radius={filters.radius}
         />
+
+        {loadingMap && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center z-20 bg-dark-900/80 gap-3">
+            <div className="w-8 h-8 border-2 border-neon-green border-t-transparent rounded-full animate-spin" />
+            <p className="text-gray-400 text-sm">Locating nearby stores…</p>
+          </div>
+        )}
 
         {/* Mobile filter bar (top) */}
         <div className="lg:hidden absolute top-3 left-3 right-3 flex gap-2 z-10">

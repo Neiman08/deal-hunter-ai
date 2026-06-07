@@ -10,59 +10,17 @@ import StatCard from '../components/StatCard';
 import DealCard from '../components/DealCard';
 import FilterBar from '../components/FilterBar';
 
-const DEMO_STATS = {
-  total_deals: 312, new_today: 38, new_this_hour: 7, error_prices: 4,
-  total_potential_profit: 14832.50, avg_discount: 58.3, avg_score: 76,
-  excellent_deals: 24, good_deals: 89,
-  top_stores: [
-    { name: 'Home Depot', slug: 'home-depot', color: '#F96302', deal_count: 128, avg_score: 78 },
-    { name: 'Walmart', slug: 'walmart', color: '#0071CE', deal_count: 98, avg_score: 74 },
-    { name: 'Best Buy', slug: 'best-buy', color: '#003087', deal_count: 47, avg_score: 71 },
-    { name: 'Target', slug: 'target', color: '#CC0000', deal_count: 39, avg_score: 68 },
-  ],
-  top_categories: [
-    { name: 'Power Tools', slug: 'power-tools', deal_count: 84, avg_profit: 73 },
-    { name: 'Electronics', slug: 'electronics', deal_count: 62, avg_profit: 45 },
-    { name: 'Appliances', slug: 'appliances', deal_count: 48, avg_profit: 38 },
-    { name: 'Outdoor', slug: 'outdoor', deal_count: 31, avg_profit: 29 },
-  ],
-};
-
-const DEMO_DEALS = [
-  { id: '1', name: 'DeWalt 20V Max Drill Kit', brand: 'DeWalt', store_name: 'Home Depot', store_slug: 'home-depot', store_color: '#F96302', regular_price: 199, deal_price: 49, discount_percent: 75, estimated_profit: 81, roi_percent: 165, opportunity_score: 98, opportunity_label: '🔥 Excelente', is_error_price: true, stock_quantity: 3, resale_price_amazon: 149, demand_level: 'Very High', category_name: 'Power Tools' },
-  { id: '2', name: 'Dyson V11 Cordless Vacuum', brand: 'Dyson', store_name: 'Walmart', store_slug: 'walmart', store_color: '#0071CE', regular_price: 599, deal_price: 149, discount_percent: 75, estimated_profit: 248, roi_percent: 166, opportunity_score: 96, opportunity_label: '🔥 Excelente', is_error_price: true, stock_quantity: 1, resale_price_amazon: 489, demand_level: 'Very High', category_name: 'Appliances' },
-  { id: '3', name: 'Milwaukee M18 Combo Kit', brand: 'Milwaukee', store_name: 'Home Depot', store_slug: 'home-depot', store_color: '#F96302', regular_price: 349, deal_price: 119, discount_percent: 66, estimated_profit: 142, roi_percent: 119, opportunity_score: 91, opportunity_label: '🔥 Excelente', stock_quantity: 2, resale_price_amazon: 299, demand_level: 'Very High', category_name: 'Power Tools' },
-  { id: '4', name: 'LG 65" OLED TV', brand: 'LG', store_name: 'Best Buy', store_slug: 'best-buy', store_color: '#003087', regular_price: 1299, deal_price: 499, discount_percent: 62, estimated_profit: 487, roi_percent: 97, opportunity_score: 88, opportunity_label: '💎 Muy Buena', stock_quantity: 4, resale_price_amazon: 1099, demand_level: 'High', category_name: 'Electronics' },
-  { id: '5', name: 'KitchenAid Stand Mixer Pro', brand: 'KitchenAid', store_name: 'Target', store_slug: 'target', store_color: '#CC0000', regular_price: 449, deal_price: 179, discount_percent: 60, estimated_profit: 148, roi_percent: 82, opportunity_score: 84, opportunity_label: '💎 Muy Buena', stock_quantity: 6, resale_price_amazon: 399, demand_level: 'High', category_name: 'Kitchen' },
-  { id: '6', name: 'Makita 18V Circular Saw', brand: 'Makita', store_name: 'Home Depot', store_slug: 'home-depot', store_color: '#F96302', regular_price: 189, deal_price: 79, discount_percent: 58, estimated_profit: 62, roi_percent: 78, opportunity_score: 79, opportunity_label: '💎 Muy Buena', stock_quantity: 8, resale_price_amazon: 159, demand_level: 'High', category_name: 'Power Tools' },
-];
-
-const DEMO_TRENDS = [
-  { day: 'Mon', deals: 28, profit: 4200 },
-  { day: 'Tue', deals: 35, profit: 5100 },
-  { day: 'Wed', deals: 22, profit: 3800 },
-  { day: 'Thu', deals: 48, profit: 7200 },
-  { day: 'Fri', deals: 61, profit: 9400 },
-  { day: 'Sat', deals: 44, profit: 6800 },
-  { day: 'Sun', deals: 38, profit: 5900 },
-];
-
-function ScoreBadge({ score }) {
-  const color = score >= 91 ? '#00ff88' : score >= 71 ? '#00d4ff' : score >= 41 ? '#fbbf24' : '#ef4444';
-  const label = score >= 91 ? 'Excelente' : score >= 71 ? 'Buena' : score >= 41 ? 'Regular' : 'Baja';
-  return (
-    <div className="flex items-center gap-2 p-3 rounded-xl border" style={{ borderColor: `${color}40`, background: `${color}10` }}>
-      <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: color, color: '#05050a' }}>{score}</div>
-      <span className="text-sm font-medium" style={{ color }}>{label}</span>
-    </div>
-  );
-}
 
 export default function Dashboard() {
-  const [stats, setStats] = useState({ total_deals: 0, new_today: 0, new_this_hour: 0, error_prices: 0, total_potential_profit: 0, excellent_deals: 0, good_deals: 0, top_stores: [], top_categories: [] });
+  const [stats, setStats] = useState({
+    total_deals: 0, new_today: 0, new_this_hour: 0, error_prices: 0,
+    total_potential_profit: 0, excellent_deals: 0, good_deals: 0,
+    top_stores: [], top_categories: [],
+  });
   const [deals, setDeals] = useState([]);
+  const [trends, setTrends] = useState([]);
   const [filters, setFilters] = useState({ store: '', min_discount: '20', sort: 'score' });
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
 
@@ -70,11 +28,22 @@ export default function Dashboard() {
   useEffect(() => { fetchDeals(); }, [filters, activeTab]);
 
   async function fetchData() {
+    setLoading(true);
     try {
-      const [sr, dr] = await Promise.all([api.get('/deals/stats'), api.get('/deals', { params: { ...filters, limit: 12 } })]);
-      setStats(sr.data);
-      setDeals(dr.data.deals);
-    } catch (err) { console.error('Dashboard API error:', err); setDeals([]); }
+      const [statsRes, dealsRes, trendsRes] = await Promise.all([
+        api.get('/deals/stats'),
+        api.get('/deals', { params: { ...filters, limit: 12 } }),
+        api.get('/deals/stats/trends'),
+      ]);
+      setStats(statsRes.data);
+      setDeals(dealsRes.data.deals || []);
+      setTrends(trendsRes.data.trends || []);
+    } catch (err) {
+      console.error('Dashboard API error:', err);
+      setDeals([]);
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function fetchDeals() {
@@ -83,8 +52,10 @@ export default function Dashboard() {
       if (activeTab === 'error') params.is_error_price = 'true';
       if (activeTab === 'top') params.min_score = 90;
       const r = await api.get('/deals', { params });
-      setDeals(r.data.deals);
-    } catch (err) { console.error('Deals API error:', err); setDeals([]); }
+      setDeals(r.data.deals || []);
+    } catch (err) {
+      console.error('Deals API error:', err);
+    }
   }
 
   async function handleRefresh() {
@@ -93,13 +64,17 @@ export default function Dashboard() {
     setRefreshing(false);
   }
 
+  const fmt = (n) => isNaN(n) || n == null ? '—' : n;
+
   return (
     <div className="p-4 lg:p-6 space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Deal Dashboard</h1>
-          <p style={{ color: '#CBD5E1' }} className="text-sm mt-0.5">{stats.total_deals} active deals · {stats.new_today} new today</p>
+          <p style={{ color: '#CBD5E1' }} className="text-sm mt-0.5">
+            {stats.total_deals} active deals · {stats.new_today} new today
+          </p>
         </div>
         <button onClick={handleRefresh} disabled={refreshing} className="btn-ghost flex items-center gap-2 text-sm">
           <RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} />
@@ -109,18 +84,18 @@ export default function Dashboard() {
 
       {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard icon={<Flame size={18} />} title="Active Deals" value={stats.total_deals} sub={`+${stats.new_this_hour} this hour`} color="green" />
-        <StatCard icon={<AlertTriangle size={18} />} title="Error Prices" value={stats.error_prices} sub="Pricing mistakes" color="red" />
-        <StatCard icon={<DollarSign size={18} />} title="Potential Profit" value={`$${(stats.total_potential_profit / 1000).toFixed(1)}k`} sub="Combined deals" color="blue" />
-        <StatCard icon={<Star size={18} />} title="Excellent Deals" value={stats.excellent_deals} sub="Score 91+" color="yellow" />
+        <StatCard icon={<Flame size={18} />} title="Active Deals" value={fmt(stats.total_deals)} sub={`+${fmt(stats.new_this_hour)} this hour`} color="green" />
+        <StatCard icon={<AlertTriangle size={18} />} title="Error Prices" value={fmt(stats.error_prices)} sub="Pricing mistakes" color="red" />
+        <StatCard icon={<DollarSign size={18} />} title="Potential Profit" value={`$${((parseFloat(stats.total_potential_profit) || 0) / 1000).toFixed(1)}k`} sub="Combined deals" color="blue" />
+        <StatCard icon={<Star size={18} />} title="Excellent Deals" value={fmt(stats.excellent_deals)} sub="Score 91+" color="yellow" />
       </div>
 
       {/* Score Distribution */}
       <div className="grid grid-cols-4 gap-2">
         {[
           { label: 'Excellent', range: '91–100', count: stats.excellent_deals, color: '#00ff88' },
-          { label: 'Good', range: '71–90', count: stats.good_deals - stats.excellent_deals, color: '#00d4ff' },
-          { label: 'Average', range: '41–70', count: Math.max(0, stats.total_deals - stats.good_deals), color: '#fbbf24' },
+          { label: 'Good', range: '71–90', count: Math.max(0, (stats.good_deals || 0) - (stats.excellent_deals || 0)), color: '#00d4ff' },
+          { label: 'Average', range: '41–70', count: Math.max(0, (stats.total_deals || 0) - (stats.good_deals || 0)), color: '#fbbf24' },
           { label: 'Skip', range: '0–40', count: 0, color: '#ef4444' },
         ].map(s => (
           <div key={s.label} className="card py-3 text-center">
@@ -136,43 +111,57 @@ export default function Dashboard() {
         {/* Deals by store */}
         <div className="card">
           <h3 className="text-white font-bold mb-4">Deals by Store</h3>
-          <ResponsiveContainer width="100%" height={160}>
-            <BarChart data={stats.top_stores || []} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
-              <XAxis dataKey="name" tick={{ fill: '#FFFFFF', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#FFFFFF', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ background: '#111119', border: '1px solid #2a2a3a', borderRadius: 8, color: '#fff' }} />
-              <Bar dataKey="deal_count" radius={[4, 4, 0, 0]}>
-                {(stats.top_stores || []).map((s, i) => <Cell key={i} fill={s.color} />)}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+          {stats.top_stores?.length > 0 ? (
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={stats.top_stores} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
+                <XAxis dataKey="name" tick={{ fill: '#FFFFFF', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#FFFFFF', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ background: '#111119', border: '1px solid #2a2a3a', borderRadius: 8, color: '#fff' }} />
+                <Bar dataKey="deal_count" radius={[4, 4, 0, 0]}>
+                  {stats.top_stores.map((s, i) => <Cell key={i} fill={s.color || '#4ADE80'} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-40 flex items-center justify-center">
+              <p className="text-sm" style={{ color: '#64748B' }}>No store data yet</p>
+            </div>
+          )}
         </div>
 
-        {/* Weekly trend */}
+        {/* 7-day trend */}
         <div className="card">
           <h3 className="text-white font-bold mb-4">7-Day Deal Trend</h3>
-          <ResponsiveContainer width="100%" height={160}>
-            <LineChart data={DEMO_TRENDS} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
-              <CartesianGrid stroke="#1a1a2e" strokeDasharray="3 3" />
-              <XAxis dataKey="day" tick={{ fill: '#FFFFFF', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fill: '#FFFFFF', fontSize: 11 }} axisLine={false} tickLine={false} />
-              <Tooltip contentStyle={{ background: '#111119', border: '1px solid #2a2a3a', borderRadius: 8, color: '#fff' }} />
-              <Line type="monotone" dataKey="deals" stroke="#00ff88" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
+          {trends.length > 0 ? (
+            <ResponsiveContainer width="100%" height={160}>
+              <LineChart data={trends} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
+                <CartesianGrid stroke="#1a1a2e" strokeDasharray="3 3" />
+                <XAxis dataKey="day" tick={{ fill: '#FFFFFF', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#FFFFFF', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={{ background: '#111119', border: '1px solid #2a2a3a', borderRadius: 8, color: '#fff' }} />
+                <Line type="monotone" dataKey="deals" stroke="#00ff88" strokeWidth={2} dot={false} />
+              </LineChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="h-40 flex items-center justify-center">
+              <p className="text-sm" style={{ color: '#64748B' }}>No trend data yet</p>
+            </div>
+          )}
         </div>
       </div>
 
       {/* Top categories */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {stats.top_categories?.map(cat => (
-          <div key={cat.slug} className="card hover:border-neon-green/30 transition-colors cursor-pointer">
-            <p className="text-white font-medium text-sm">{cat.name}</p>
-            <p className="text-dark-300 text-xs mt-1">{cat.deal_count} deals</p>
-            <p className="text-neon-green text-sm font-semibold mt-2">~${Math.round(parseFloat(cat.avg_profit || 0))} avg profit</p>
-          </div>
-        ))}
-      </div>
+      {stats.top_categories?.length > 0 && (
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {stats.top_categories.map(cat => (
+            <div key={cat.slug || cat.name} className="card hover:border-neon-green/30 transition-colors cursor-pointer">
+              <p className="text-white font-medium text-sm">{cat.name}</p>
+              <p style={{ color: '#94A3B8' }} className="text-xs mt-1">{cat.deal_count} deals</p>
+              <p className="text-neon-green text-sm font-semibold mt-2">~${Math.round(parseFloat(cat.avg_profit || 0))} avg profit</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Deals feed */}
       <div>
@@ -192,19 +181,35 @@ export default function Dashboard() {
 
         <FilterBar filters={filters} onChange={setFilters} />
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
-          {deals.map(deal => <DealCard key={deal.id} deal={deal} />)}
-        </div>
+        {loading ? (
+          <div className="flex justify-center py-12">
+            <div className="w-7 h-7 border-2 border-neon-green border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : deals.length === 0 ? (
+          <div className="card p-10 text-center mt-4">
+            <p className="text-3xl mb-3">🔍</p>
+            <p className="text-white font-semibold">No live deals found yet</p>
+            <p style={{ color: '#94A3B8' }} className="text-sm mt-1">Run scanner to discover deals.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
+            {deals.map(deal => <DealCard key={deal.id} deal={deal} />)}
+          </div>
+        )}
       </div>
 
-      {/* AI insight banner */}
+      {/* AI insight */}
       <div className="card border-neon-blue/30 bg-neon-blue/5 flex items-center gap-4">
         <div className="w-10 h-10 rounded-xl bg-neon-blue/20 flex items-center justify-center flex-shrink-0">
           <Brain size={20} className="text-neon-blue" />
         </div>
         <div className="flex-1">
           <p className="text-white font-medium text-sm">AI Insight</p>
-          <p className="text-dark-300 text-xs">DeWalt & Milwaukee tools generate 42% higher resale margins than average. 3 new opportunities found today.</p>
+          <p style={{ color: '#94A3B8' }} className="text-xs">
+            {stats.excellent_deals > 0
+              ? `${stats.excellent_deals} excellent deals (91+ score) available now. Check Pro Hunter for ranked opportunities.`
+              : 'Run the scanner to find deals. Pro Hunter will rank them automatically.'}
+          </p>
         </div>
         <Link to="/recommendations" className="text-neon-blue text-xs hover:underline flex-shrink-0">View →</Link>
       </div>

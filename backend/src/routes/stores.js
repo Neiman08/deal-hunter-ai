@@ -23,7 +23,7 @@ function googlePlacesRequest(path) {
   });
 }
 
-// GET /api/stores - Lista todas las tiendas activas
+// GET /api/stores
 router.get('/', async (req, res) => {
   try {
     const result = await query(`
@@ -38,11 +38,11 @@ router.get('/', async (req, res) => {
     `);
     res.json({ stores: result.rows });
   } catch (err) {
-    res.status(500).json({ error: 'Error al obtener tiendas' });
+    res.status(500).json({ error: 'Failed to fetch stores' });
   }
 });
 
-// GET /api/stores/map?zip=77001&radius=25 - Tiendas para el mapa
+// GET /api/stores/map?zip=77001&radius=25
 router.get('/map', async (req, res) => {
   try {
     const { zip, lat, lng, radius = 25 } = req.query;
@@ -76,7 +76,7 @@ router.get('/map', async (req, res) => {
     const result = await query(sql, params);
     res.json({ locations: result.rows });
   } catch (err) {
-    res.status(500).json({ error: 'Error al obtener mapa de tiendas' });
+    res.status(500).json({ error: 'Failed to fetch store map' });
   }
 });
 
@@ -147,7 +147,7 @@ router.get('/nearby', async (req, res) => {
   }
 });
 
-// GET /api/stores/:slug - Detalle de tienda
+// GET /api/stores/:slug
 router.get('/:slug', async (req, res) => {
   try {
     const storeResult = await query(
@@ -156,7 +156,7 @@ router.get('/:slug', async (req, res) => {
     );
 
     if (!storeResult.rows[0]) {
-      return res.status(404).json({ error: 'Tienda no encontrada' });
+      return res.status(404).json({ error: 'Store not found' });
     }
 
     const store = storeResult.rows[0];
@@ -170,7 +170,7 @@ router.get('/:slug', async (req, res) => {
 
     res.json({ store, deals: deals.rows });
   } catch (err) {
-    res.status(500).json({ error: 'Error al obtener tienda' });
+    res.status(500).json({ error: 'Failed to fetch store' });
   }
 });
 

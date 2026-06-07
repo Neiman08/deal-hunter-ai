@@ -103,6 +103,38 @@ router.get('/', async (req, res) => {
   }
 });
 
+// GET /deals/stats/trends — 7-day daily deal counts
+router.get('/stats/trends', async (req, res) => {
+  try {
+    const result = await query(`
+      SELECT
+        TO_CHAR(day::date, 'Dy') AS day,
+        COALESCE(deal_count, 0)  AS deals,
+        COALESCE(profit_sum, 0)  AS profit
+      FROM generate_series(
+        (NOW() - INTERVAL '6 days')::date,
+        NOW()::date,
+        '1 day'::interval
+      ) AS day
+      LEFT JOIN (
+        SELECT
+          detected_at::date AS d,
+          COUNT(*)           AS deal_count,
+          ROUND(SUM(COALESCE(estimated_profit,0))::numeric, 0) AS profit_sum
+        FROM deals
+        WHERE is_active = true
+          AND detected_at >= NOW() - INTERVAL '7 days'
+        GROUP BY detected_at::date
+      ) sub ON sub.d = day::date
+      ORDER BY day ASC
+    `);
+    res.json({ trends: result.rows });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Failed to fetch trends' });
+  }
+});
+
 // GET /deals/stats
 router.get('/stats', async (req, res) => {
   try {

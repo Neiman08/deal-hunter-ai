@@ -172,23 +172,66 @@ async function runEngine(engines, slug, opts, label) {
   const eng = engines[slug];
   if (!eng) return null;
 
+  const t0 = Date.now();
   try {
     console.log(`\n🏪 ${label || slug} Discovery...`);
     const fn = eng.runDiscovery
       || eng[`run${slug.split('-').map(s=>s[0].toUpperCase()+s.slice(1)).join('')}Discovery`];
     if (!fn) { console.log(`  ⚠️  No runDiscovery export for ${slug}`); return null; }
     const s = await fn(opts);
-    console.log(`   pages:${s.pages_visited||0} found:${s.urls_discovered||0} new:${s.urls_new||0} saved:${s.saved||0} errors:${s.errors||0}${s.blocked ? ' ⛔ BLOCKED' : ''}`);
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    const blocked  = s.blocked ? ` ⛔BLOCKED(${s.blockType || '?'})` : '';
+    const errInfo  = s.last_error ? ` last_error="${s.last_error}"` : '';
+    console.log(`   [${slug}] pages:${s.pages_visited||0} found:${s.urls_discovered||0} new:${s.urls_new||0} saved:${s.saved||0} errors:${s.errors||0} elapsed:${elapsed}s${blocked}${errInfo}`);
     return s;
   } catch (e) {
-    console.error(`  ❌ ${slug} error: ${e.message}`);
-    return null;
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    console.error(`  ❌ [${slug}] EXCEPTION after ${elapsed}s: ${e.message}`);
+    if (e.stack) console.error(`     ${e.stack.split('\n')[1]?.trim()}`);
+    return { errors: 1, last_error: e.message, saved: 0, blocked: false };
   }
+}
+
+// ─── Startup diagnostics ─────────────────────────────────────────────────────
+async function logStartup() {
+  const dbUrl = process.env.DATABASE_URL || '';
+  let dbHost = '(DATABASE_URL not set)';
+  let dbName = '(unknown)';
+  try {
+    const u = new URL(dbUrl);
+    dbHost = u.hostname;
+    dbName = u.pathname.replace(/^\//, '') || '(empty)';
+  } catch {}
+
+  console.log('╔' + '═'.repeat(58) + '╗');
+  console.log('║  WORKER STARTUP DIAGNOSTICS' + ' '.repeat(30) + '║');
+  console.log('╠' + '═'.repeat(58) + '╣');
+  console.log(`║  NODE_ENV        : ${(process.env.NODE_ENV       || 'not set').padEnd(36)}║`);
+  console.log(`║  DB host         : ${dbHost.padEnd(36)}║`);
+  console.log(`║  DB name         : ${dbName.padEnd(36)}║`);
+  console.log(`║  PROXY_ENABLED   : ${(process.env.PROXY_ENABLED  || 'not set').padEnd(36)}║`);
+  console.log(`║  PROXY_HOST      : ${(process.env.PROXY_HOST     || 'not set').padEnd(36)}║`);
+  console.log(`║  PW_BROWSERS_PATH: ${(process.env.PLAYWRIGHT_BROWSERS_PATH || 'not set').padEnd(36)}║`);
+  console.log(`║  ACTIVE_STORES   : ${(process.env.ACTIVE_STORES  || 'not set (runs all)').padEnd(36)}║`);
+  console.log('╠' + '═'.repeat(58) + '╣');
+
+  try {
+    const p = await query('SELECT COUNT(*) AS cnt FROM products');
+    const d = await query('SELECT COUNT(*) AS cnt FROM deals WHERE is_active = true');
+    console.log(`║  DB products     : ${String(p.rows[0].cnt).padEnd(36)}║`);
+    console.log(`║  DB active deals : ${String(d.rows[0].cnt).padEnd(36)}║`);
+    console.log(`║  DB STATUS       : ${'CONNECTED ✓'.padEnd(36)}║`);
+  } catch (e) {
+    console.log(`║  DB STATUS       : ${'ERROR: '.concat(e.message).slice(0, 36).padEnd(36)}║`);
+  }
+
+  console.log('╚' + '═'.repeat(58) + '╝');
 }
 
 // ─── Main loop ────────────────────────────────────────────────────────────────
 async function main() {
   banner('🚀 DEAL HUNTER — LIVE DISCOVERY v3');
+  await logStartup();
   const engines = loadEngines();
   console.log(`  Engines loaded: ${Object.keys(engines).join(', ')}`);
   console.log(`  Cycle interval: 30 min`);
@@ -293,6 +336,13 @@ async function main() {
     if (blockedStores.length) {
       console.log(`\n⛔ Blocked stores this cycle: ${blockedStores.join(', ')}`);
     }
+
+    const savedThisCycle = Object.values(cycleStats).reduce((sum, s) => sum + (s?.saved || 0), 0);
+    try {
+      const p = await query('SELECT COUNT(*) AS cnt FROM products');
+      const d = await query('SELECT COUNT(*) AS cnt FROM deals WHERE is_active = true');
+      console.log(`\n📈 DB after cycle #${cycleCount}: products=${p.rows[0].cnt} active_deals=${d.rows[0].cnt} saved_this_cycle=${savedThisCycle}`);
+    } catch {}
 
     const elapsed = Math.round((Date.now() - cycleStart) / 1000);
     console.log(`\n⏱️  Cycle #${cycleCount} completed in ${elapsed}s. Next cycle in 30 min...`);

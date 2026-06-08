@@ -67,7 +67,7 @@ export default function Alerts() {
         notify_whatsapp: false,
       });
     } catch (err) {
-      alert(err.response?.data?.error || 'Error al crear alerta');
+      alert(err.response?.data?.error || 'Error creating alert');
     } finally {
       setLoading(false);
     }
@@ -108,9 +108,9 @@ export default function Alerts() {
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-black">Mis Alertas</h1>
+          <h1 className="text-2xl font-black">My Alerts</h1>
           <p className="text-slate-300 text-sm">
-            {activeAlerts} activas de {maxAlerts} permitidas en tu plan
+            {activeAlerts} active of {maxAlerts} allowed on your plan
           </p>
         </div>
 
@@ -120,7 +120,7 @@ export default function Alerts() {
           disabled={activeAlerts >= maxAlerts}
         >
           <Plus size={16} />
-          Nueva Alerta
+          New Alert
         </button>
       </div>
 
@@ -148,13 +148,13 @@ export default function Alerts() {
 
       {showForm && (
         <div className="card p-5 border-neon-green/20 animate-slide-up">
-          <h2 className="font-bold mb-4">Crear Nueva Alerta</h2>
+          <h2 className="font-bold mb-4">Create New Alert</h2>
 
           <form onSubmit={handleCreate} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="text-xs text-slate-300 mb-1.5 block">
-                  Nombre de la alerta
+                  Alert name
                 </label>
 
                 <input
@@ -163,14 +163,14 @@ export default function Alerts() {
                   onChange={(e) =>
                     setForm({ ...form, name: e.target.value })
                   }
-                  placeholder="Ej: Herramientas DeWalt"
+                  placeholder="e.g. DeWalt Tools"
                   className="w-full bg-dark-500 border border-dark-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-neon-green/50"
                 />
               </div>
 
               <div>
                 <label className="text-xs text-slate-300 mb-1.5 block">
-                  Palabra clave del producto
+                  Product keyword
                 </label>
 
                 <input
@@ -179,7 +179,7 @@ export default function Alerts() {
                   onChange={(e) =>
                     setForm({ ...form, product_keyword: e.target.value })
                   }
-                  placeholder="Ej: DeWalt, iPad, TV..."
+                  placeholder="e.g. DeWalt, iPad, TV..."
                   className="w-full bg-dark-500 border border-dark-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-neon-green/50"
                 />
               </div>
@@ -188,7 +188,7 @@ export default function Alerts() {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="text-xs text-slate-300 mb-1.5 block">
-                  Tienda
+                  Store
                 </label>
 
                 <select
@@ -198,7 +198,7 @@ export default function Alerts() {
                   }
                   className="w-full bg-dark-500 border border-dark-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-neon-green/50"
                 >
-                  <option value="">Todas las tiendas</option>
+                  <option value="">All stores</option>
                   {STORES.map((store) => (
                     <option key={store} value={store}>
                       {STORE_LABELS[store]}
@@ -267,7 +267,7 @@ export default function Alerts() {
                     onChange={(e) =>
                       setForm({ ...form, zip_code: e.target.value })
                     }
-                    placeholder="Ej: 60074"
+                    placeholder="e.g. 60074"
                     className="w-full bg-dark-500 border border-dark-300 rounded-xl pl-9 pr-4 py-2.5 text-sm focus:outline-none focus:border-neon-green/50"
                   />
                 </div>
@@ -334,7 +334,7 @@ export default function Alerts() {
 
             <div className="flex gap-3">
               <button type="submit" disabled={loading} className="btn-primary">
-                {loading ? 'Creando...' : 'Crear Alerta'}
+                {loading ? 'Creating...' : 'Create Alert'}
               </button>
 
               <button
@@ -342,7 +342,7 @@ export default function Alerts() {
                 onClick={() => setShowForm(false)}
                 className="btn-ghost"
               >
-                Cancelar
+                Cancel
               </button>
             </div>
           </form>
@@ -353,9 +353,9 @@ export default function Alerts() {
         {alerts.length === 0 ? (
           <div className="text-center py-16 text-slate-300">
             <Bell size={40} className="mx-auto mb-3 opacity-30" />
-            <p>No tienes alertas configuradas</p>
+            <p>No alerts configured</p>
             <p className="text-sm mt-1">
-              Crea una para recibir notificaciones de ofertas
+              Create one to get notified when deals match your criteria
             </p>
           </div>
         ) : (
@@ -394,7 +394,7 @@ export default function Alerts() {
                             : 'bg-dark-400 text-slate-300'
                         }`}
                       >
-                        {alert.is_active ? 'Activa' : 'Pausada'}
+                        {alert.is_active ? 'Active' : 'Paused'}
                       </button>
 
                       <button
@@ -427,7 +427,7 @@ export default function Alerts() {
 
                     {alert.min_profit > 0 && (
                       <span className="text-xs bg-dark-500 text-slate-300 px-2 py-0.5 rounded-lg inline-flex items-center gap-1">
-                        <DollarSign size={12} />+${alert.min_profit} ganancia
+                        <DollarSign size={12} />+${alert.min_profit} profit
                       </span>
                     )}
 

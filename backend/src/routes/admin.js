@@ -480,6 +480,69 @@ router.post('/db-cleanup', async (req, res) => {
   }
 });
 
+// GET /admin/db-counts — read-only table counts and recent rows (no writes)
+router.get('/db-counts', async (req, res) => {
+  try {
+    const [products, prices, deals, stores, scanLogs, latestProducts, latestPrices, latestDeals, failureSummary] = await Promise.all([
+      query('SELECT COUNT(*) AS cnt FROM products'),
+      query('SELECT COUNT(*) AS cnt FROM prices'),
+      query('SELECT COUNT(*) AS cnt FROM deals'),
+      query('SELECT COUNT(*) AS cnt FROM stores'),
+      query('SELECT COUNT(*) AS cnt FROM scan_logs'),
+      query(`SELECT p.id, p.name, p.sku, s.slug as store, p.created_at
+             FROM products p JOIN stores s ON p.store_id=s.id
+             ORDER BY p.created_at DESC LIMIT 5`),
+      query(`SELECT pr.id, pr.product_id, pr.current_price, pr.regular_price, pr.discount_percent, pr.recorded_at
+             FROM prices pr ORDER BY pr.recorded_at DESC LIMIT 5`),
+      query(`SELECT d.id, d.name, d.deal_price, d.discount_percent, d.opportunity_score, d.is_active, d.detected_at
+             FROM deals d ORDER BY d.detected_at DESC LIMIT 5`),
+      query(`SELECT store_name, status, products_scanned, deals_found, errors_count, duration_seconds, started_at, completed_at
+             FROM scan_logs ORDER BY started_at DESC LIMIT 5`),
+    ]);
+    res.json({
+      products: parseInt(products.rows[0].cnt),
+      prices: parseInt(prices.rows[0].cnt),
+      deals: parseInt(deals.rows[0].cnt),
+      stores: parseInt(stores.rows[0].cnt),
+      scan_logs: parseInt(scanLogs.rows[0].cnt),
+      latest_products: latestProducts.rows,
+      latest_prices: latestPrices.rows,
+      latest_deals: latestDeals.rows,
+      latest_scan_logs: failureSummary.rows,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /admin/proxy-status — check proxy config and per-store failure summary (no credentials exposed)
+router.get('/proxy-status', async (req, res) => {
+  try {
+    const proxyManager = require('../services/proxyManager');
+    const summary = proxyManager.getFailureSummary ? proxyManager.getFailureSummary() : {};
+    res.json({
+      proxy_enabled: process.env.PROXY_ENABLED === 'true',
+      proxy_provider: process.env.PROXY_PROVIDER || 'none',
+      proxy_host: process.env.PROXY_HOST ? process.env.PROXY_HOST.split('.')[0] + '...' : null,
+      failure_summary: summary,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /admin/clear-failures — reset in-memory proxy failure log so skipped stores retry
+router.post('/clear-failures', async (req, res) => {
+  try {
+    const proxyManager = require('../services/proxyManager');
+    const stores = ['walmart','best-buy','home-depot','target','lowes','macys','tj-maxx','marshalls','kohls','costco','gamestop','office-depot','staples','nordstrom-rack'];
+    stores.forEach(s => proxyManager.clearFailures(s));
+    res.json({ cleared: stores });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /admin/test-browser — verify Playwright Chromium is available on this server
 router.get('/test-browser', async (req, res) => {
   const start = Date.now();

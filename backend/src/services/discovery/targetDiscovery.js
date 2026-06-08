@@ -31,6 +31,17 @@ const PROXY_USER = process.env.PROXY_USER || '';
 const PROXY_PASS = process.env.PROXY_PASS || '';
 const PROXY_URL  = `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`;
 
+console.log('[Discovery:Target] ── PROXY CONFIG ──');
+console.log(`[Discovery:Target] PROXY_ENABLED    = ${process.env.PROXY_ENABLED}`);
+console.log(`[Discovery:Target] ISP_PROXY_ENABLED= ${process.env.ISP_PROXY_ENABLED}`);
+console.log(`[Discovery:Target] PROXY_HOST       = ${PROXY_HOST}`);
+console.log(`[Discovery:Target] PROXY_PORT       = ${PROXY_PORT}  (22225=residential 33335=ISP)`);
+console.log(`[Discovery:Target] PROXY_USER       = ${PROXY_USER}`);
+console.log(`[Discovery:Target] ISP_PROXY_HOST   = ${process.env.ISP_PROXY_HOST || '(not set)'}`);
+console.log(`[Discovery:Target] ISP_PROXY_PORT   = ${process.env.ISP_PROXY_PORT || '(not set)'}`);
+console.log(`[Discovery:Target] ISP_PROXY_USER   = ${process.env.ISP_PROXY_USER || '(not set)'}`);
+console.log(`[Discovery:Target] Proxy URL        = http://${PROXY_USER}:***@${PROXY_HOST}:${PROXY_PORT}`);
+
 // Search terms rotated per cycle — varied to spread over categories
 const SEARCH_GROUPS = [
   ['samsung tv', 'lg tv', 'oled tv', 'sony tv'],

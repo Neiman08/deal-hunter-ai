@@ -30,6 +30,46 @@ const PROXY_USER = process.env.PROXY_USER || 'brd-customer-hl_baafcac4-zone-resi
 const PROXY_PASS = process.env.PROXY_PASS || 'p1p2vbv91h3i';
 const PROXY_URL  = `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`;
 
+// ── Proxy diagnostics (printed once at module load) ───────────────────────────
+console.log('[Discovery:HomeDepot] ── PROXY CONFIG ──');
+console.log(`[Discovery:HomeDepot] PROXY_ENABLED    = ${process.env.PROXY_ENABLED}`);
+console.log(`[Discovery:HomeDepot] ISP_PROXY_ENABLED= ${process.env.ISP_PROXY_ENABLED}`);
+console.log(`[Discovery:HomeDepot] PROXY_HOST       = ${PROXY_HOST}`);
+console.log(`[Discovery:HomeDepot] PROXY_PORT       = ${PROXY_PORT}  (22225=residential 33335=ISP)`);
+console.log(`[Discovery:HomeDepot] PROXY_USER       = ${PROXY_USER}`);
+console.log(`[Discovery:HomeDepot] PROXY_PASS       = ${PROXY_PASS ? '***set***' : '(not set)'}`);
+console.log(`[Discovery:HomeDepot] ISP_PROXY_HOST   = ${process.env.ISP_PROXY_HOST || '(not set)'}`);
+console.log(`[Discovery:HomeDepot] ISP_PROXY_PORT   = ${process.env.ISP_PROXY_PORT || '(not set)'}`);
+console.log(`[Discovery:HomeDepot] ISP_PROXY_USER   = ${process.env.ISP_PROXY_USER || '(not set)'}`);
+const _maskedUrl = `http://${PROXY_USER}:***@${PROXY_HOST}:${PROXY_PORT}`;
+console.log(`[Discovery:HomeDepot] Proxy URL        = ${_maskedUrl}`);
+// Live test — same agent the sitemap fetch uses
+(async () => {
+  if (process.env.PROXY_ENABLED !== 'true') return;
+  try {
+    const _AgentCtor = typeof HttpsProxyAgent === 'function' ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
+    const _agent = new _AgentCtor(PROXY_URL, { rejectUnauthorized: false });
+    await new Promise((resolve) => {
+      const _req = https.get('https://api.ipify.org?format=json', { agent: _agent, timeout: 10000, rejectUnauthorized: false }, _res => {
+        const _chunks = [];
+        _res.on('data', c => _chunks.push(c));
+        _res.on('end', () => {
+          try {
+            const _ip = JSON.parse(Buffer.concat(_chunks).toString()).ip;
+            console.log(`[Discovery:HomeDepot] Proxy test OK — exit IP: ${_ip}`);
+          } catch { console.log(`[Discovery:HomeDepot] Proxy test OK (parse err)`); }
+          resolve();
+        });
+        _res.on('error', e => { console.log(`[Discovery:HomeDepot] Proxy test READ ERR: ${e.message}`); resolve(); });
+      });
+      _req.on('error', e => { console.log(`[Discovery:HomeDepot] Proxy test FAIL: ${e.message}`); resolve(); });
+      _req.on('timeout', () => { _req.destroy(); console.log(`[Discovery:HomeDepot] Proxy test TIMEOUT`); resolve(); });
+    });
+  } catch (e) {
+    console.log(`[Discovery:HomeDepot] Proxy agent init FAIL: ${e.message}`);
+  }
+})();
+
 // HD product sitemap index (88 files: PIP-0.xml … PIP-87.xml)
 const SITEMAP_BASE  = 'https://www.homedepot.com/sitemap/P/PIPs/PIP/PIP-';
 const SITEMAP_COUNT = 88;

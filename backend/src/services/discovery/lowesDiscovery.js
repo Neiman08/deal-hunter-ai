@@ -27,6 +27,13 @@ const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 22225;
 const PROXY_USER = process.env.PROXY_USER || '';
 const PROXY_PASS = process.env.PROXY_PASS || '';
 
+console.log("[Discovery:Lowes] ── PROXY CONFIG ──");
+console.log(`[Discovery:Lowes] PROXY_ENABLED    = ${process.env.PROXY_ENABLED}`);
+console.log(`[Discovery:Lowes] PROXY_PORT       = ${PROXY_PORT}  (22225=residential 33335=ISP)`);
+console.log(`[Discovery:Lowes] PROXY_USER       = ${PROXY_USER}`);
+console.log(`[Discovery:Lowes] ISP_PROXY_USER   = ${process.env.ISP_PROXY_USER || '(not set)'}`);
+console.log(`[Discovery:Lowes] Proxy URL        = http://${PROXY_USER}:***@${PROXY_HOST}:${PROXY_PORT}`);
+
 function makeProxyAgent() {
   console.log(`[Discovery:Lowes] PROXY_ENABLED=${process.env.PROXY_ENABLED} ISP_PROXY_ENABLED=${process.env.ISP_PROXY_ENABLED}`);
   console.log(`[Discovery:Lowes] PROXY_HOST=${process.env.PROXY_HOST} PROXY_PORT=${process.env.PROXY_PORT}`);

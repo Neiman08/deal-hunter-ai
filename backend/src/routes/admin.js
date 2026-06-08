@@ -480,4 +480,35 @@ router.post('/db-cleanup', async (req, res) => {
   }
 });
 
+// GET /admin/test-browser — verify Playwright Chromium is available on this server
+router.get('/test-browser', async (req, res) => {
+  const start = Date.now();
+  let browser = null;
+  try {
+    const { chromium } = require('playwright');
+    browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
+    const page = await browser.newPage();
+    await page.goto('https://example.com', { timeout: 15000 });
+    const title = await page.title();
+    await browser.close();
+    res.json({ ok: true, title, elapsed_ms: Date.now() - start, message: 'Chromium is working' });
+  } catch (err) {
+    if (browser) await browser.close().catch(() => {});
+    res.json({ ok: false, error: err.message, elapsed_ms: Date.now() - start });
+  }
+});
+
+// GET /admin/test-scraper/:store — run a single store scraper and return raw result
+router.get('/test-scraper/:store', async (req, res) => {
+  const { store } = req.params;
+  const start = Date.now();
+  try {
+    const { runScan } = require('../jobs/scanJob');
+    const result = await runScan(store);
+    res.json({ ok: true, store, result, elapsed_ms: Date.now() - start });
+  } catch (err) {
+    res.json({ ok: false, store, error: err.message, elapsed_ms: Date.now() - start });
+  }
+});
+
 module.exports = router;

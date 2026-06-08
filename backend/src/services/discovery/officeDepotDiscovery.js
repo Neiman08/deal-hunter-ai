@@ -33,11 +33,20 @@ const PROXY_USER = process.env.PROXY_USER || '';
 const PROXY_PASS = process.env.PROXY_PASS || '';
 
 function makeProxyAgent() {
-  if (process.env.PROXY_ENABLED !== 'true' || !PROXY_USER) return null;
+  console.log(`[Discovery:OfficeDept] PROXY_ENABLED=${process.env.PROXY_ENABLED} ISP_PROXY_ENABLED=${process.env.ISP_PROXY_ENABLED}`);
+  console.log(`[Discovery:OfficeDept] PROXY_HOST=${process.env.PROXY_HOST} PROXY_PORT=${process.env.PROXY_PORT}`);
+  console.log(`[Discovery:OfficeDept] PROXY_USER=${(process.env.PROXY_USER || '').slice(0, 30)}... hasPass=${!!process.env.PROXY_PASS}`);
+
+  if (process.env.PROXY_ENABLED !== 'true' || !PROXY_USER) {
+    console.log(`[Discovery:OfficeDept] DIRECT connection (proxy disabled or no user)`);
+    return null;
+  }
   try {
     const url  = `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`;
     const Ctor = typeof HttpsProxyAgent === 'function' ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
-    return new Ctor(url, { rejectUnauthorized: false });
+    const agent = new Ctor(url, { rejectUnauthorized: false });
+    console.log(`[Discovery:OfficeDept] Using proxy: ${PROXY_HOST}:${PROXY_PORT}`);
+    return agent;
   } catch (e) {
     logger.warn(`[Discovery:${STORE_LABEL}] Proxy agent init failed: ${e.message}`);
     return null;

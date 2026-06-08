@@ -50,15 +50,23 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 // ── HTTP fetch helper (always via residential proxy) ─────────────────────────
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
+    const proxyEnabled = process.env.PROXY_ENABLED === 'true';
+    console.log(`[Discovery:Target] PROXY_ENABLED=${process.env.PROXY_ENABLED} ISP_PROXY_ENABLED=${process.env.ISP_PROXY_ENABLED}`);
+    console.log(`[Discovery:Target] PROXY_HOST=${process.env.PROXY_HOST} PROXY_PORT=${process.env.PROXY_PORT}`);
+    console.log(`[Discovery:Target] PROXY_USER=${(process.env.PROXY_USER || '').slice(0, 30)}... hasPass=${!!process.env.PROXY_PASS}`);
+
     let agent = null;
-    if (process.env.PROXY_ENABLED === 'true' && PROXY_USER) {
+    if (proxyEnabled && PROXY_USER) {
       try {
         const Ctor = typeof HttpsProxyAgent === 'function'
           ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
         agent = new Ctor(PROXY_URL, { rejectUnauthorized: false });
+        console.log(`[Discovery:Target] Using proxy: ${PROXY_HOST}:${PROXY_PORT}`);
       } catch (e) {
         logger.warn(`[Discovery:${STORE_LABEL}] Proxy agent init failed: ${e.message}`);
       }
+    } else {
+      console.log(`[Discovery:Target] DIRECT connection (no proxy)`);
     }
 
     const opts = {

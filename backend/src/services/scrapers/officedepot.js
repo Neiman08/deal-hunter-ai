@@ -3,12 +3,12 @@
  * Extracts price, title, availability from Office Depot / OfficeMax product pages.
  */
 
-const { newBestBuyContext } = require('../browserEngine');
+const { newContext } = require('../browserEngine');
 
 const STORE_SLUG = 'office-depot';
 
 async function scrapeOfficeDepotProduct(url) {
-  const ctx  = await newBestBuyContext();
+  const ctx  = await newContext();
   const page = await ctx.newPage();
 
   try {

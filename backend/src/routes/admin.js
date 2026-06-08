@@ -1,4 +1,6 @@
 const express = require('express');
+const https = require('https');
+const http = require('http');
 const router = express.Router();
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { query } = require('../config/database');
@@ -720,6 +722,108 @@ router.get('/store-report', async (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// GET /admin/test-proxy — verify proxy connectivity + show env vars
+router.get('/test-proxy', async (req, res) => {
+  const PROXY_ENABLED   = process.env.PROXY_ENABLED;
+  const ISP_PROXY_ENABLED = process.env.ISP_PROXY_ENABLED;
+  const PROXY_HOST      = process.env.PROXY_HOST;
+  const PROXY_PORT      = process.env.PROXY_PORT;
+  const PROXY_USER      = process.env.PROXY_USER || '';
+  const PROXY_PASS      = process.env.PROXY_PASS || '';
+  const ISP_PROXY_HOST  = process.env.ISP_PROXY_HOST;
+  const ISP_PROXY_PORT  = process.env.ISP_PROXY_PORT;
+  const ISP_PROXY_USER  = process.env.ISP_PROXY_USER || '';
+  const ISP_PROXY_PASS  = process.env.ISP_PROXY_PASS || '';
+
+  const envSnapshot = {
+    PROXY_ENABLED,
+    ISP_PROXY_ENABLED: ISP_PROXY_ENABLED || '(not set)',
+    PROXY_HOST:        PROXY_HOST        || '(not set)',
+    PROXY_PORT:        PROXY_PORT        || '(not set)',
+    PROXY_USER:        PROXY_USER ? PROXY_USER.slice(0, 35) + '...' : '(not set)',
+    PROXY_PASS:        PROXY_PASS ? '***set***' : '(not set)',
+    ISP_PROXY_HOST:    ISP_PROXY_HOST    || '(not set)',
+    ISP_PROXY_PORT:    ISP_PROXY_PORT    || '(not set)',
+    ISP_PROXY_USER:    ISP_PROXY_USER ? ISP_PROXY_USER.slice(0, 35) + '...' : '(not set)',
+    ISP_PROXY_PASS:    ISP_PROXY_PASS ? '***set***' : '(not set)',
+  };
+
+  const results = {};
+
+  // Test 1: direct (no proxy)
+  const directTest = await new Promise(resolve => {
+    const req2 = https.get('https://api.ipify.org?format=json', { timeout: 8000 }, res2 => {
+      const chunks = [];
+      res2.on('data', c => chunks.push(c));
+      res2.on('end', () => {
+        try { resolve({ ok: true, body: JSON.parse(Buffer.concat(chunks).toString()) }); }
+        catch (e) { resolve({ ok: false, error: e.message }); }
+      });
+    });
+    req2.on('error', e => resolve({ ok: false, error: e.message }));
+    req2.on('timeout', () => { req2.destroy(); resolve({ ok: false, error: 'timeout' }); });
+  });
+  results.direct = directTest;
+
+  // Test 2: via PROXY_* vars (HttpsProxyAgent)
+  if (PROXY_ENABLED === 'true' && PROXY_HOST && PROXY_USER && PROXY_PASS) {
+    try {
+      const HttpsProxyAgent = require('https-proxy-agent');
+      const Ctor = typeof HttpsProxyAgent === 'function' ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
+      const proxyUrl = `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT || 22225}`;
+      const agent = new Ctor(proxyUrl, { rejectUnauthorized: false });
+
+      const proxyTest = await new Promise(resolve => {
+        const req2 = https.get('https://api.ipify.org?format=json', { agent, timeout: 15000, rejectUnauthorized: false }, res2 => {
+          const chunks = [];
+          res2.on('data', c => chunks.push(c));
+          res2.on('end', () => {
+            try { resolve({ ok: true, body: JSON.parse(Buffer.concat(chunks).toString()) }); }
+            catch (e) { resolve({ ok: false, error: e.message }); }
+          });
+        });
+        req2.on('error', e => resolve({ ok: false, error: e.message }));
+        req2.on('timeout', () => { req2.destroy(); resolve({ ok: false, error: 'timeout' }); });
+      });
+      results.proxy_main = { url: `${PROXY_HOST}:${PROXY_PORT}`, ...proxyTest };
+    } catch (e) {
+      results.proxy_main = { ok: false, error: e.message };
+    }
+  } else {
+    results.proxy_main = { ok: false, error: 'PROXY_ENABLED != true or credentials missing' };
+  }
+
+  // Test 3: via ISP_PROXY_* vars (if set)
+  if (ISP_PROXY_HOST && ISP_PROXY_USER && ISP_PROXY_PASS) {
+    try {
+      const HttpsProxyAgent = require('https-proxy-agent');
+      const Ctor = typeof HttpsProxyAgent === 'function' ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
+      const ispUrl = `http://${ISP_PROXY_USER}:${ISP_PROXY_PASS}@${ISP_PROXY_HOST}:${ISP_PROXY_PORT || 33335}`;
+      const agent = new Ctor(ispUrl, { rejectUnauthorized: false });
+
+      const ispTest = await new Promise(resolve => {
+        const req2 = https.get('https://api.ipify.org?format=json', { agent, timeout: 15000, rejectUnauthorized: false }, res2 => {
+          const chunks = [];
+          res2.on('data', c => chunks.push(c));
+          res2.on('end', () => {
+            try { resolve({ ok: true, body: JSON.parse(Buffer.concat(chunks).toString()) }); }
+            catch (e) { resolve({ ok: false, error: e.message }); }
+          });
+        });
+        req2.on('error', e => resolve({ ok: false, error: e.message }));
+        req2.on('timeout', () => { req2.destroy(); resolve({ ok: false, error: 'timeout' }); });
+      });
+      results.proxy_isp = { url: `${ISP_PROXY_HOST}:${ISP_PROXY_PORT}`, ...ispTest };
+    } catch (e) {
+      results.proxy_isp = { ok: false, error: e.message };
+    }
+  } else {
+    results.proxy_isp = { ok: false, error: 'ISP_PROXY_* vars not set' };
+  }
+
+  res.json({ ok: true, env: envSnapshot, tests: results });
 });
 
 // POST /admin/ensure-stores — upsert all 15 discovery stores (idempotent)

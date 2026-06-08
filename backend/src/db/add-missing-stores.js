@@ -15,26 +15,30 @@ const MISSING_STORES = [
 
 async function run() {
   const client = await pool.connect();
+  let added = 0, updated = 0, failed = 0;
   try {
-    let added = 0;
     for (const s of MISSING_STORES) {
-      const r = await client.query(
-        `INSERT INTO stores (name, slug, color, website_url, is_active, scraping_enabled)
-         VALUES ($1,$2,$3,$4,true,true)
-         ON CONFLICT (slug) DO NOTHING
-         RETURNING slug`,
-        [s.name, s.slug, s.color, s.website_url]
-      );
-      if (r.rowCount > 0) {
-        console.log(`  ✅ Added store: ${s.slug}`);
-        added++;
-      } else {
-        console.log(`  ✓  Store already exists: ${s.slug}`);
+      try {
+        const r = await client.query(
+          `INSERT INTO stores (name, slug, color, website_url, is_active, scraping_enabled)
+           VALUES ($1,$2,$3,$4,true,true)
+           ON CONFLICT (slug) DO UPDATE SET
+             name             = EXCLUDED.name,
+             website_url      = EXCLUDED.website_url,
+             is_active        = true,
+             scraping_enabled = true
+           RETURNING slug, (xmax = 0) AS inserted`,
+          [s.name, s.slug, s.color, s.website_url]
+        );
+        const wasInserted = r.rows[0]?.inserted;
+        if (wasInserted) { console.log(`  ✅ Added:   ${s.slug}`); added++; }
+        else             { console.log(`  ✓  Updated: ${s.slug}`); updated++; }
+      } catch (err) {
+        console.error(`  ❌ Failed:  ${s.slug} — ${err.message}`);
+        failed++;
       }
     }
-    console.log(`\n✅ Store migration complete — ${added} added, ${MISSING_STORES.length - added} already present`);
-  } catch (err) {
-    console.error('⚠️  Store migration warning (non-fatal):', err.message);
+    console.log(`\n✅ Store migration done — added:${added} updated:${updated} failed:${failed}`);
   } finally {
     client.release();
     await pool.end();

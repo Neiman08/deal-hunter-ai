@@ -9,7 +9,8 @@
  * individual re-scans; this module bypasses it entirely for bulk discovery.
  */
 
-const https  = require('https');
+const https            = require('https');
+const HttpsProxyAgent  = require('https-proxy-agent');
 const { query }           = require('../../config/database');
 const { saveProductData } = require('../scraperBase');
 const { isStopRequested } = require('../discoveryLock');
@@ -22,6 +23,13 @@ const STORE_LABEL = 'Target';
 const REDSKY_URL = 'https://redsky.target.com/redsky_aggregations/v1/web/plp_search_v2';
 // Fixed visitor_id — Target uses it for analytics only; any valid UUID works
 const VISITOR_ID = '018fe9e2-a8a9-7e84-9a99-4c9d44b0de95';
+
+// BrightData residential proxy (same credentials as browserEngine)
+const PROXY_HOST = process.env.PROXY_HOST || 'brd.superproxy.io';
+const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 22225;
+const PROXY_USER = process.env.PROXY_USER || '';
+const PROXY_PASS = process.env.PROXY_PASS || '';
+const PROXY_URL  = `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`;
 
 // Search terms rotated per cycle — varied to spread over categories
 const SEARCH_GROUPS = [
@@ -39,29 +47,42 @@ const SEARCH_GROUPS = [
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// ── HTTP fetch helper ────────────────────────────────────────────────────────
-function fetchJson(url, headers = {}) {
+// ── HTTP fetch helper (always via residential proxy) ─────────────────────────
+function fetchJson(url) {
   return new Promise((resolve, reject) => {
-    const req = https.get(url, {
-      timeout: 25000,
+    let agent = null;
+    if (process.env.PROXY_ENABLED === 'true' && PROXY_USER) {
+      try {
+        const Ctor = typeof HttpsProxyAgent === 'function'
+          ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
+        agent = new Ctor(PROXY_URL, { rejectUnauthorized: false });
+      } catch (e) {
+        logger.warn(`[Discovery:${STORE_LABEL}] Proxy agent init failed: ${e.message}`);
+      }
+    }
+
+    const opts = {
+      timeout: 30000,
       headers: {
         'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
         'Accept': 'application/json',
         'Accept-Language': 'en-US,en;q=0.9',
         'Referer': 'https://www.target.com/',
         'Origin': 'https://www.target.com',
-        ...headers,
       },
-    }, res => {
+    };
+    if (agent) opts.agent = agent;
+
+    const req = https.get(url, opts, res => {
       if (res.statusCode !== 200) {
         res.resume();
-        return reject(new Error(`HTTP ${res.statusCode} for ${url}`));
+        return reject(new Error(`HTTP ${res.statusCode}`));
       }
       const chunks = [];
       res.on('data', c => chunks.push(c));
       res.on('end', () => {
         try { resolve(JSON.parse(Buffer.concat(chunks).toString('utf8'))); }
-        catch (e) { reject(new Error(`JSON parse error: ${e.message}`)); }
+        catch (e) { reject(new Error(`JSON parse: ${e.message}`)); }
       });
       res.on('error', reject);
     });
@@ -203,9 +224,11 @@ async function runTargetDiscovery(options = {}) {
       allProducts.push(...parsed);
       logger.info(`[Discovery:${STORE_LABEL}] "${term}": ${parsed.length} products`);
     } catch (err) {
-      logger.error(`[Discovery:${STORE_LABEL}] Redsky error for "${term}": ${err.message}`);
+      logger.error(`[Discovery:${STORE_LABEL}] Redsky "${term}": ${err.message}`);
       stats.errors++;
-      if (err.message.includes('HTTP 4') || err.message.includes('HTTP 5')) {
+      stats.last_error = err.message;
+      // Hard block — stop trying more terms
+      if (/HTTP (403|429|503)/.test(err.message)) {
         stats.blocked = true;
         break;
       }

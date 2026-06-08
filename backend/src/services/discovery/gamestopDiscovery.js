@@ -48,8 +48,11 @@ const DISCOVERY_PAGES = [
 ];
 
 function linkFilter(href) {
-  // GameStop product URLs: /{category}/products/{name}/{id}.html
-  return !!(href && href.includes('/products/') && /\/\d{5,}\.html/.test(href));
+  if (!href || !href.includes('/products/')) return false;
+  const clean = href.split('?')[0].split('#')[0];
+  // Shopify format: /products/product-slug (current GameStop)
+  // Old format: /category/products/name/12345.html
+  return /\/products\/[a-z0-9][a-z0-9-]{2,}/i.test(clean);
 }
 
 function cleanUrl(href) {

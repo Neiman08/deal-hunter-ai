@@ -125,6 +125,8 @@ app.listen(PORT, () => {
   logger.info(`🚀 Deal Hunter AI v4.0 — port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
   const { startScanJob } = require('./jobs/scanJob');
   startScanJob();
+  const { startWorkerMonitor } = require('./services/workerMonitor');
+  startWorkerMonitor();
 });
 
 module.exports = app; // for testing

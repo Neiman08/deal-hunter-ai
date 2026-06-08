@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Shield, RefreshCw, Users, Store, Activity, AlertCircle,
   CheckCircle, Play, Trash2, TrendingUp, DollarSign, Bell,
-  BarChart3, Zap, Clock, Package, Star
+  BarChart3, Zap, Clock, Package, Star, Cpu, Database, Radio
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LineChart, Line, CartesianGrid } from 'recharts';
 import api from '../utils/api';
@@ -71,6 +71,9 @@ export default function Admin() {
   const [stats, setStats] = useState(DEMO);
   const [logs, setLogs] = useState(DEMO_LOGS);
   const [users, setUsers] = useState(DEMO_USERS);
+  const [workerStatus, setWorkerStatus] = useState(null);
+  const [storeReport, setStoreReport] = useState([]);
+  const [workerRuns, setWorkerRuns] = useState([]);
   const [scanning, setScanning] = useState('');
   const [msg, setMsg] = useState('');
 
@@ -78,7 +81,16 @@ export default function Admin() {
     api.get('/admin/dashboard').then(r => setStats({ ...DEMO, ...r.data })).catch(() => {});
     api.get('/admin/scan-logs').then(r => { if (r.data.logs?.length) setLogs(r.data.logs); }).catch(() => {});
     api.get('/admin/users').then(r => { if (r.data.users?.length) setUsers(r.data.users); }).catch(() => {});
+    api.get('/admin/worker-status').then(r => setWorkerStatus(r.data)).catch(() => {});
+    api.get('/admin/store-report').then(r => { if (r.data.stores) setStoreReport(r.data.stores); }).catch(() => {});
+    api.get('/admin/worker-runs').then(r => { if (r.data.runs) setWorkerRuns(r.data.runs); }).catch(() => {});
   }, []);
+
+  function refreshWorker() {
+    api.get('/admin/worker-status').then(r => setWorkerStatus(r.data)).catch(() => {});
+    api.get('/admin/store-report').then(r => { if (r.data.stores) setStoreReport(r.data.stores); }).catch(() => {});
+    api.get('/admin/worker-runs').then(r => { if (r.data.runs) setWorkerRuns(r.data.runs); }).catch(() => {});
+  }
 
   async function scan(store) {
     setScanning(store);
@@ -108,6 +120,7 @@ export default function Admin() {
   const TABS = [
     { id: 'overview', label: 'Overview' },
     { id: 'revenue', label: 'Revenue' },
+    { id: 'worker', label: 'Worker Monitor' },
     { id: 'scans', label: 'Scan Logs' },
     { id: 'users', label: 'Users' },
     { id: 'actions', label: 'Actions' },
@@ -324,6 +337,146 @@ export default function Admin() {
       )}
 
       {/* ── ACTIONS ── */}
+      {/* ── WORKER MONITOR ── */}
+      {tab === 'worker' && (
+        <div className="space-y-5">
+          {/* Header row */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Cpu size={16} className="text-neon-green" />
+              <span className="text-white font-semibold">Background Worker</span>
+              {workerStatus ? (
+                workerStatus.worker_alive
+                  ? <span className="flex items-center gap-1 text-xs text-neon-green bg-neon-green/10 px-2 py-0.5 rounded-full"><Radio size={10} className="animate-pulse" /> ONLINE</span>
+                  : <span className="flex items-center gap-1 text-xs text-red-400 bg-red-400/10 px-2 py-0.5 rounded-full"><Radio size={10} /> IDLE</span>
+              ) : <span className="text-xs text-dark-400">loading…</span>}
+            </div>
+            <button onClick={refreshWorker} className="flex items-center gap-1 text-xs text-dark-400 hover:text-white transition-colors">
+              <RefreshCw size={12} /> Refresh
+            </button>
+          </div>
+
+          {/* KPI cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="card text-center">
+              <div className="text-dark-400 text-xs mb-1 flex items-center justify-center gap-1"><Database size={11}/> Total Products</div>
+              <div className="text-2xl font-black text-white">{workerStatus?.db_totals?.products?.toLocaleString() ?? '—'}</div>
+              <div className="text-neon-green text-xs mt-1">+{workerStatus?.added_today?.products ?? 0} today</div>
+            </div>
+            <div className="card text-center">
+              <div className="text-dark-400 text-xs mb-1 flex items-center justify-center gap-1"><Activity size={11}/> Active Deals</div>
+              <div className="text-2xl font-black text-neon-green">{workerStatus?.db_totals?.active_deals?.toLocaleString() ?? '—'}</div>
+              <div className="text-neon-green text-xs mt-1">+{workerStatus?.added_today?.deals ?? 0} today</div>
+            </div>
+            <div className="card text-center">
+              <div className="text-dark-400 text-xs mb-1 flex items-center justify-center gap-1"><TrendingUp size={11}/> Prices Logged</div>
+              <div className="text-2xl font-black text-white">{workerStatus?.db_totals?.prices?.toLocaleString() ?? '—'}</div>
+              <div className="text-neon-green text-xs mt-1">+{workerStatus?.added_today?.prices ?? 0} today</div>
+            </div>
+            <div className="card text-center">
+              <div className="text-dark-400 text-xs mb-1 flex items-center justify-center gap-1"><Zap size={11}/> Last 30 min</div>
+              <div className="text-2xl font-black text-white">{workerStatus?.last_30_min?.products ?? '—'}</div>
+              <div className="text-dark-400 text-xs mt-1">products added</div>
+            </div>
+          </div>
+
+          {/* Last run summary */}
+          {workerStatus?.last_run && (
+            <div className="card">
+              <h3 className="text-white font-semibold mb-3 flex items-center gap-2"><Clock size={14} className="text-neon-blue" /> Last Completed Cycle</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-center">
+                {[
+                  ['Products Added', workerStatus.last_run.products_added, 'text-white'],
+                  ['Prices Added',   workerStatus.last_run.prices_added,   'text-white'],
+                  ['Deals Added',    workerStatus.last_run.deals_added,    'text-neon-green'],
+                  ['Duration',       `${Math.round((workerStatus.last_run.duration_seconds||0)/60)}m`, 'text-neon-blue'],
+                ].map(([label, val, cls]) => (
+                  <div key={label} className="bg-dark-800 rounded-xl p-3">
+                    <div className={`text-xl font-black ${cls}`}>{val ?? '—'}</div>
+                    <div className="text-dark-400 text-xs mt-0.5">{label}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 text-xs text-dark-400 flex flex-wrap gap-4">
+                <span>Start: {workerStatus.last_run.period_start ? new Date(workerStatus.last_run.period_start).toLocaleString() : '—'}</span>
+                <span>End: {workerStatus.last_run.period_end ? new Date(workerStatus.last_run.period_end).toLocaleString() : '—'}</span>
+                <span className={workerStatus.last_run.status === 'complete' ? 'text-neon-green' : 'text-red-400'}>
+                  Status: {workerStatus.last_run.status}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Per-store report */}
+          <div className="card">
+            <h3 className="text-white font-semibold mb-3 flex items-center gap-2"><Store size={14} className="text-yellow-400" /> Store Discovery Report</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-dark-400 border-b border-dark-700">
+                    {['Store','Products','Active Deals','Total Deals','Avg Discount','Avg Score','Last Discovery'].map(h => (
+                      <th key={h} className="text-left py-2 pr-3 font-medium">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {storeReport.filter(s => s.total_products > 0 || s.active_deals > 0).map(s => (
+                    <tr key={s.slug} className="border-b border-dark-800 hover:bg-dark-800/50 transition-colors">
+                      <td className="py-2 pr-3 text-white font-medium">{s.name || s.slug}</td>
+                      <td className="py-2 pr-3 text-neon-blue">{s.total_products?.toLocaleString()}</td>
+                      <td className="py-2 pr-3 text-neon-green font-bold">{s.active_deals}</td>
+                      <td className="py-2 pr-3 text-dark-300">{s.total_deals}</td>
+                      <td className="py-2 pr-3 text-yellow-400">{s.avg_discount ? `${s.avg_discount}%` : '—'}</td>
+                      <td className="py-2 pr-3">
+                        {s.avg_score ? (
+                          <span className="font-bold" style={{ color: s.avg_score >= 75 ? '#00ff88' : s.avg_score >= 50 ? '#00d4ff' : '#f59e0b' }}>{s.avg_score}</span>
+                        ) : '—'}
+                      </td>
+                      <td className="py-2 pr-3 text-dark-400">
+                        {s.last_product_added ? timeAgo(s.last_product_added) : 'never'}
+                      </td>
+                    </tr>
+                  ))}
+                  {storeReport.filter(s => s.total_products === 0 && s.active_deals === 0).length > 0 && (
+                    <tr className="border-b border-dark-800 text-dark-600">
+                      <td colSpan={7} className="py-2 text-center text-xs italic">
+                        {storeReport.filter(s => s.total_products === 0 && s.active_deals === 0).map(s => s.name || s.slug).join(', ')} — no data yet
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Cycle history */}
+          {workerRuns.length > 0 && (
+            <div className="card">
+              <h3 className="text-white font-semibold mb-3 flex items-center gap-2"><BarChart3 size={14} className="text-neon-blue" /> Cycle History</h3>
+              <div className="space-y-2">
+                {workerRuns.map(run => (
+                  <div key={run.id} className="flex items-center justify-between bg-dark-800 rounded-lg px-3 py-2 text-xs">
+                    <div className="text-dark-400">{run.period_start ? new Date(run.period_start).toLocaleString() : '—'}</div>
+                    <div className="flex gap-4">
+                      <span className="text-white">+{run.products_added} products</span>
+                      <span className="text-neon-green">+{run.deals_added} deals</span>
+                      <span className="text-dark-400">{Math.round((run.duration_seconds||0)/60)}m</span>
+                      <span className={run.status === 'complete' ? 'text-neon-green' : 'text-red-400'}>{run.status}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!workerStatus && (
+            <div className="card text-center py-8 text-dark-400 text-sm">
+              Loading worker status… (worker monitor initializes 30s after web service restart)
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === 'actions' && (
         <div className="space-y-4">
           <div className="card">

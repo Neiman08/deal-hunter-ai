@@ -695,4 +695,44 @@ router.get('/test-scraper/:store', async (req, res) => {
   }
 });
 
+// ─── Worker Monitor endpoints ─────────────────────────────────────────────────
+
+// GET /admin/worker-status — background worker health + last cycle data
+router.get('/worker-status', async (req, res) => {
+  try {
+    const monitor = require('../services/workerMonitor');
+    const [status, recentRuns] = await Promise.all([
+      monitor.getStatus(),
+      monitor.getRecentRuns(5),
+    ]);
+    res.json({ ok: true, ...status, recent_runs: recentRuns });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// GET /admin/store-report — per-store product/deal breakdown
+router.get('/store-report', async (req, res) => {
+  try {
+    const monitor = require('../services/workerMonitor');
+    const stores  = await monitor.getStoreSummary();
+    res.json({ ok: true, stores, generated_at: new Date().toISOString() });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// GET /admin/worker-runs — recent cycle history
+router.get('/worker-runs', async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit) || 20, 100);
+    const r = await query(
+      'SELECT * FROM worker_runs ORDER BY period_start DESC LIMIT $1', [limit]
+    );
+    res.json({ ok: true, runs: r.rows });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

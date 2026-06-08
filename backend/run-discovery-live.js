@@ -203,28 +203,91 @@ async function logStartup() {
     dbName = u.pathname.replace(/^\//, '') || '(empty)';
   } catch {}
 
+  const pUser = process.env.PROXY_USER || '';
+  const ispUser = process.env.ISP_PROXY_USER || '';
+
   console.log('╔' + '═'.repeat(58) + '╗');
   console.log('║  WORKER STARTUP DIAGNOSTICS' + ' '.repeat(30) + '║');
   console.log('╠' + '═'.repeat(58) + '╣');
-  console.log(`║  NODE_ENV        : ${(process.env.NODE_ENV       || 'not set').padEnd(36)}║`);
-  console.log(`║  DB host         : ${dbHost.padEnd(36)}║`);
-  console.log(`║  DB name         : ${dbName.padEnd(36)}║`);
-  console.log(`║  PROXY_ENABLED   : ${(process.env.PROXY_ENABLED  || 'not set').padEnd(36)}║`);
-  console.log(`║  PROXY_HOST      : ${(process.env.PROXY_HOST     || 'not set').padEnd(36)}║`);
-  console.log(`║  PW_BROWSERS_PATH: ${(process.env.PLAYWRIGHT_BROWSERS_PATH || 'not set').padEnd(36)}║`);
-  console.log(`║  ACTIVE_STORES   : ${(process.env.ACTIVE_STORES  || 'not set (runs all)').padEnd(36)}║`);
+  console.log(`║  NODE_ENV           : ${(process.env.NODE_ENV        || 'not set').padEnd(33)}║`);
+  console.log(`║  DB host            : ${dbHost.padEnd(33)}║`);
+  console.log('╠' + '═'.repeat(58) + '╣');
+  console.log('║  ── PROXY (residential) ──────────────────────────────║');
+  console.log(`║  PROXY_ENABLED      : ${(process.env.PROXY_ENABLED   || 'not set').padEnd(33)}║`);
+  console.log(`║  PROXY_HOST         : ${(process.env.PROXY_HOST      || 'not set').padEnd(33)}║`);
+  console.log(`║  PROXY_PORT         : ${(process.env.PROXY_PORT      || 'not set').padEnd(33)}║`);
+  console.log(`║  PROXY_USER         : ${(pUser ? pUser.slice(0, 33) : 'not set').padEnd(33)}║`);
+  console.log(`║  PROXY_USER (full)  : ${(pUser || 'not set').padEnd(33)}║`);
+  console.log(`║  PROXY_PASS         : ${(process.env.PROXY_PASS ? '***set***' : 'not set').padEnd(33)}║`);
+  console.log('╠' + '═'.repeat(58) + '╣');
+  console.log('║  ── ISP PROXY ────────────────────────────────────────║');
+  console.log(`║  ISP_PROXY_ENABLED  : ${(process.env.ISP_PROXY_ENABLED  || 'not set').padEnd(33)}║`);
+  console.log(`║  ISP_PROXY_HOST     : ${(process.env.ISP_PROXY_HOST     || 'not set').padEnd(33)}║`);
+  console.log(`║  ISP_PROXY_PORT     : ${(process.env.ISP_PROXY_PORT     || 'not set').padEnd(33)}║`);
+  console.log(`║  ISP_PROXY_USER     : ${(ispUser ? ispUser.slice(0, 33) : 'not set').padEnd(33)}║`);
+  console.log(`║  ISP_PROXY_PASS     : ${(process.env.ISP_PROXY_PASS ? '***set***' : 'not set').padEnd(33)}║`);
   console.log('╠' + '═'.repeat(58) + '╣');
 
+  // Immediate connectivity test via configured proxy
+  const https = require('https');
+  async function testIp(label, agentOpts) {
+    return new Promise(resolve => {
+      const opts = { timeout: 10000, rejectUnauthorized: false, ...agentOpts };
+      const req = https.get('https://api.ipify.org?format=json', opts, res => {
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => {
+          try { resolve(`${label}: OK ip=${JSON.parse(Buffer.concat(chunks).toString()).ip}`); }
+          catch { resolve(`${label}: OK (parse error)`); }
+        });
+      });
+      req.on('error', e => resolve(`${label}: FAIL ${e.message}`));
+      req.on('timeout', () => { req.destroy(); resolve(`${label}: TIMEOUT`); });
+    });
+  }
+
+  // Direct
+  const directResult = await testIp('DIRECT', {});
+  console.log(`║  ${directResult.padEnd(55)}║`);
+
+  // Residential proxy test
+  if (process.env.PROXY_ENABLED === 'true' && pUser && process.env.PROXY_PASS) {
+    try {
+      const HttpsProxyAgent = require('https-proxy-agent');
+      const Ctor = typeof HttpsProxyAgent === 'function' ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
+      const url = `http://${pUser}:${process.env.PROXY_PASS}@${process.env.PROXY_HOST}:${process.env.PROXY_PORT}`;
+      const agent = new Ctor(url, { rejectUnauthorized: false });
+      const r = await testIp(`PROXY ${process.env.PROXY_PORT}`, { agent });
+      console.log(`║  ${r.padEnd(55)}║`);
+    } catch (e) {
+      console.log(`║  PROXY_MAIN: AGENT_INIT_FAIL ${e.message.slice(0, 26).padEnd(27)}║`);
+    }
+  }
+
+  // ISP proxy test
+  if (ispUser && process.env.ISP_PROXY_PASS) {
+    try {
+      const HttpsProxyAgent = require('https-proxy-agent');
+      const Ctor = typeof HttpsProxyAgent === 'function' ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
+      const url = `http://${ispUser}:${process.env.ISP_PROXY_PASS}@${process.env.ISP_PROXY_HOST}:${process.env.ISP_PROXY_PORT}`;
+      const agent = new Ctor(url, { rejectUnauthorized: false });
+      const r = await testIp(`ISP ${process.env.ISP_PROXY_PORT}`, { agent });
+      console.log(`║  ${r.padEnd(55)}║`);
+    } catch (e) {
+      console.log(`║  ISP_PROXY: AGENT_INIT_FAIL ${e.message.slice(0, 27).padEnd(27)}║`);
+    }
+  }
+
+  console.log('╠' + '═'.repeat(58) + '╣');
   try {
     const p = await query('SELECT COUNT(*) AS cnt FROM products');
     const d = await query('SELECT COUNT(*) AS cnt FROM deals WHERE is_active = true');
-    console.log(`║  DB products     : ${String(p.rows[0].cnt).padEnd(36)}║`);
-    console.log(`║  DB active deals : ${String(d.rows[0].cnt).padEnd(36)}║`);
-    console.log(`║  DB STATUS       : ${'CONNECTED ✓'.padEnd(36)}║`);
+    console.log(`║  DB products        : ${String(p.rows[0].cnt).padEnd(33)}║`);
+    console.log(`║  DB active deals    : ${String(d.rows[0].cnt).padEnd(33)}║`);
+    console.log(`║  DB STATUS          : ${'CONNECTED ✓'.padEnd(33)}║`);
   } catch (e) {
-    console.log(`║  DB STATUS       : ${'ERROR: '.concat(e.message).slice(0, 36).padEnd(36)}║`);
+    console.log(`║  DB STATUS          : ${'ERROR: '.concat(e.message).slice(0, 33).padEnd(33)}║`);
   }
-
   console.log('╚' + '═'.repeat(58) + '╝');
 }
 

@@ -10,19 +10,28 @@ async function seed() {
 
     // ── Stores ────────────────────────────────────────────────────────────────
     const stores = [
-      { name: 'Walmart', slug: 'walmart', color: '#0071CE', website_url: 'https://walmart.com', scraper_module: 'walmartScraper' },
-      { name: 'Home Depot', slug: 'home-depot', color: '#F96302', website_url: 'https://homedepot.com', scraper_module: 'homeDepotScraper' },
-      { name: 'Target', slug: 'target', color: '#CC0000', website_url: 'https://target.com', scraper_module: null },
-      { name: 'Best Buy', slug: 'best-buy', color: '#003087', website_url: 'https://bestbuy.com', scraper_module: 'scrapers/bestbuy' },
-      { name: "Lowe's", slug: 'lowes', color: '#004990', website_url: 'https://lowes.com', scraper_module: null },
-      { name: "Macy's", slug: 'macys', color: '#E21A2C', website_url: 'https://macys.com', scraper_module: 'scrapers/macys' },
+      { name: 'Walmart',        slug: 'walmart',        color: '#0071CE', website_url: 'https://walmart.com',         scraper_module: 'walmartScraper' },
+      { name: 'Home Depot',     slug: 'home-depot',     color: '#F96302', website_url: 'https://homedepot.com',       scraper_module: 'homeDepotScraper' },
+      { name: 'Target',         slug: 'target',         color: '#CC0000', website_url: 'https://target.com',          scraper_module: null },
+      { name: 'Best Buy',       slug: 'best-buy',       color: '#003087', website_url: 'https://bestbuy.com',         scraper_module: 'scrapers/bestbuy' },
+      { name: "Lowe's",         slug: 'lowes',          color: '#004990', website_url: 'https://lowes.com',           scraper_module: null },
+      { name: "Macy's",         slug: 'macys',          color: '#E21A2C', website_url: 'https://macys.com',           scraper_module: 'scrapers/macys' },
+      { name: 'GameStop',       slug: 'gamestop',       color: '#5D1DB6', website_url: 'https://www.gamestop.com',    scraper_module: null },
+      { name: 'Office Depot',   slug: 'office-depot',   color: '#C8102E', website_url: 'https://www.officedepot.com', scraper_module: null },
+      { name: 'Staples',        slug: 'staples',        color: '#CC0000', website_url: 'https://www.staples.com',     scraper_module: null },
+      { name: "Kohl's",         slug: 'kohls',          color: '#CC0000', website_url: 'https://www.kohls.com',       scraper_module: null },
+      { name: 'Nordstrom Rack', slug: 'nordstrom-rack', color: '#001E5B', website_url: 'https://www.nordstromrack.com', scraper_module: null },
+      { name: 'TJ Maxx',        slug: 'tj-maxx',        color: '#E31837', website_url: 'https://www.tjmaxx.tjx.com', scraper_module: null },
+      { name: 'Marshalls',      slug: 'marshalls',      color: '#C41230', website_url: 'https://www.marshalls.com',   scraper_module: null },
+      { name: 'Burlington',     slug: 'burlington',     color: '#E31837', website_url: 'https://www.burlington.com',  scraper_module: null },
+      { name: 'Costco',         slug: 'costco',         color: '#005DAA', website_url: 'https://www.costco.com',      scraper_module: null },
     ];
     const storeIds = {};
     for (const s of stores) {
       const r = await client.query(
         `INSERT INTO stores (name, slug, color, website_url, scraper_module, is_active)
          VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (slug) DO UPDATE SET name=EXCLUDED.name RETURNING id`,
-        [s.name, s.slug, s.color, s.website_url, s.scraper_module, ['walmart','home-depot'].includes(s.slug)]
+        [s.name, s.slug, s.color, s.website_url, s.scraper_module, true]
       );
       storeIds[s.slug] = r.rows[0].id;
     }

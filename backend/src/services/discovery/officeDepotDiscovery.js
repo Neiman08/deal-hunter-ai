@@ -15,8 +15,9 @@
  * This ensures the DB only accumulates OD products that are genuinely on sale.
  */
 
-const https  = require('https');
-const http   = require('http');
+const https            = require('https');
+const http             = require('http');
+const HttpsProxyAgent  = require('https-proxy-agent');
 const { shouldSkipStore } = require('../proxyManager');
 const { saveProductData } = require('../scraperBase');
 const { query }           = require('../../config/database');
@@ -25,6 +26,23 @@ const logger  = require('../../utils/logger');
 const STORE_SLUG  = 'office-depot';
 const STORE_LABEL = 'Office Depot';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+const PROXY_HOST = process.env.PROXY_HOST || 'brd.superproxy.io';
+const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 22225;
+const PROXY_USER = process.env.PROXY_USER || '';
+const PROXY_PASS = process.env.PROXY_PASS || '';
+
+function makeProxyAgent() {
+  if (process.env.PROXY_ENABLED !== 'true' || !PROXY_USER) return null;
+  try {
+    const url  = `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`;
+    const Ctor = typeof HttpsProxyAgent === 'function' ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
+    return new Ctor(url, { rejectUnauthorized: false });
+  } catch (e) {
+    logger.warn(`[Discovery:${STORE_LABEL}] Proxy agent init failed: ${e.message}`);
+    return null;
+  }
+}
 
 const SITEMAPS = [
   'https://www.officedepot.com/product_sitemap_0.xml',
@@ -61,14 +79,25 @@ const PRINT_SERVICE_PREFIXES = [
   'invitations', 'retractable-banner', 'foam-board', 'a-frame',
 ];
 
-function fetchText(url, hops = 0) {
+function fetchText(url, hops = 0, agent = undefined) {
   if (hops > 5) return Promise.reject(new Error('Too many redirects'));
+  if (hops === 0 && agent === undefined) agent = makeProxyAgent();
   return new Promise((resolve, reject) => {
-    const lib = url.startsWith('https:') ? https : http;
-    const req = lib.get(url, { timeout: 30000 }, res => {
+    const lib  = url.startsWith('https:') ? https : http;
+    const opts = {
+      timeout: 30000,
+      rejectUnauthorized: false,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    };
+    if (agent) opts.agent = agent;
+    const req = lib.get(url, opts, res => {
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
         res.resume();
-        return fetchText(res.headers.location, hops + 1).then(resolve).catch(reject);
+        return fetchText(res.headers.location, hops + 1, agent).then(resolve).catch(reject);
       }
       if (res.statusCode !== 200) {
         res.resume();

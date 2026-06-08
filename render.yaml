@@ -13,7 +13,7 @@ services:
     name: deal-hunter-ai
     env: node
     buildCommand: cd backend && npm ci
-    startCommand: cd backend && node src/index.js
+    startCommand: cd backend && node src/db/add-missing-stores.js ; node src/index.js
     envVars:
       - key: NODE_ENV
         value: production
@@ -24,7 +24,7 @@ services:
     name: deal-hunter-worker
     env: node
     buildCommand: cd backend && npm ci
-    startCommand: cd backend && node run-discovery-live.js
+    startCommand: cd backend && node src/db/add-missing-stores.js ; node run-discovery-live.js
     envVars:
       - key: NODE_ENV
         value: production

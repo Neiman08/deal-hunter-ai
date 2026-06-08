@@ -11,8 +11,9 @@
  * Playwright scraper which runs through the residential proxy.
  */
 
-const https  = require('https');
-const http   = require('http');
+const https            = require('https');
+const http             = require('http');
+const HttpsProxyAgent  = require('https-proxy-agent');
 const { filterNewUrls, sleep, runStoreDiscovery } = require('./baseRetailerDiscovery');
 const { newContext, newBestBuyContext } = require('../browserEngine');
 const { shouldSkipStore }    = require('../proxyManager');
@@ -20,6 +21,23 @@ const logger  = require('../../utils/logger');
 
 const STORE_SLUG  = 'lowes';
 const STORE_LABEL = "Lowe's";
+
+const PROXY_HOST = process.env.PROXY_HOST || 'brd.superproxy.io';
+const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 22225;
+const PROXY_USER = process.env.PROXY_USER || '';
+const PROXY_PASS = process.env.PROXY_PASS || '';
+
+function makeProxyAgent() {
+  if (process.env.PROXY_ENABLED !== 'true' || !PROXY_USER) return null;
+  try {
+    const url  = `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`;
+    const Ctor = typeof HttpsProxyAgent === 'function' ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
+    return new Ctor(url, { rejectUnauthorized: false });
+  } catch (e) {
+    logger.warn(`[Discovery:${STORE_LABEL}] Proxy agent init failed: ${e.message}`);
+    return null;
+  }
+}
 
 // Sitemap index: lowes.com/sitemap.xml → detail0.xml … detail400.xml
 const SITEMAP_BASE  = 'https://www.lowes.com/sitemap/detail';
@@ -69,20 +87,24 @@ const EXCLUDE_PREFIXES = [
   'warranty-', 'protection-plan-', 'measure-and-install',
 ];
 
-function fetchText(url, hops = 0) {
+function fetchText(url, hops = 0, agent = undefined) {
   if (hops > 5) return Promise.reject(new Error('Too many redirects'));
+  if (hops === 0 && agent === undefined) agent = makeProxyAgent();
   return new Promise((resolve, reject) => {
-    const lib = url.startsWith('https:') ? https : http;
-    const req = lib.get(url, {
+    const lib  = url.startsWith('https:') ? https : http;
+    const opts = {
       timeout: 30000,
+      rejectUnauthorized: false,
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
         'Accept': 'text/html,application/xml',
       },
-    }, res => {
+    };
+    if (agent) opts.agent = agent;
+    const req = lib.get(url, opts, res => {
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
         res.resume();
-        return fetchText(res.headers.location, hops + 1).then(resolve).catch(reject);
+        return fetchText(res.headers.location, hops + 1, agent).then(resolve).catch(reject);
       }
       if (res.statusCode !== 200) {
         res.resume();

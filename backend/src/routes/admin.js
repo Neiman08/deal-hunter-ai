@@ -134,21 +134,34 @@ router.post('/discovery', async (req, res) => {
     'nordstrom-rack': () => loadDiscovery('nordstromRackDiscovery')(),
   };
 
+  const { acquireLock, releaseLock } = require('../services/discoveryLock');
+  const lockLabel = store || 'all';
+  if (!acquireLock(lockLabel)) {
+    const { getStatus } = require('../services/discoveryLock');
+    return res.status(409).json({ error: 'Discovery already running', status: getStatus() });
+  }
+
   const targets = store ? [store] : Object.keys(DISCOVERY_MODULES);
   res.json({ message: `Discovery triggered for: ${targets.join(', ')}`, stores: targets, queued: true });
 
   setImmediate(async () => {
+    const { isStopRequested } = require('../services/discoveryLock');
     const results = {};
-    for (const slug of targets) {
-      const fn = DISCOVERY_MODULES[slug];
-      if (!fn) { results[slug] = { error: 'No discovery module' }; continue; }
-      try {
-        results[slug] = await fn();
-        console.log(`[Discovery:${slug}] done:`, JSON.stringify(results[slug]).slice(0, 200));
-      } catch (err) {
-        console.error(`[Discovery:${slug}] error:`, err.message);
-        results[slug] = { error: err.message };
+    try {
+      for (const slug of targets) {
+        if (isStopRequested()) { results[slug] = { skipped: 'stop_requested' }; continue; }
+        const fn = DISCOVERY_MODULES[slug];
+        if (!fn) { results[slug] = { error: 'No discovery module' }; continue; }
+        try {
+          results[slug] = await fn();
+          console.log(`[Discovery:${slug}] done:`, JSON.stringify(results[slug]).slice(0, 200));
+        } catch (err) {
+          console.error(`[Discovery:${slug}] error:`, err.message);
+          results[slug] = { error: err.message };
+        }
       }
+    } finally {
+      releaseLock();
     }
     console.log('[Admin/discovery] All done:', JSON.stringify(results).slice(0, 500));
   });
@@ -543,10 +556,33 @@ router.post('/clear-failures', async (req, res) => {
   }
 });
 
+// GET /admin/discovery-status — current discovery lock state
+router.get('/discovery-status', (req, res) => {
+  const { getStatus } = require('../services/discoveryLock');
+  res.json(getStatus());
+});
+
+// POST /admin/stop-discovery — request graceful stop of running discovery
+router.post('/stop-discovery', (req, res) => {
+  const { getStatus, requestStop } = require('../services/discoveryLock');
+  const before = getStatus();
+  if (!before.running) return res.json({ ok: false, message: 'No discovery running' });
+  requestStop();
+  res.json({ ok: true, message: `Stop requested for ${before.store}`, status: getStatus() });
+});
+
 // GET /admin/test-discovery/:store — run ONE store's discovery synchronously, return full result
+// Protected by global lock — rejects if another discovery is already running.
 router.get('/test-discovery/:store', async (req, res) => {
   const { store } = req.params;
+  const { acquireLock, releaseLock } = require('../services/discoveryLock');
   const start = Date.now();
+
+  if (!acquireLock(store)) {
+    const { getStatus } = require('../services/discoveryLock');
+    return res.status(409).json({ ok: false, error: 'Discovery already running', status: getStatus() });
+  }
+
   try {
     function loadDiscovery(file) {
       const mod = require(`../services/discovery/${file}`);
@@ -569,6 +605,8 @@ router.get('/test-discovery/:store', async (req, res) => {
     res.json({ ok: true, store, result, elapsed_ms: Date.now() - start });
   } catch (err) {
     res.status(500).json({ ok: false, store, error: err.message, elapsed_ms: Date.now() - start });
+  } finally {
+    releaseLock();
   }
 });
 

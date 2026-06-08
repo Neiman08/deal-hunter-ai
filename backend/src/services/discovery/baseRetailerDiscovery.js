@@ -8,6 +8,7 @@
 const { query }         = require('../../config/database');
 const { saveProductData } = require('../scraperBase');
 const { logProxyFailure, clearFailures, shouldSkipStore } = require('../proxyManager');
+const { isStopRequested } = require('../discoveryLock');
 const logger            = require('../../utils/logger');
 
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -304,6 +305,12 @@ async function runStoreDiscovery(config) {
   let consecutiveEmpty = 0;
 
   for (const p of pages) {
+    if (isStopRequested()) {
+      logger.warn(`[Discovery:${storeLabel}] Stop requested — aborting URL collection`);
+      stats.blocked = false;
+      stats.blockType = 'stop_requested';
+      break;
+    }
     if (allRaw.length >= maxTotal * 3) break;
     if (consecutiveEmpty >= maxConsecutiveEmpty) {
       logger.warn(`[Discovery:${storeLabel}] ${maxConsecutiveEmpty} consecutive empty pages — stopping URL collection`);
@@ -428,6 +435,10 @@ async function runStoreDiscovery(config) {
   }
 
   for (let i = 0; i < toProcess.length; i += CONCURRENCY) {
+    if (isStopRequested()) {
+      logger.warn(`[Discovery:${storeLabel}] Stop requested — aborting scan phase`);
+      break;
+    }
     await Promise.all(toProcess.slice(i, i + CONCURRENCY).map((url, j) => scanOne(url, i + j)));
   }
 

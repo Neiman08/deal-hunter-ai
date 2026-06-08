@@ -826,6 +826,48 @@ router.get('/test-proxy', async (req, res) => {
   res.json({ ok: true, env: envSnapshot, tests: results });
 });
 
+// POST /admin/fix-macys-urls — append ?ID= to broken Macy's product_url rows
+// Macy's xapi used to return /shop/product/slug without ?ID=.
+// The product SKU IS the numeric product ID, so we can reconstruct correct URLs.
+router.post('/fix-macys-urls', async (req, res) => {
+  try {
+    const preview = req.query.preview === '1';
+
+    // Count affected rows first
+    const countRes = await query(`
+      SELECT COUNT(*) AS n FROM products p
+      JOIN stores s ON p.store_id = s.id
+      WHERE s.slug = 'macys'
+        AND p.product_url IS NOT NULL
+        AND p.product_url NOT LIKE '%?ID=%'
+        AND p.product_url NOT LIKE '%&ID=%'
+        AND p.sku ~ '^[0-9]+$'
+    `);
+    const affected = parseInt(countRes.rows[0]?.n || 0);
+
+    if (preview || affected === 0) {
+      return res.json({ ok: true, preview: true, affected, message: `${affected} rows would be updated` });
+    }
+
+    const updateRes = await query(`
+      UPDATE products p
+      SET product_url = p.product_url || '?ID=' || p.sku,
+          updated_at  = NOW()
+      FROM stores s
+      WHERE p.store_id = s.id
+        AND s.slug = 'macys'
+        AND p.product_url IS NOT NULL
+        AND p.product_url NOT LIKE '%?ID=%'
+        AND p.product_url NOT LIKE '%&ID=%'
+        AND p.sku ~ '^[0-9]+$'
+    `);
+
+    res.json({ ok: true, updated: updateRes.rowCount, message: `Fixed ${updateRes.rowCount} Macy's product URLs` });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // POST /admin/ensure-stores — upsert all 15 discovery stores (idempotent)
 router.post('/ensure-stores', async (req, res) => {
   const STORES = [

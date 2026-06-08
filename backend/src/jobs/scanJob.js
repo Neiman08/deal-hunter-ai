@@ -107,8 +107,12 @@ async function runScan(storeSlug = null) {
     const storeStart = Date.now();
     logger.info(`\n[ScanJob] ── Starting ${store} ──`);
 
+    const STORE_TIMEOUT_MS = 12 * 60 * 1000; // 12 minutes per store
     try {
-      const result = await scraper();
+      const result = await Promise.race([
+        scraper(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error(`Scan timeout after 12min`)), STORE_TIMEOUT_MS)),
+      ]);
       totals.scanned += result.products_scanned || 0;
       totals.deals   += result.deals_found      || 0;
       totals.errors  += result.errors           || 0;

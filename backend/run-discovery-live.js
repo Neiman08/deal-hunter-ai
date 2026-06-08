@@ -167,7 +167,9 @@ function loadEngines() {
   return engines;
 }
 
-// ─── Run one engine safely ────────────────────────────────────────────────────
+// ─── Run one engine safely (10-minute hard timeout per store) ─────────────────
+const STORE_TIMEOUT_MS = 10 * 60 * 1000;
+
 async function runEngine(engines, slug, opts, label) {
   const eng = engines[slug];
   if (!eng) return null;
@@ -178,7 +180,10 @@ async function runEngine(engines, slug, opts, label) {
     const fn = eng.runDiscovery
       || eng[`run${slug.split('-').map(s=>s[0].toUpperCase()+s.slice(1)).join('')}Discovery`];
     if (!fn) { console.log(`  ⚠️  No runDiscovery export for ${slug}`); return null; }
-    const s = await fn(opts);
+    const s = await Promise.race([
+      fn(opts),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`Store timeout after ${STORE_TIMEOUT_MS / 60000}min`)), STORE_TIMEOUT_MS)),
+    ]);
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     const blocked  = s.blocked ? ` ⛔BLOCKED(${s.blockType || '?'})` : '';
     const errInfo  = s.last_error ? ` last_error="${s.last_error}"` : '';

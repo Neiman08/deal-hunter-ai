@@ -13,8 +13,8 @@
 
 const https            = require('https');
 const http             = require('http');
-const HttpsProxyAgent  = require('https-proxy-agent');
 const { filterNewUrls, sleep, runStoreDiscovery } = require('./baseRetailerDiscovery');
+const { buildHttpProxyAgent } = require('../../utils/proxyUtils');
 const { newContext, newBestBuyContext } = require('../browserEngine');
 const { shouldSkipStore }    = require('../proxyManager');
 const logger  = require('../../utils/logger');
@@ -22,37 +22,9 @@ const logger  = require('../../utils/logger');
 const STORE_SLUG  = 'lowes';
 const STORE_LABEL = "Lowe's";
 
-const PROXY_HOST = process.env.PROXY_HOST || 'brd.superproxy.io';
-const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 22225;
-const PROXY_USER = process.env.PROXY_USER || '';
-const PROXY_PASS = process.env.PROXY_PASS || '';
-
-console.log("[Discovery:Lowes] ── PROXY CONFIG ──");
-console.log(`[Discovery:Lowes] PROXY_ENABLED    = ${process.env.PROXY_ENABLED}`);
-console.log(`[Discovery:Lowes] PROXY_PORT       = ${PROXY_PORT}  (22225=residential 33335=ISP)`);
-console.log(`[Discovery:Lowes] PROXY_USER       = ${PROXY_USER}`);
-console.log(`[Discovery:Lowes] ISP_PROXY_USER   = ${process.env.ISP_PROXY_USER || '(not set)'}`);
-console.log(`[Discovery:Lowes] Proxy URL        = http://${PROXY_USER}:***@${PROXY_HOST}:${PROXY_PORT}`);
-
+// Proxy auto-corrected by buildHttpProxyAgent (residential→22225, ISP→33335)
 function makeProxyAgent() {
-  console.log(`[Discovery:Lowes] PROXY_ENABLED=${process.env.PROXY_ENABLED} ISP_PROXY_ENABLED=${process.env.ISP_PROXY_ENABLED}`);
-  console.log(`[Discovery:Lowes] PROXY_HOST=${process.env.PROXY_HOST} PROXY_PORT=${process.env.PROXY_PORT}`);
-  console.log(`[Discovery:Lowes] PROXY_USER=${(process.env.PROXY_USER || '').slice(0, 30)}... hasPass=${!!process.env.PROXY_PASS}`);
-
-  if (process.env.PROXY_ENABLED !== 'true' || !PROXY_USER) {
-    console.log(`[Discovery:Lowes] DIRECT connection (proxy disabled or no user)`);
-    return null;
-  }
-  try {
-    const url  = `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`;
-    const Ctor = typeof HttpsProxyAgent === 'function' ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
-    const agent = new Ctor(url, { rejectUnauthorized: false });
-    console.log(`[Discovery:Lowes] Using proxy: ${PROXY_HOST}:${PROXY_PORT}`);
-    return agent;
-  } catch (e) {
-    logger.warn(`[Discovery:${STORE_LABEL}] Proxy agent init failed: ${e.message}`);
-    return null;
-  }
+  return buildHttpProxyAgent('Lowes');
 }
 
 // Sitemap index: lowes.com/sitemap.xml → detail0.xml … detail400.xml

@@ -10,8 +10,8 @@
  */
 
 const https            = require('https');
-const HttpsProxyAgent  = require('https-proxy-agent');
 const { query }           = require('../../config/database');
+const { buildHttpProxyAgent } = require('../../utils/proxyUtils');
 const { saveProductData } = require('../scraperBase');
 const { isStopRequested } = require('../discoveryLock');
 const logger              = require('../../utils/logger');
@@ -24,22 +24,16 @@ const REDSKY_URL = 'https://redsky.target.com/redsky_aggregations/v1/web/plp_sea
 // Fixed visitor_id — Target uses it for analytics only; any valid UUID works
 const VISITOR_ID = '018fe9e2-a8a9-7e84-9a99-4c9d44b0de95';
 
-// BrightData residential proxy (same credentials as browserEngine)
+// BrightData residential proxy — port/zone auto-corrected by buildHttpProxyAgent
 const PROXY_HOST = process.env.PROXY_HOST || 'brd.superproxy.io';
 const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 22225;
 const PROXY_USER = process.env.PROXY_USER || '';
-const PROXY_PASS = process.env.PROXY_PASS || '';
-const PROXY_URL  = `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`;
 
 console.log('[Discovery:Target] ── PROXY CONFIG ──');
 console.log(`[Discovery:Target] PROXY_ENABLED    = ${process.env.PROXY_ENABLED}`);
-console.log(`[Discovery:Target] ISP_PROXY_ENABLED= ${process.env.ISP_PROXY_ENABLED}`);
 console.log(`[Discovery:Target] PROXY_HOST       = ${PROXY_HOST}`);
 console.log(`[Discovery:Target] PROXY_PORT       = ${PROXY_PORT}  (22225=residential 33335=ISP)`);
 console.log(`[Discovery:Target] PROXY_USER       = ${PROXY_USER}`);
-console.log(`[Discovery:Target] ISP_PROXY_HOST   = ${process.env.ISP_PROXY_HOST || '(not set)'}`);
-console.log(`[Discovery:Target] ISP_PROXY_PORT   = ${process.env.ISP_PROXY_PORT || '(not set)'}`);
-console.log(`[Discovery:Target] ISP_PROXY_USER   = ${process.env.ISP_PROXY_USER || '(not set)'}`);
 console.log(`[Discovery:Target] Proxy URL        = http://${PROXY_USER}:***@${PROXY_HOST}:${PROXY_PORT}`);
 
 // Search terms rotated per cycle — varied to spread over categories
@@ -61,24 +55,7 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 // ── HTTP fetch helper (always via residential proxy) ─────────────────────────
 function fetchJson(url) {
   return new Promise((resolve, reject) => {
-    const proxyEnabled = process.env.PROXY_ENABLED === 'true';
-    console.log(`[Discovery:Target] PROXY_ENABLED=${process.env.PROXY_ENABLED} ISP_PROXY_ENABLED=${process.env.ISP_PROXY_ENABLED}`);
-    console.log(`[Discovery:Target] PROXY_HOST=${process.env.PROXY_HOST} PROXY_PORT=${process.env.PROXY_PORT}`);
-    console.log(`[Discovery:Target] PROXY_USER=${(process.env.PROXY_USER || '').slice(0, 30)}... hasPass=${!!process.env.PROXY_PASS}`);
-
-    let agent = null;
-    if (proxyEnabled && PROXY_USER) {
-      try {
-        const Ctor = typeof HttpsProxyAgent === 'function'
-          ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
-        agent = new Ctor(PROXY_URL, { rejectUnauthorized: false });
-        console.log(`[Discovery:Target] Using proxy: ${PROXY_HOST}:${PROXY_PORT}`);
-      } catch (e) {
-        logger.warn(`[Discovery:${STORE_LABEL}] Proxy agent init failed: ${e.message}`);
-      }
-    } else {
-      console.log(`[Discovery:Target] DIRECT connection (no proxy)`);
-    }
+    const agent = buildHttpProxyAgent('Target');
 
     const opts = {
       timeout: 30000,

@@ -168,10 +168,14 @@ async function fetchProductData(page, productId) {
   const id        = String(p.identifier?.productId || productId);
   const brand     = p.detail?.brand?.name || null;
   const imageFile = p.imagery?.images?.[0]?.filePath;
-  // Use canonical URL from xapi if available, otherwise build it
-  const canonicalUrl = p.identifier?.productUrl
+  // Use canonical URL from xapi if available, otherwise build it.
+  // xapi productUrl returns /shop/product/slug WITHOUT ?ID= — always append it.
+  let canonicalUrl = p.identifier?.productUrl
     ? `${BASE_URL}${p.identifier.productUrl}`
     : buildProductUrl(id, name, brand);
+  if (!canonicalUrl.includes('?ID=') && !canonicalUrl.includes('&ID=')) {
+    canonicalUrl += (canonicalUrl.includes('?') ? '&' : '?') + 'ID=' + id;
+  }
 
   return {
     name,

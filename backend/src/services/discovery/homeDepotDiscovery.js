@@ -13,8 +13,8 @@
  */
 
 const https = require('https');
-const HttpsProxyAgent = require('https-proxy-agent');
 const { newContext, newBestBuyContext } = require('../browserEngine');
+const { buildHttpProxyAgent } = require('../../utils/proxyUtils');
 const { filterNewUrls, sleep, runStoreDiscovery } = require('./baseRetailerDiscovery');
 const { shouldSkipStore } = require('../proxyManager');
 const { scanSingleProduct } = require('../../jobs/scanJob');
@@ -23,12 +23,10 @@ const logger = require('../../utils/logger');
 const STORE_SLUG  = 'home-depot';
 const STORE_LABEL = 'Home Depot';
 
-// BrightData residential proxy
+// BrightData residential proxy — port/zone auto-corrected by buildHttpProxyAgent
 const PROXY_HOST = process.env.PROXY_HOST || 'brd.superproxy.io';
 const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 22225;
-const PROXY_USER = process.env.PROXY_USER || 'brd-customer-hl_baafcac4-zone-residential_proxy1-country-us';
-const PROXY_PASS = process.env.PROXY_PASS || 'p1p2vbv91h3i';
-const PROXY_URL  = `http://${PROXY_USER}:${PROXY_PASS}@${PROXY_HOST}:${PROXY_PORT}`;
+const PROXY_USER = process.env.PROXY_USER || '';
 
 // ── Proxy diagnostics (printed once at module load) ───────────────────────────
 console.log('[Discovery:HomeDepot] ── PROXY CONFIG ──');
@@ -41,34 +39,7 @@ console.log(`[Discovery:HomeDepot] PROXY_PASS       = ${PROXY_PASS ? '***set***'
 console.log(`[Discovery:HomeDepot] ISP_PROXY_HOST   = ${process.env.ISP_PROXY_HOST || '(not set)'}`);
 console.log(`[Discovery:HomeDepot] ISP_PROXY_PORT   = ${process.env.ISP_PROXY_PORT || '(not set)'}`);
 console.log(`[Discovery:HomeDepot] ISP_PROXY_USER   = ${process.env.ISP_PROXY_USER || '(not set)'}`);
-const _maskedUrl = `http://${PROXY_USER}:***@${PROXY_HOST}:${PROXY_PORT}`;
-console.log(`[Discovery:HomeDepot] Proxy URL        = ${_maskedUrl}`);
-// Live test — same agent the sitemap fetch uses
-(async () => {
-  if (process.env.PROXY_ENABLED !== 'true') return;
-  try {
-    const _AgentCtor = typeof HttpsProxyAgent === 'function' ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
-    const _agent = new _AgentCtor(PROXY_URL, { rejectUnauthorized: false });
-    await new Promise((resolve) => {
-      const _req = https.get('https://api.ipify.org?format=json', { agent: _agent, timeout: 10000, rejectUnauthorized: false }, _res => {
-        const _chunks = [];
-        _res.on('data', c => _chunks.push(c));
-        _res.on('end', () => {
-          try {
-            const _ip = JSON.parse(Buffer.concat(_chunks).toString()).ip;
-            console.log(`[Discovery:HomeDepot] Proxy test OK — exit IP: ${_ip}`);
-          } catch { console.log(`[Discovery:HomeDepot] Proxy test OK (parse err)`); }
-          resolve();
-        });
-        _res.on('error', e => { console.log(`[Discovery:HomeDepot] Proxy test READ ERR: ${e.message}`); resolve(); });
-      });
-      _req.on('error', e => { console.log(`[Discovery:HomeDepot] Proxy test FAIL: ${e.message}`); resolve(); });
-      _req.on('timeout', () => { _req.destroy(); console.log(`[Discovery:HomeDepot] Proxy test TIMEOUT`); resolve(); });
-    });
-  } catch (e) {
-    console.log(`[Discovery:HomeDepot] Proxy agent init FAIL: ${e.message}`);
-  }
-})();
+console.log(`[Discovery:HomeDepot] Proxy URL        = http://${PROXY_USER}:***@${PROXY_HOST}:${PROXY_PORT}`);
 
 // HD product sitemap index (88 files: PIP-0.xml … PIP-87.xml)
 const SITEMAP_BASE  = 'https://www.homedepot.com/sitemap/P/PIPs/PIP/PIP-';
@@ -118,16 +89,8 @@ function seededShuffle(arr, seed) {
 // Fetch HD sitemap via BrightData residential proxy (proper CONNECT tunnel)
 function fetchSitemapViaProxy(url) {
   return new Promise((resolve, reject) => {
-    let agent;
-    try {
-      // https-proxy-agent v5 default export is the constructor
-      const AgentCtor = typeof HttpsProxyAgent === 'function'
-        ? HttpsProxyAgent
-        : HttpsProxyAgent.HttpsProxyAgent;
-      agent = new AgentCtor(PROXY_URL, { rejectUnauthorized: false });
-    } catch (e) {
-      return reject(new Error(`Proxy agent init failed: ${e.message}`));
-    }
+    const agent = buildHttpProxyAgent('HomeDepot');
+    if (!agent) return reject(new Error('Proxy not configured (PROXY_ENABLED or credentials missing)'));
 
     const req = https.get(url, {
       agent,

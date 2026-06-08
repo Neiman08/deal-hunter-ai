@@ -8,7 +8,7 @@
  */
 
 const { runStoreDiscovery }    = require('./baseRetailerDiscovery');
-const { newBestBuyContext }    = require('../browserEngine');
+const { newContext, newBestBuyContext } = require('../browserEngine');
 const { shouldSkipStore }      = require('../proxyManager');
 const logger = require('../../utils/logger');
 
@@ -47,7 +47,7 @@ async function runWalmartDiscovery(options = {}) {
       storeSlug:           STORE_SLUG,
       storeLabel:          STORE_LABEL,
       pages:               DISCOVERY_PAGES,
-      getContext:          () => newBestBuyContext(),
+      getContext:          () => process.env.PROXY_ENABLED === 'true' ? newContext() : newBestBuyContext(),
       linkFilter,
       cleanUrl,
       maxPerPage:          options.maxPerPage || 30,

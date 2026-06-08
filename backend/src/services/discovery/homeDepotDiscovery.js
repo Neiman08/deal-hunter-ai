@@ -14,7 +14,7 @@
 
 const https = require('https');
 const HttpsProxyAgent = require('https-proxy-agent');
-const { newBestBuyContext } = require('../browserEngine');
+const { newContext, newBestBuyContext } = require('../browserEngine');
 const { filterNewUrls, sleep, runStoreDiscovery } = require('./baseRetailerDiscovery');
 const { shouldSkipStore } = require('../proxyManager');
 const { scanSingleProduct } = require('../../jobs/scanJob');
@@ -163,7 +163,7 @@ async function discoverViaPlaywright(options) {
     storeSlug:  STORE_SLUG,
     storeLabel: STORE_LABEL,
     pages:      DISCOVERY_PAGES,
-    getContext: () => newBestBuyContext(),
+    getContext: () => process.env.PROXY_ENABLED === 'true' ? newContext() : newBestBuyContext(),
     linkFilter,
     cleanUrl,
     maxPerPage: options.maxPerPage || 30,

@@ -14,7 +14,7 @@
 const https  = require('https');
 const http   = require('http');
 const { filterNewUrls, sleep, runStoreDiscovery } = require('./baseRetailerDiscovery');
-const { newBestBuyContext }  = require('../browserEngine');
+const { newContext, newBestBuyContext } = require('../browserEngine');
 const { shouldSkipStore }    = require('../proxyManager');
 const logger  = require('../../utils/logger');
 
@@ -135,7 +135,7 @@ async function runLowesPlaywrightFallback(options = {}) {
     storeSlug:           STORE_SLUG,
     storeLabel:          STORE_LABEL,
     pages:               PLAYWRIGHT_PAGES,
-    getContext:          () => newBestBuyContext(),
+    getContext:          () => process.env.PROXY_ENABLED === 'true' ? newContext() : newBestBuyContext(),
     linkFilter,
     cleanUrl,
     maxPerPage:          options.maxPerPage || 30,

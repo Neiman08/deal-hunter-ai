@@ -543,6 +543,35 @@ router.post('/clear-failures', async (req, res) => {
   }
 });
 
+// GET /admin/test-discovery/:store — run ONE store's discovery synchronously, return full result
+router.get('/test-discovery/:store', async (req, res) => {
+  const { store } = req.params;
+  const start = Date.now();
+  try {
+    function loadDiscovery(file) {
+      const mod = require(`../services/discovery/${file}`);
+      return mod.runDiscovery || Object.values(mod).find(v => typeof v === 'function');
+    }
+    const FILE_MAP = {
+      'walmart': 'walmartDiscovery', 'best-buy': 'bestBuyDiscovery',
+      'home-depot': 'homeDepotDiscovery', 'target': 'targetDiscovery',
+      'lowes': 'lowesDiscovery', 'macys': 'macysDiscovery',
+      'tj-maxx': 'tjmaxxDiscovery', 'marshalls': 'marshallsDiscovery',
+      'kohls': 'kohlsDiscovery', 'costco': 'costcoDiscovery',
+      'gamestop': 'gamestopDiscovery', 'office-depot': 'officeDepotDiscovery',
+      'staples': 'staplesDiscovery', 'nordstrom-rack': 'nordstromRackDiscovery',
+    };
+    const file = FILE_MAP[store];
+    if (!file) return res.status(400).json({ error: `Unknown store: ${store}` });
+    const fn = loadDiscovery(file);
+    if (!fn) return res.status(500).json({ error: `No discovery function for ${store}` });
+    const result = await fn({ maxPerPage: 10, maxTotal: 10 });
+    res.json({ ok: true, store, result, elapsed_ms: Date.now() - start });
+  } catch (err) {
+    res.status(500).json({ ok: false, store, error: err.message, elapsed_ms: Date.now() - start });
+  }
+});
+
 // GET /admin/test-browser — verify Playwright Chromium is available on this server
 router.get('/test-browser', async (req, res) => {
   const start = Date.now();

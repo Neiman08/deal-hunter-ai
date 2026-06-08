@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: deal-hunter-ai-frontend
+    env: static
+    buildCommand: cd frontend && npm ci && npm run build
+    staticPublishPath: ./frontend/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  - type: web
+    name: deal-hunter-ai
+    env: node
+    buildCommand: cd backend && npm ci
+    startCommand: cd backend && node src/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001

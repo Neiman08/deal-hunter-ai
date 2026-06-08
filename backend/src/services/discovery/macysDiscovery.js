@@ -54,7 +54,7 @@ async function createSession() {
   chromium.use(stealth());
 
   const browser = await chromium.launch({
-    headless: false,
+    headless: process.env.NODE_ENV !== 'development',
     args: ['--disable-blink-features=AutomationControlled'],
   });
   const ctx = await browser.newContext({

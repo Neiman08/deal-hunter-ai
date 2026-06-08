@@ -19,3 +19,12 @@ services:
         value: production
       - key: PORT
         value: 3001
+
+  - type: worker
+    name: deal-hunter-worker
+    env: node
+    buildCommand: cd backend && npm ci
+    startCommand: cd backend && node run-discovery-live.js
+    envVars:
+      - key: NODE_ENV
+        value: production

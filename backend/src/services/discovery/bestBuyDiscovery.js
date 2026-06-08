@@ -836,4 +836,4 @@ async function runBestBuyDiscovery(options = {}) {
   return stats;
 }
 
-module.exports = { runBestBuyDiscovery, extractCardsFromSearchPage, SEARCH_KEYWORDS };
+module.exports = { runBestBuyDiscovery, runDiscovery: runBestBuyDiscovery, extractCardsFromSearchPage, SEARCH_KEYWORDS };

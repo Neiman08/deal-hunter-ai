@@ -333,13 +333,10 @@ async function getBestBuyBrowser() {
   if (bbLaunchPromise) return bbLaunchPromise;
 
   bbLaunchPromise = (async () => {
-    const headless = process.env.PLAYWRIGHT_HEADLESS !== 'false';
-
-    // Build the cleanest possible args list.
-    // On Linux/CI we need --no-sandbox. On Mac locally, even those can be omitted.
-    // --disable-gpu, --disable-dev-shm-usage, --disable-blink-features removed —
-    // the only test that loaded BB successfully used a plain Playwright launch.
     const isLinux = process.platform === 'linux';
+    // Force headless on Linux (no X server available on Render/CI)
+    const headless = isLinux ? true : process.env.PLAYWRIGHT_HEADLESS !== 'false';
+
     const args = isLinux
       ? ['--no-sandbox', '--disable-setuid-sandbox']
       : [];

@@ -494,8 +494,8 @@ router.get('/db-counts', async (req, res) => {
              ORDER BY p.created_at DESC LIMIT 5`),
       query(`SELECT pr.id, pr.product_id, pr.current_price, pr.regular_price, pr.discount_percent, pr.recorded_at
              FROM prices pr ORDER BY pr.recorded_at DESC LIMIT 5`),
-      query(`SELECT d.id, d.product_name, d.deal_price, d.discount_percent, d.opportunity_score, d.is_active, d.detected_at
-             FROM deals d ORDER BY d.detected_at DESC LIMIT 5`),
+      query(`SELECT d.id, p.name as product_name, d.deal_price, d.discount_percent, d.opportunity_score, d.is_active, d.detected_at
+             FROM deals d JOIN products p ON d.product_id = p.id ORDER BY d.detected_at DESC LIMIT 5`),
       query(`SELECT store_name, status, products_scanned, deals_found, errors_count, duration_seconds, started_at, completed_at
              FROM scan_logs ORDER BY started_at DESC LIMIT 5`),
     ]);

@@ -207,7 +207,7 @@ async function getStoreSummary() {
       MAX(p.created_at)                                             AS last_product_added
     FROM stores s
     LEFT JOIN products p ON p.store_id = s.id
-    LEFT JOIN deals   d ON d.store_id  = s.id
+    LEFT JOIN deals   d ON d.product_id = p.id
     GROUP BY s.id, s.slug, s.name
     ORDER BY total_products DESC
   `);

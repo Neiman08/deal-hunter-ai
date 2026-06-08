@@ -594,6 +594,39 @@ router.get('/test-browser', async (req, res) => {
   }
 });
 
+// GET /admin/test-links?url=... — dump raw hrefs from a page (debug: find what linkFilter should match)
+router.get('/test-links', async (req, res) => {
+  const { url, wait = 'networkidle', scroll = '1' } = req.query;
+  if (!url) return res.status(400).json({ error: 'url query param required' });
+  const start = Date.now();
+  let ctx = null;
+  try {
+    const { newBestBuyContext } = require('../services/browserEngine');
+    ctx = await newBestBuyContext();
+    const page = await ctx.newPage();
+    await page.goto(url, { waitUntil: wait, timeout: 45000 });
+    if (scroll === '1') {
+      for (let i = 0; i < 5; i++) {
+        await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+        await page.waitForTimeout(600);
+      }
+    }
+    const title = await page.title();
+    const hrefs = await page.evaluate(() => {
+      const s = new Set();
+      document.querySelectorAll('a[href]').forEach(a => { const h = a.getAttribute('href'); if (h) s.add(h); });
+      return [...s];
+    });
+    const withProducts = hrefs.filter(h => h.includes('/product'));
+    res.json({ ok: true, url, title, total_hrefs: hrefs.length, product_hrefs_count: withProducts.length,
+      sample_all: hrefs.slice(0, 30), product_hrefs: withProducts.slice(0, 50), elapsed_ms: Date.now() - start });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message, elapsed_ms: Date.now() - start });
+  } finally {
+    if (ctx) await ctx.close().catch(() => {});
+  }
+});
+
 // GET /admin/test-scraper/:store — run a single store scraper and return raw result
 router.get('/test-scraper/:store', async (req, res) => {
   const { store } = req.params;

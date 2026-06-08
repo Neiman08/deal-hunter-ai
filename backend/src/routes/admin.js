@@ -632,15 +632,18 @@ router.get('/test-browser', async (req, res) => {
   }
 });
 
-// GET /admin/test-links?url=... — dump raw hrefs from a page (debug: find what linkFilter should match)
+// GET /admin/test-links?url=...&proxy=1 — dump raw hrefs from a page
+// Add ?proxy=1 to route through residential proxy (needed for Cloudflare-protected sites)
 router.get('/test-links', async (req, res) => {
-  const { url, wait = 'networkidle', scroll = '1' } = req.query;
+  const { url, wait = 'networkidle', scroll = '1', proxy = '0' } = req.query;
   if (!url) return res.status(400).json({ error: 'url query param required' });
   const start = Date.now();
   let ctx = null;
   try {
-    const { newBestBuyContext } = require('../services/browserEngine');
-    ctx = await newBestBuyContext();
+    const { newContext, newBestBuyContext } = require('../services/browserEngine');
+    ctx = proxy === '1' && process.env.PROXY_ENABLED === 'true'
+      ? await newContext()
+      : await newBestBuyContext();
     const page = await ctx.newPage();
     await page.goto(url, { waitUntil: wait, timeout: 45000 });
     if (scroll === '1') {
@@ -655,9 +658,23 @@ router.get('/test-links', async (req, res) => {
       document.querySelectorAll('a[href]').forEach(a => { const h = a.getAttribute('href'); if (h) s.add(h); });
       return [...s];
     });
-    const withProducts = hrefs.filter(h => h.includes('/product'));
-    res.json({ ok: true, url, title, total_hrefs: hrefs.length, product_hrefs_count: withProducts.length,
-      sample_all: hrefs.slice(0, 30), product_hrefs: withProducts.slice(0, 50), elapsed_ms: Date.now() - start });
+    const withProducts    = hrefs.filter(h => h.includes('/product'));
+    const withCollections = hrefs.filter(h => h.includes('/collection'));
+    const cloudflareBlock = title.toLowerCase().includes('just a moment') || title.toLowerCase().includes('attention required');
+    const captchaBlock    = title.toLowerCase().includes('captcha');
+    res.json({
+      ok: true, url, title,
+      cloudflare_blocked: cloudflareBlock,
+      captcha: captchaBlock,
+      proxy_used: proxy === '1',
+      total_hrefs: hrefs.length,
+      product_hrefs_count: withProducts.length,
+      collections_hrefs_count: withCollections.length,
+      sample_all: hrefs.slice(0, 100),
+      product_hrefs: withProducts.slice(0, 50),
+      collections_hrefs: withCollections.slice(0, 20),
+      elapsed_ms: Date.now() - start,
+    });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message, elapsed_ms: Date.now() - start });
   } finally {

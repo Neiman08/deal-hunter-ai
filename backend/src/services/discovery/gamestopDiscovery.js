@@ -5,7 +5,7 @@
  * Great for resale: pre-owned consoles, games, Pokemon cards, accessories.
  */
 
-const { newBestBuyContext } = require('../browserEngine');
+const { newContext, newBestBuyContext } = require('../browserEngine');
 const { runStoreDiscovery } = require('./baseRetailerDiscovery');
 
 const STORE_SLUG  = 'gamestop';
@@ -71,7 +71,7 @@ async function runGameStopDiscovery(options = {}) {
     storeSlug:  STORE_SLUG,
     storeLabel: STORE_LABEL,
     pages,
-    getContext: () => newBestBuyContext(),
+    getContext: () => process.env.PROXY_ENABLED === 'true' ? newContext() : newBestBuyContext(),
     linkFilter,
     cleanUrl,
     maxPerPage: options.maxPerPage || 30,

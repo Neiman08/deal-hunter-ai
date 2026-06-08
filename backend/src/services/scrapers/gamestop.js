@@ -3,12 +3,12 @@
  * Extracts price, title, availability from GameStop product pages.
  */
 
-const { newBestBuyContext } = require('../browserEngine');
+const { newContext, newBestBuyContext } = require('../browserEngine');
 
 const STORE_SLUG = 'gamestop';
 
 async function scrapeGameStopProduct(url) {
-  const ctx  = await newBestBuyContext();
+  const ctx  = process.env.PROXY_ENABLED === 'true' ? await newContext() : await newBestBuyContext();
   const page = await ctx.newPage();
 
   try {

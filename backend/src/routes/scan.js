@@ -5,6 +5,19 @@ const { authenticate, requireAdmin } = require('../middleware/auth');
 const { scanSingleProduct, runScan } = require('../jobs/scanJob');
 const logger = require('../utils/logger');
 
+// Scan-triggering endpoints are worker-only to prevent OOM on the web service.
+const IS_WORKER = process.env.IS_WORKER === 'true'
+  || (process.env.RENDER_SERVICE_NAME || '').toLowerCase().includes('worker')
+  || process.env.NODE_ENV !== 'production';
+
+function workerOnly(req, res, next) {
+  if (IS_WORKER) return next();
+  return res.status(503).json({
+    ok: false,
+    error: 'Scan endpoints are disabled on the web service to prevent OOM. Use the worker service.',
+  });
+}
+
 router.get('/status', async (req, res) => {
   try {
     const result = await query(`
@@ -106,22 +119,22 @@ async function handleSingleProductScan(req, res, storeSlug) {
   }
 }
 
-router.get('/walmart', authenticate, (req, res) => handleSingleProductScan(req, res, 'walmart'));
-router.get('/best-buy', authenticate, (req, res) => handleSingleProductScan(req, res, 'best-buy'));
-router.get('/home-depot', authenticate, (req, res) => handleSingleProductScan(req, res, 'home-depot'));
-router.get('/target', authenticate, (req, res) => handleSingleProductScan(req, res, 'target'));
-router.get('/lowes', authenticate, (req, res) => handleSingleProductScan(req, res, 'lowes'));
-router.get('/macys', authenticate, (req, res) => handleSingleProductScan(req, res, 'macys'));
+router.get('/walmart', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'walmart'));
+router.get('/best-buy', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'best-buy'));
+router.get('/home-depot', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'home-depot'));
+router.get('/target', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'target'));
+router.get('/lowes', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'lowes'));
+router.get('/macys', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'macys'));
 
-router.get('/walmart/:upc', authenticate, (req, res) => handleSingleProductScan(req, res, 'walmart'));
-router.get('/best-buy/:sku', authenticate, (req, res) => handleSingleProductScan(req, res, 'best-buy'));
-router.get('/best-buy/id/:id', authenticate, (req, res) => handleSingleProductScan(req, res, 'best-buy'));
-router.get('/home-depot/:sku', authenticate, (req, res) => handleSingleProductScan(req, res, 'home-depot'));
-router.get('/target/:id', authenticate, (req, res) => handleSingleProductScan(req, res, 'target'));
-router.get('/lowes/:id', authenticate, (req, res) => handleSingleProductScan(req, res, 'lowes'));
-router.get('/macys/:id', authenticate, (req, res) => handleSingleProductScan(req, res, 'macys'));
+router.get('/walmart/:upc', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'walmart'));
+router.get('/best-buy/:sku', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'best-buy'));
+router.get('/best-buy/id/:id', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'best-buy'));
+router.get('/home-depot/:sku', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'home-depot'));
+router.get('/target/:id', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'target'));
+router.get('/lowes/:id', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'lowes'));
+router.get('/macys/:id', authenticate, workerOnly, (req, res) => handleSingleProductScan(req, res, 'macys'));
 
-router.post('/run', authenticate, requireAdmin, async (req, res) => {
+router.post('/run', authenticate, requireAdmin, workerOnly, async (req, res) => {
   const { store } = req.body;
   res.json({ message: `Scan queued: ${store || 'all stores'}`, queued: true });
 

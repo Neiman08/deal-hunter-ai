@@ -123,8 +123,8 @@ app.use((req, res) => {
 // ── Start ─────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   logger.info(`🚀 Deal Hunter AI v4.0 — port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
-  const { startScanJob } = require('./jobs/scanJob');
-  startScanJob();
+  // Scan job runs only on the worker (deal-hunter-worker service).
+  // Running it here caused OOM crashes on the web service.
   const { startWorkerMonitor } = require('./services/workerMonitor');
   startWorkerMonitor();
 });

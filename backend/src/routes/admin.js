@@ -8,6 +8,21 @@ const { query } = require('../config/database');
 // All admin routes require authentication + admin role
 router.use(authenticate, requireAdmin);
 
+// Heavy endpoints (Playwright / scraping) are ONLY allowed on the worker service.
+// On the web service they return 503 to prevent OOM crashes.
+const IS_WORKER = process.env.IS_WORKER === 'true'
+  || (process.env.RENDER_SERVICE_NAME || '').toLowerCase().includes('worker')
+  || process.env.NODE_ENV !== 'production';
+
+function workerOnly(req, res, next) {
+  if (IS_WORKER) return next();
+  return res.status(503).json({
+    ok: false,
+    error: 'This endpoint runs heavy scraping (Playwright/scan). It is disabled on the web service to prevent OOM. Use the deal-hunter-worker service or run locally.',
+    hint: 'Set IS_WORKER=true on the worker Render service.',
+  });
+}
+
 // GET /admin/dashboard
 router.get('/dashboard', async (req, res) => {
   try {
@@ -95,7 +110,7 @@ router.put('/users/:id/plan', async (req, res) => {
 });
 
 // POST /admin/scan — trigger manual scan for one or all active stores
-router.post('/scan', async (req, res) => {
+router.post('/scan', workerOnly, async (req, res) => {
   const { store } = req.body;
   const { runScan } = require('../jobs/scanJob');
   res.json({ message: `Scan triggered for ${store || 'all active stores'}`, queued: true });
@@ -110,7 +125,7 @@ router.post('/scan', async (req, res) => {
 });
 
 // POST /admin/discovery — run all discovery engines to find new products
-router.post('/discovery', async (req, res) => {
+router.post('/discovery', workerOnly, async (req, res) => {
   const { store } = req.body;
 
   // Each module exports a named function OR a generic runDiscovery alias
@@ -575,7 +590,7 @@ router.post('/stop-discovery', (req, res) => {
 
 // GET /admin/test-discovery/:store — run ONE store's discovery synchronously, return full result
 // Protected by global lock — rejects if another discovery is already running.
-router.get('/test-discovery/:store', async (req, res) => {
+router.get('/test-discovery/:store', workerOnly, async (req, res) => {
   const { store } = req.params;
   const { acquireLock, releaseLock } = require('../services/discoveryLock');
   const start = Date.now();
@@ -613,7 +628,7 @@ router.get('/test-discovery/:store', async (req, res) => {
 });
 
 // GET /admin/test-browser — verify Playwright Chromium is available on this server
-router.get('/test-browser', async (req, res) => {
+router.get('/test-browser', workerOnly, async (req, res) => {
   const start = Date.now();
   let browser = null;
   try {
@@ -636,7 +651,7 @@ router.get('/test-browser', async (req, res) => {
 
 // GET /admin/test-links?url=...&proxy=1 — dump raw hrefs from a page
 // Add ?proxy=1 to route through residential proxy (needed for Cloudflare-protected sites)
-router.get('/test-links', async (req, res) => {
+router.get('/test-links', workerOnly, async (req, res) => {
   const { url, wait = 'networkidle', scroll = '1', proxy = '0' } = req.query;
   if (!url) return res.status(400).json({ error: 'url query param required' });
   const start = Date.now();
@@ -685,7 +700,7 @@ router.get('/test-links', async (req, res) => {
 });
 
 // GET /admin/test-scraper/:store — run a single store scraper and return raw result
-router.get('/test-scraper/:store', async (req, res) => {
+router.get('/test-scraper/:store', workerOnly, async (req, res) => {
   const { store } = req.params;
   const start = Date.now();
   try {

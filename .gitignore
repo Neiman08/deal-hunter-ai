@@ -10,3 +10,4 @@ logs/
 dist/
 build/
 coverage/
+backend/pw-browsers/

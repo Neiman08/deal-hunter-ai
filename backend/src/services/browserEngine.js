@@ -40,6 +40,12 @@
  * ─────────────────────────────────────────────────────────────────
  */
 
+// Point Playwright to browsers stored in the project directory (survives Render deploys)
+const path = require('path');
+if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+  process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(__dirname, '../../pw-browsers');
+}
+
 const { chromium } = require('playwright');
 const logger = require('../utils/logger');
 

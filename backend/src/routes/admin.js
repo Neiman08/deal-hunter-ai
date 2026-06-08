@@ -485,6 +485,10 @@ router.get('/test-browser', async (req, res) => {
   const start = Date.now();
   let browser = null;
   try {
+    const path = require('path');
+    if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+      process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(__dirname, '../../../pw-browsers');
+    }
     const { chromium } = require('playwright');
     browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] });
     const page = await browser.newPage();

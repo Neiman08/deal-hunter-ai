@@ -52,10 +52,9 @@ const STORE_SCRAPERS = {
   'nordstrom-rack': () => getNordstromRackScraper().scanNordstromRackDeals(),
 };
 
-// Phase flags — only active phases run automatically
-// Phase 1: walmart, best-buy, home-depot
-// Phase 2: target, lowes, macys (enable via ACTIVE_STORES env)
-const ACTIVE_STORES = (process.env.ACTIVE_STORES || 'walmart,best-buy,home-depot').split(',').map(s => s.trim());
+// All available scrapers — enable via ACTIVE_STORES env or run all by default
+const ALL_STORES = 'walmart,best-buy,home-depot,target,lowes,macys,tj-maxx,marshalls,kohls,costco,gamestop,office-depot,staples,nordstrom-rack';
+const ACTIVE_STORES = (process.env.ACTIVE_STORES || ALL_STORES).split(',').map(s => s.trim());
 
 let isRunning = false;
 
@@ -280,7 +279,7 @@ function startScanJob() {
   if (ACTIVE_STORES.includes('walmart')) {
     cron.schedule('0 6,9,12,15,18,21 * * *', () => {
       logger.info('[Cron] Walmart peak-hour scan');
-      // // runScan('walmart');
+      runScan('walmart').catch(err => logger.error('[Cron] Walmart peak scan error: ' + err.message));
     });
   }
 
@@ -288,7 +287,7 @@ function startScanJob() {
   if (ACTIVE_STORES.includes('best-buy')) {
     cron.schedule('30 8,20 * * *', () => {
       logger.info('[Cron] Best Buy daily scan');
-      // // runScan('best-buy');
+      runScan('best-buy').catch(err => logger.error('[Cron] Best Buy scan error: ' + err.message));
     });
   }
 
@@ -296,17 +295,17 @@ function startScanJob() {
   if (ACTIVE_STORES.includes('home-depot')) {
     cron.schedule('30 7,10,13,16,19 * * 1-5', () => {
       logger.info('[Cron] Home Depot business-hours scan');
-      // // runScan('home-depot');
+      runScan('home-depot').catch(err => logger.error('[Cron] Home Depot scan error: ' + err.message));
     });
   }
 
   logger.info(`[ScanJob] Cron started | interval: ${interval}m | active stores: ${ACTIVE_STORES.join(', ')}`);
 
-  // Initial scan after 15 seconds (gives the server time to fully start)
+  // Initial scan 30s after startup — gives server time to fully start
   setTimeout(() => {
-    logger.info('[ScanJob] Initial scan disabled for development.');
-    // runScan().catch(err => logger.error('[Cron] Full scan error: ' + err.message));
-  }, 15000);
+    logger.info('[ScanJob] Initial scan starting…');
+    runScan().catch(err => logger.error('[Cron] Initial scan error: ' + err.message));
+  }, 30000);
 }
 
 // Graceful shutdown

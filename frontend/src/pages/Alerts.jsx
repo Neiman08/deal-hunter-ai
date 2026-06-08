@@ -13,41 +13,6 @@ const STORE_LABELS = {
   lowes: "Lowe's",
 };
 
-const DEMO_ALERTS = [
-  {
-    id: '1',
-    name: 'Herramientas DeWalt',
-    product_keyword: 'DeWalt',
-    store_name: 'Home Depot',
-    min_discount_percent: 40,
-    min_profit: 50,
-    is_active: true,
-    notify_email: true,
-    notify_whatsapp: false,
-  },
-  {
-    id: '2',
-    name: 'Apple Electronics',
-    product_keyword: 'iPad',
-    store_name: 'Walmart',
-    min_discount_percent: 30,
-    min_profit: 100,
-    is_active: true,
-    notify_email: true,
-    notify_whatsapp: false,
-  },
-  {
-    id: '3',
-    name: 'Alertas generales 50%+',
-    product_keyword: null,
-    store_name: null,
-    min_discount_percent: 50,
-    min_profit: 0,
-    is_active: false,
-    notify_email: true,
-    notify_whatsapp: false,
-  },
-];
 
 export default function Alerts() {
   const { user } = useAuth();
@@ -77,7 +42,7 @@ export default function Alerts() {
       const res = await api.get('/alerts');
       setAlerts(res.data.alerts || []);
     } catch (error) {
-      setAlerts(DEMO_ALERTS);
+      setAlerts([]);
     }
   }
 

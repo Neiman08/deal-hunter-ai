@@ -11,38 +11,6 @@ import {
 import { TrendingUp, Search, Bookmark, ShoppingBag, DollarSign, Brain, Star, Clock } from 'lucide-react';
 import api from '../utils/api';
 
-const DEMO_ACTIVITY = [
-  { day: 'Mon', searches: 12, saves: 4, opens: 8 },
-  { day: 'Tue', searches: 18, saves: 7, opens: 14 },
-  { day: 'Wed', searches: 9, saves: 2, opens: 6 },
-  { day: 'Thu', searches: 24, saves: 11, opens: 19 },
-  { day: 'Fri', searches: 31, saves: 14, opens: 26 },
-  { day: 'Sat', searches: 22, saves: 9, opens: 17 },
-  { day: 'Sun', searches: 15, saves: 6, opens: 11 },
-];
-
-const DEMO_CATS = [
-  { name: 'Power Tools', value: 42, profit: 73, color: '#00ff88' },
-  { name: 'Electronics', value: 28, profit: 54, color: '#00d4ff' },
-  { name: 'Appliances', value: 18, profit: 47, color: '#fbbf24' },
-  { name: 'Kitchen', value: 8, profit: 38, color: '#a78bfa' },
-  { name: 'Outdoor', value: 4, profit: 29, color: '#f97316' },
-];
-
-const DEMO_BRANDS = [
-  { brand: 'DeWalt', saves: 12, avg_profit: 73, avg_score: 91 },
-  { brand: 'Milwaukee', saves: 9, avg_profit: 89, avg_score: 93 },
-  { brand: 'Dyson', saves: 6, avg_profit: 112, avg_score: 88 },
-  { brand: 'Apple', saves: 5, avg_profit: 68, avg_score: 82 },
-  { brand: 'Makita', saves: 4, avg_profit: 58, avg_score: 79 },
-];
-
-const DEMO_SAVES = [
-  { name: 'DeWalt 20V Max Drill', profit: 81, roi: 165, status: 'saved', score: 98, saved_at: '2 days ago' },
-  { name: 'Milwaukee M18 Combo', profit: 174, roi: 146, status: 'purchased', score: 93, saved_at: '5 days ago' },
-  { name: 'Dyson V11 Vacuum', profit: 248, roi: 166, status: 'saved', score: 96, saved_at: '1 week ago' },
-  { name: 'LG 65" OLED TV', profit: 487, roi: 97, status: 'expired', score: 88, saved_at: '2 weeks ago' },
-];
 
 function StatTile({ icon, label, value, sub, color = 'green' }) {
   const colors = { green: 'text-neon-green bg-neon-green/15', blue: 'text-neon-blue bg-neon-blue/15', yellow: 'text-yellow-400 bg-yellow-400/15', purple: 'text-purple-400 bg-purple-400/15' };
@@ -57,10 +25,10 @@ function StatTile({ icon, label, value, sub, color = 'green' }) {
 }
 
 export default function Analytics() {
-  const [activity, setActivity] = useState(DEMO_ACTIVITY);
-  const [categories, setCategories] = useState(DEMO_CATS);
-  const [brands, setBrands] = useState(DEMO_BRANDS);
-  const [saves, setSaves] = useState(DEMO_SAVES);
+  const [activity, setActivity] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [brands, setBrands] = useState([]);
+  const [saves, setSaves] = useState([]);
   const [period, setPeriod] = useState('7d');
 
   useEffect(() => {

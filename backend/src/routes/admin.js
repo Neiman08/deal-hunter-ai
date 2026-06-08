@@ -92,25 +92,65 @@ router.put('/users/:id/plan', async (req, res) => {
   }
 });
 
-// POST /admin/scan — trigger manual scan
+// POST /admin/scan — trigger manual scan for one or all active stores
 router.post('/scan', async (req, res) => {
   const { store } = req.body;
-  res.json({ message: `Scan triggered for ${store || 'all stores'}`, queued: true });
+  const { runScan } = require('../jobs/scanJob');
+  res.json({ message: `Scan triggered for ${store || 'all active stores'}`, queued: true });
 
-  // Fire and forget
   setImmediate(async () => {
     try {
-      if (store === 'walmart' || !store || store === 'all') {
-        const { scanWalmartDeals } = require('../services/walmartScraper');
-        await scanWalmartDeals();
-      }
-      if (store === 'home-depot' || !store || store === 'all') {
-        const { scanHomeDepotDeals } = require('../services/homeDepotScraper');
-        await scanHomeDepotDeals();
-      }
+      await runScan(store || null);
     } catch (err) {
-      console.error('Manual scan error:', err.message);
+      console.error('[Admin/scan] error:', err.message);
     }
+  });
+});
+
+// POST /admin/discovery — run all discovery engines to find new products
+router.post('/discovery', async (req, res) => {
+  const { store } = req.body;
+
+  // Each module exports a named function OR a generic runDiscovery alias
+  function loadDiscovery(file) {
+    const mod = require(`../services/discovery/${file}`);
+    return mod.runDiscovery || Object.values(mod).find(v => typeof v === 'function');
+  }
+
+  const DISCOVERY_MODULES = {
+    'walmart':        () => loadDiscovery('walmartDiscovery')(),
+    'best-buy':       () => loadDiscovery('bestBuyDiscovery')(),
+    'home-depot':     () => loadDiscovery('homeDepotDiscovery')(),
+    'target':         () => loadDiscovery('targetDiscovery')(),
+    'lowes':          () => loadDiscovery('lowesDiscovery')(),
+    'macys':          () => loadDiscovery('macysDiscovery')(),
+    'tj-maxx':        () => loadDiscovery('tjmaxxDiscovery')(),
+    'marshalls':      () => loadDiscovery('marshallsDiscovery')(),
+    'kohls':          () => loadDiscovery('kohlsDiscovery')(),
+    'costco':         () => loadDiscovery('costcoDiscovery')(),
+    'gamestop':       () => loadDiscovery('gamestopDiscovery')(),
+    'office-depot':   () => loadDiscovery('officeDepotDiscovery')(),
+    'staples':        () => loadDiscovery('staplesDiscovery')(),
+    'nordstrom-rack': () => loadDiscovery('nordstromRackDiscovery')(),
+  };
+
+  const targets = store ? [store] : Object.keys(DISCOVERY_MODULES);
+  res.json({ message: `Discovery triggered for: ${targets.join(', ')}`, stores: targets, queued: true });
+
+  setImmediate(async () => {
+    const results = {};
+    for (const slug of targets) {
+      const fn = DISCOVERY_MODULES[slug];
+      if (!fn) { results[slug] = { error: 'No discovery module' }; continue; }
+      try {
+        results[slug] = await fn();
+        console.log(`[Discovery:${slug}] done:`, JSON.stringify(results[slug]).slice(0, 200));
+      } catch (err) {
+        console.error(`[Discovery:${slug}] error:`, err.message);
+        results[slug] = { error: err.message };
+      }
+    }
+    console.log('[Admin/discovery] All done:', JSON.stringify(results).slice(0, 500));
   });
 });
 

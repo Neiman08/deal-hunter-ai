@@ -3,27 +3,6 @@ import { Scan, Search, TrendingUp, Package, AlertTriangle, BarChart3, History, C
 import api from '../utils/api';
 import CameraScanner from '../components/CameraScanner';
 
-const DEMO_RESULT = {
-  name: 'DeWalt 20V Max Drill Kit', brand: 'DeWalt', upc: '885911416443',
-  current_price: 49.00, regular_price: 199.00, discount_percent: 75,
-  in_stock: true, stock_quantity: 3,
-  opportunity_score: 98, opportunity_label: '🔥 Excelente',
-  is_error_price: true,
-  estimated_profit: 81, roi_percent: 165,
-  resale_price_amazon: 149, resale_price_ebay: 137, resale_price_facebook: 127,
-  demand_level: 'Very High', estimated_days_to_sell: 2,
-  price_history: [
-    { date: 'May 1', price: 199 }, { date: 'May 10', price: 149 },
-    { date: 'May 20', price: 99 }, { date: 'May 28', price: 49 },
-  ],
-  store_name: 'Home Depot',
-};
-
-const HISTORY = [
-  { query: '885911416443', result: 'DeWalt 20V Drill', score: 98, profit: 81, time: '2 min ago' },
-  { query: '037-77-8001', result: 'Dyson V8 Origin', score: 91, profit: 68, time: '15 min ago' },
-  { query: '193948560342', result: 'Apple AirPods Pro', score: 76, profit: 34, time: '1 hr ago' },
-];
 
 function ScoreDisplay({ score, label }) {
   const color = score >= 91 ? '#00ff88' : score >= 71 ? '#00d4ff' : score >= 41 ? '#fbbf24' : '#ef4444';
@@ -53,7 +32,7 @@ export default function Scanner() {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [history, setHistory] = useState(HISTORY);
+  const [history, setHistory] = useState([]);
   const [showCamera, setShowCamera] = useState(false);
   const [notFound, setNotFound] = useState(false);
 

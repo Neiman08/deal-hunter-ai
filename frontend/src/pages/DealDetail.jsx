@@ -10,31 +10,6 @@ import {
 } from 'recharts';
 import api from '../utils/api';
 
-const DEMO_DEAL = {
-  id: '1', name: 'DeWalt 20V Max Drill/Driver Kit', brand: 'DeWalt',
-  store_name: 'Home Depot', store_slug: 'home-depot', store_color: '#F96302',
-  regular_price: 199, deal_price: 49, discount_percent: 75, savings_amount: 150,
-  resale_price_amazon: 149, resale_price_ebay: 137, resale_price_facebook: 127,
-  amazon_fees: 22, ebay_fees: 18, shipping_estimate: 12,
-  estimated_profit: 81, roi_percent: 165, demand_level: 'Very High', estimated_days_to_sell: 2,
-  opportunity_score: 98, opportunity_label: '🔥 Excelente',
-  score_breakdown: { discountScore: 35, historyScore: 20, savingsScore: 12, resaleScore: 20, stockScore: 5, demandScore: 5 },
-  stock_quantity: 3, is_error_price: true, price_trend: 'dropping_fast',
-  category_name: 'Power Tools',
-  store_address: '4343 Westheimer Rd, Houston, TX 77027',
-  city: 'Houston', state: 'TX',
-};
-
-const DEMO_HISTORY = [
-  { recorded_at: '2025-05-01', current_price: 199 },
-  { recorded_at: '2025-05-08', current_price: 179 },
-  { recorded_at: '2025-05-15', current_price: 149 },
-  { recorded_at: '2025-05-20', current_price: 99 },
-  { recorded_at: '2025-05-25', current_price: 79 },
-  { recorded_at: '2025-05-30', current_price: 49 },
-];
-
-const DEMO_STATS = { all_time_min: 49, all_time_max: 199, avg_price: 125.67, data_points: 6 };
 
 function ScoreBar({ label, value, max, color }) {
   return (
@@ -84,9 +59,9 @@ export default function DealDetail() {
       setHistory(r.data.price_history || []);
       setHistStats(r.data.history_stats);
     } catch {
-      setDeal(DEMO_DEAL);
-      setHistory(DEMO_HISTORY);
-      setHistStats(DEMO_STATS);
+      setDeal(null);
+      setHistory([]);
+      setHistStats(null);
     } finally {
       setLoading(false);
     }

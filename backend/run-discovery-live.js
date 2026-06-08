@@ -1,5 +1,8 @@
 require('dotenv').config();
 
+// Mark this process as the worker so workerOnly guards allow heavy endpoints
+process.env.IS_WORKER = 'true';
+
 const { runAlertEngine }      = require('./src/services/alertEngine');
 const { detectRecentChanges } = require('./src/services/priceChangeDetector');
 const { restartBrowserPool }  = require('./src/services/browserEngine');
@@ -300,6 +303,12 @@ async function logStartup() {
 async function main() {
   banner('🚀 DEAL HUNTER — LIVE DISCOVERY v3');
   await logStartup();
+
+  // Start the price-scan cron job here — web service no longer runs it.
+  const { startScanJob } = require('./src/jobs/scanJob');
+  startScanJob();
+  console.log('  ✅ Scan job cron started (price re-scan every ~30 min)');
+
   const engines = loadEngines();
   console.log(`  Engines loaded: ${Object.keys(engines).join(', ')}`);
   console.log(`  Cycle interval: 30 min`);

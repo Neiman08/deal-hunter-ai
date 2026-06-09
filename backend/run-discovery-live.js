@@ -346,11 +346,11 @@ async function main() {
       } catch (e) { console.error('  ❌ Target error:', e.message); }
     }
 
-    // Tier 1 direct stores
+    // Tier 1 direct stores — Office Depot runs early (sitemap-based, fast to discover)
+    cycleStats['office-depot'] = await runEngine(engines, 'office-depot', { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, 'Office Depot');
     cycleStats['lowes']        = await runEngine(engines, 'lowes',        { maxTotal: 150, maxPerPage: 30, delayMs: 2500 }, "Lowe's");
     cycleStats['home-depot']   = await runEngine(engines, 'home-depot',   { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, 'Home Depot');
     cycleStats['gamestop']     = await runEngine(engines, 'gamestop',     { maxTotal: 200, maxPerPage: 30, delayMs: 2000 }, 'GameStop');
-    cycleStats['office-depot'] = await runEngine(engines, 'office-depot', { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, 'Office Depot');
     cycleStats['staples']      = await runEngine(engines, 'staples',      { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, 'Staples');
 
     // ── Tier 2: Residential proxy stores ─────────────────────────────────────

@@ -955,6 +955,133 @@ router.get('/discovery-runs', async (req, res) => {
   }
 });
 
+// GET /admin/store-audit/:slug — full data health audit for one store
+router.get('/store-audit/:slug', async (req, res) => {
+  const { slug } = req.params;
+  try {
+    const [
+      totals,
+      inactiveBreakdown,
+      latestProducts,
+      latestDeals,
+      sampleProducts,
+    ] = await Promise.all([
+      // Totals: products, prices, deals, active_deals, products_without_prices, products_without_regular_price
+      query(`
+        SELECT
+          COUNT(DISTINCT p.id)                                                           AS total_products,
+          COUNT(DISTINCT pr.product_id)                                                  AS products_with_prices,
+          COUNT(DISTINCT p.id) - COUNT(DISTINCT pr.product_id)                          AS products_without_prices,
+          COUNT(DISTINCT pr.id)                                                          AS total_prices,
+          COUNT(DISTINCT d.id)                                                           AS total_deals,
+          COUNT(DISTINCT d.id) FILTER (WHERE d.is_active = true)                        AS active_deals,
+          COUNT(DISTINCT d.id) FILTER (WHERE d.regular_price IS NULL)                   AS products_without_regular_price,
+          COUNT(DISTINCT d.id) FILTER (WHERE d.regular_price IS NOT NULL AND d.discount_percent < 20 AND d.is_active = false) AS deals_inactive_by_discount,
+          COUNT(DISTINCT d.id) FILTER (WHERE d.regular_price IS NOT NULL AND d.discount_percent >= 20
+                                          AND (d.estimated_profit <= 0 OR d.roi_percent <= 0) AND d.is_active = false) AS deals_inactive_by_profit
+        FROM stores s
+        JOIN products p ON p.store_id = s.id
+        LEFT JOIN prices pr ON pr.product_id = p.id
+        LEFT JOIN deals d ON d.product_id = p.id AND d.store_id = s.id
+        WHERE s.slug = $1
+      `, [slug]),
+
+      // Inactive deal count by reason
+      query(`
+        SELECT
+          SUM(CASE WHEN d.regular_price IS NULL THEN 1 ELSE 0 END)                                                              AS no_regular_price,
+          SUM(CASE WHEN d.regular_price IS NOT NULL AND d.discount_percent < 20 THEN 1 ELSE 0 END)                              AS low_discount,
+          SUM(CASE WHEN d.regular_price IS NOT NULL AND d.discount_percent >= 20
+                        AND d.estimated_profit IS NOT NULL AND d.estimated_profit <= 0 THEN 1 ELSE 0 END)                        AS no_profit,
+          SUM(CASE WHEN d.regular_price IS NOT NULL AND d.discount_percent >= 20
+                        AND (d.estimated_profit IS NULL OR d.estimated_profit > 0)
+                        AND (d.roi_percent IS NULL OR d.roi_percent <= 0) THEN 1 ELSE 0 END)                                      AS no_roi
+        FROM deals d
+        JOIN products p ON d.product_id = p.id
+        JOIN stores s ON s.id = d.store_id
+        WHERE s.slug = $1 AND d.is_active = false
+      `, [slug]),
+
+      // Latest 5 products by created_at
+      query(`
+        SELECT p.id, p.name, p.sku, p.created_at
+        FROM products p JOIN stores s ON p.store_id = s.id
+        WHERE s.slug = $1
+        ORDER BY p.created_at DESC LIMIT 5
+      `, [slug]),
+
+      // Latest 5 deals by updated_at
+      query(`
+        SELECT d.id, p.name, d.deal_price, d.regular_price, d.discount_percent,
+               d.estimated_profit, d.roi_percent, d.is_active, d.updated_at
+        FROM deals d
+        JOIN products p ON d.product_id = p.id
+        JOIN stores s ON d.store_id = s.id
+        WHERE s.slug = $1
+        ORDER BY d.updated_at DESC LIMIT 5
+      `, [slug]),
+
+      // Sample 20 products with inactive_reason
+      query(`
+        SELECT
+          p.name,
+          d.deal_price     AS current_price,
+          d.regular_price,
+          d.discount_percent,
+          d.estimated_profit,
+          d.roi_percent,
+          d.is_active,
+          CASE
+            WHEN d.id IS NULL                              THEN 'no_deal_row'
+            WHEN d.regular_price IS NULL                   THEN 'no_regular_price'
+            WHEN d.discount_percent < 20                   THEN 'discount_too_low_' || ROUND(d.discount_percent::numeric, 1) || 'pct'
+            WHEN d.estimated_profit IS NOT NULL AND d.estimated_profit <= 0 THEN 'no_profit_' || ROUND(d.estimated_profit::numeric, 2)
+            WHEN d.roi_percent IS NOT NULL AND d.roi_percent <= 0 THEN 'no_roi_' || ROUND(d.roi_percent::numeric, 2) || 'pct'
+            WHEN d.is_active = true                        THEN 'active'
+            ELSE 'unknown'
+          END AS inactive_reason
+        FROM products p
+        JOIN stores s ON p.store_id = s.id
+        LEFT JOIN deals d ON d.product_id = p.id AND d.store_id = s.id
+        WHERE s.slug = $1
+        ORDER BY d.updated_at DESC NULLS LAST
+        LIMIT 20
+      `, [slug]),
+    ]);
+
+    if (!totals.rows[0]) return res.status(404).json({ ok: false, error: `Store not found: ${slug}` });
+
+    const t = totals.rows[0];
+    const ib = inactiveBreakdown.rows[0] || {};
+
+    res.json({
+      ok: true,
+      store_slug: slug,
+      total_products:                 parseInt(t.total_products),
+      total_prices:                   parseInt(t.total_prices),
+      total_deals:                    parseInt(t.total_deals),
+      active_deals:                   parseInt(t.active_deals),
+      products_without_prices:        parseInt(t.products_without_prices),
+      products_without_regular_price: parseInt(t.products_without_regular_price),
+      deals_inactive_by_discount:     parseInt(t.deals_inactive_by_discount),
+      deals_inactive_by_profit:       parseInt(t.deals_inactive_by_profit),
+      inactive_breakdown: {
+        no_regular_price: parseInt(ib.no_regular_price || 0),
+        low_discount:     parseInt(ib.low_discount || 0),
+        no_profit:        parseInt(ib.no_profit || 0),
+        no_roi:           parseInt(ib.no_roi || 0),
+      },
+      is_active_condition: 'regular_price IS NOT NULL AND discount_percent >= 20 AND estimated_profit > 0 AND roi_percent > 0',
+      latest_products: latestProducts.rows,
+      latest_deals:    latestDeals.rows,
+      sample_products: sampleProducts.rows,
+    });
+  } catch (err) {
+    console.error('[store-audit]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // GET /admin/worker-runs — recent cycle history
 router.get('/worker-runs', async (req, res) => {
   try {

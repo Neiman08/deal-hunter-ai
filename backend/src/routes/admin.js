@@ -1033,11 +1033,11 @@ router.get('/store-audit/:slug', async (req, res) => {
           d.is_active,
           CASE
             WHEN d.id IS NULL                              THEN 'no_deal_row'
+            WHEN d.is_active = true                        THEN 'active'
             WHEN d.regular_price IS NULL                   THEN 'no_regular_price'
             WHEN d.discount_percent < 20                   THEN 'discount_too_low_' || ROUND(d.discount_percent::numeric, 1) || 'pct'
             WHEN d.estimated_profit IS NOT NULL AND d.estimated_profit <= 0 THEN 'no_profit_' || ROUND(d.estimated_profit::numeric, 2)
             WHEN d.roi_percent IS NOT NULL AND d.roi_percent <= 0 THEN 'no_roi_' || ROUND(d.roi_percent::numeric, 2) || 'pct'
-            WHEN d.is_active = true                        THEN 'active'
             ELSE 'unknown'
           END AS inactive_reason
         FROM products p

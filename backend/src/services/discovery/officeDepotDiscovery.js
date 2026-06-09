@@ -281,8 +281,43 @@ async function runOfficeDepotDiscovery(options = {}) {
 
   logger.info('═'.repeat(60));
   logger.info(`🏪 ${STORE_LABEL.toUpperCase()} DISCOVERY — COMPLETE`);
-  logger.info(`   scanned: ${stats.urls_new} | sale_found: ${stats.saved} | regular_only: ${stats.no_price} | errors: ${stats.errors}`);
+  logger.info(`   scanned: ${stats.urls_new} | saved: ${stats.saved} | no_price: ${stats.no_price} | errors: ${stats.errors}`);
   logger.info('═'.repeat(60) + '\n');
+
+  // Persist stats to DB so /api/admin/discovery-runs can report without Render logs
+  try {
+    await query(`
+      CREATE TABLE IF NOT EXISTS discovery_runs (
+        store         VARCHAR(50) PRIMARY KEY,
+        pages_visited INTEGER DEFAULT 0,
+        urls_discovered INTEGER DEFAULT 0,
+        urls_new      INTEGER DEFAULT 0,
+        saved         INTEGER DEFAULT 0,
+        no_price      INTEGER DEFAULT 0,
+        errors        INTEGER DEFAULT 0,
+        blocked       BOOLEAN DEFAULT false,
+        block_type    VARCHAR(50),
+        last_error    TEXT,
+        ran_at        TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+    await query(`
+      INSERT INTO discovery_runs
+        (store, pages_visited, urls_discovered, urls_new, saved, no_price, errors, blocked, block_type, last_error, ran_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+      ON CONFLICT (store) DO UPDATE SET
+        pages_visited=EXCLUDED.pages_visited, urls_discovered=EXCLUDED.urls_discovered,
+        urls_new=EXCLUDED.urls_new, saved=EXCLUDED.saved, no_price=EXCLUDED.no_price,
+        errors=EXCLUDED.errors, blocked=EXCLUDED.blocked, block_type=EXCLUDED.block_type,
+        last_error=EXCLUDED.last_error, ran_at=EXCLUDED.ran_at
+    `, [
+      STORE_SLUG, stats.pages_visited, stats.urls_discovered, stats.urls_new,
+      stats.saved, stats.no_price, stats.errors,
+      stats.blocked || false, stats.blockType || null, stats.last_error || null,
+    ]);
+  } catch (dbErr) {
+    logger.warn(`[Discovery:${STORE_LABEL}] Could not write discovery_runs: ${dbErr.message}`);
+  }
 
   return stats;
 }

@@ -922,6 +922,23 @@ router.post('/ensure-stores', async (req, res) => {
   res.json({ ok: failed.length === 0, results, failed_count: failed.length });
 });
 
+// GET /admin/discovery-runs — last discovery result per store (written by each discovery engine)
+router.get('/discovery-runs', async (req, res) => {
+  try {
+    const r = await query(`
+      SELECT store, pages_visited, urls_discovered, urls_new, saved, no_price,
+             errors, blocked, block_type, last_error, ran_at
+      FROM discovery_runs
+      ORDER BY ran_at DESC
+    `);
+    res.json({ ok: true, runs: r.rows });
+  } catch (err) {
+    // Table may not exist yet (created on first discovery run)
+    if (err.message.includes('does not exist')) return res.json({ ok: true, runs: [], note: 'table not yet created — run discovery first' });
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // GET /admin/worker-runs — recent cycle history
 router.get('/worker-runs', async (req, res) => {
   try {

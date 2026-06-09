@@ -267,6 +267,10 @@ async function runOfficeDepotDiscovery(options = {}) {
       const saleTag = scraped.regularPrice ? ` (was $${scraped.regularPrice})` : '';
       logger.info(`[Discovery:${STORE_LABEL}]   ✅ $${scraped.currentPrice}${saleTag} | "${scraped.name?.slice(0,50) || ''}"`);
     } catch (err) {
+      if (err.message === 'product_not_found') {
+        // OD redirected to homepage — product discontinued; skip silently
+        return;
+      }
       stats.errors++;
       logger.error(`[Discovery:${STORE_LABEL}]   ❌ ${err.message.slice(0, 100)}`);
     }

@@ -197,34 +197,65 @@ async function getPriceHistory(productId) {
  * In production, this would call real scraper endpoints for Amazon/eBay/FB.
  */
 async function estimateResalePrices(productName, currentPrice, regularPrice) {
-  // Heuristic: resale value is typically 60-85% of MSRP for most categories
-  // Brand-name tools/electronics can fetch 90%+ of MSRP on eBay
-  const nameLower = productName.toLowerCase();
+  const nameLower = (productName || '').toLowerCase();
 
+  // Resale multiplier = fraction of MSRP (regularPrice) that the item fetches on resale markets
   let resaleMultiplier = 0.70;
-  if (nameLower.includes('dewalt') || nameLower.includes('milwaukee')) resaleMultiplier = 0.82;
-  else if (nameLower.includes('dyson') || nameLower.includes('roomba')) resaleMultiplier = 0.78;
-  else if (nameLower.includes('apple') || nameLower.includes('iphone')) resaleMultiplier = 0.88;
-  else if (nameLower.includes('samsung') || nameLower.includes('sony')) resaleMultiplier = 0.75;
-  else if (nameLower.includes('makita') || nameLower.includes('ryobi')) resaleMultiplier = 0.72;
+
+  // Power tools — high resale demand
+  if (nameLower.includes('dewalt') || nameLower.includes('milwaukee')) resaleMultiplier = 0.84;
+  else if (nameLower.includes('makita') || nameLower.includes('ridgid'))  resaleMultiplier = 0.76;
+  else if (nameLower.includes('ryobi'))                                    resaleMultiplier = 0.73;
+
+  // Premium electronics
+  else if (nameLower.includes('apple') || nameLower.includes('iphone') || nameLower.includes('ipad') || nameLower.includes('macbook')) resaleMultiplier = 0.88;
+  else if (nameLower.includes('dyson') || nameLower.includes('roomba') || nameLower.includes('irobot')) resaleMultiplier = 0.80;
+  else if (nameLower.includes('bose') || nameLower.includes('sonos'))      resaleMultiplier = 0.78;
+  else if (nameLower.includes('sony'))                                      resaleMultiplier = 0.78;
+  else if (nameLower.includes('samsung'))                                   resaleMultiplier = 0.76;
+
+  // TVs — high-ticket but competitive market; FB Marketplace drives resale price up
+  else if (nameLower.includes(' lg ') || nameLower.startsWith('lg ') || nameLower.includes(' lg-')) resaleMultiplier = 0.76;
+  else if (nameLower.includes('hisense'))                                   resaleMultiplier = 0.70;
+  else if (nameLower.includes('tcl'))                                       resaleMultiplier = 0.68;
+  else if (nameLower.includes('vizio'))                                     resaleMultiplier = 0.67;
+  else if (nameLower.includes('roku') || nameLower.includes('insignia'))   resaleMultiplier = 0.64;
+
+  // Laptops & monitors
+  else if (nameLower.includes('dell') || nameLower.includes('alienware'))  resaleMultiplier = 0.74;
+  else if (nameLower.includes('hp ') || nameLower.includes('hewlett'))     resaleMultiplier = 0.71;
+  else if (nameLower.includes('lenovo') || nameLower.includes('thinkpad')) resaleMultiplier = 0.71;
+  else if (nameLower.includes('asus') || nameLower.includes('acer'))       resaleMultiplier = 0.69;
+  else if (nameLower.includes('microsoft') || nameLower.includes('surface')) resaleMultiplier = 0.79;
+
+  // Projectors & AV
+  else if (nameLower.includes('projector') || nameLower.includes('epson') || nameLower.includes('benq')) resaleMultiplier = 0.72;
+
+  // Kitchen / large appliances
+  else if (nameLower.includes('kitchenaid') || nameLower.includes('vitamix')) resaleMultiplier = 0.79;
+  else if (nameLower.includes('cuisinart') || nameLower.includes('ninja'))    resaleMultiplier = 0.71;
+  else if (nameLower.includes('instant pot') || nameLower.includes('keurig')) resaleMultiplier = 0.69;
 
   const amazonPrice = Math.round(regularPrice * resaleMultiplier);
-  const ebayPrice = Math.round(amazonPrice * 0.92); // eBay typically 8% lower
-  const fbPrice = Math.round(amazonPrice * 0.85); // FB Marketplace lower due to local
+  const ebayPrice   = Math.round(amazonPrice * 0.92);
+  const fbPrice     = Math.round(amazonPrice * 0.85);
 
-  // Fee estimates
-  const amazonFees = Math.round(amazonPrice * 0.15); // ~15% Amazon fee
-  const ebayFees = Math.round(ebayPrice * 0.13); // ~13% eBay fee
-  const shippingEstimate = currentPrice > 50 ? 12 : 7; // avg shipping
+  // Shipping scales with item size/weight
+  let shippingEstimate = 10;
+  if (currentPrice > 800) shippingEstimate = 40;
+  else if (currentPrice > 400) shippingEstimate = 25;
+  else if (currentPrice > 150) shippingEstimate = 15;
+
+  const amazonFees = Math.round(amazonPrice * 0.15);
+  const ebayFees   = Math.round(ebayPrice   * 0.13);
 
   const netProfitAmazon = amazonPrice - amazonFees - shippingEstimate - currentPrice;
-  const netProfitEbay = ebayPrice - ebayFees - shippingEstimate - currentPrice;
-  const netProfitFb = fbPrice - currentPrice; // No fees for FB local
+  const netProfitEbay   = ebayPrice   - ebayFees   - shippingEstimate - currentPrice;
+  const netProfitFb     = fbPrice - currentPrice; // FB local = no shipping, no fees
 
-  // Use best platform profit
   const bestProfit = Math.max(netProfitAmazon, netProfitEbay, netProfitFb);
-  const netProfit = Math.round(bestProfit);
-  const roi = currentPrice > 0 ? Math.round((netProfit / currentPrice) * 100) : 0;
+  const netProfit  = Math.round(bestProfit);
+  const roi        = currentPrice > 0 ? Math.round((netProfit / currentPrice) * 100) : 0;
 
   return {
     amazonPrice, ebayPrice, fbPrice,

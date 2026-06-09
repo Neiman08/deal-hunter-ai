@@ -1082,6 +1082,57 @@ router.get('/store-audit/:slug', async (req, res) => {
   }
 });
 
+// POST /admin/recalculate-deals/:slug — reapply is_active rules to existing deals without re-scraping
+// New rules: discount >= 30% → active regardless of profit; 20-29.99% → needs profit+roi > 0; < 20% → inactive
+router.post('/recalculate-deals/:slug', async (req, res) => {
+  const { slug } = req.params;
+  try {
+    const r = await query(`
+      UPDATE deals SET
+        is_active = CASE
+          WHEN is_error_price = true                                                THEN true
+          WHEN discount_percent >= 30                                               THEN true
+          WHEN regular_price IS NOT NULL
+            AND discount_percent >= 20
+            AND estimated_profit > 0
+            AND roi_percent > 0                                                    THEN true
+          ELSE false
+        END,
+        expires_at = CASE
+          WHEN is_error_price = true OR discount_percent >= 30
+            OR (regular_price IS NOT NULL AND discount_percent >= 20
+                AND estimated_profit > 0 AND roi_percent > 0)
+          THEN NOW() + INTERVAL '48 hours'
+          ELSE expires_at
+        END
+      FROM products p, stores s
+      WHERE deals.product_id = p.id
+        AND deals.store_id   = s.id
+        AND s.slug = $1
+      RETURNING deals.id, deals.is_active, deals.discount_percent, deals.estimated_profit, deals.roi_percent
+    `, [slug]);
+
+    const total    = r.rowCount;
+    const active   = r.rows.filter(row => row.is_active).length;
+    const inactive = total - active;
+
+    res.json({
+      ok: true,
+      store: slug,
+      total_deals_updated: total,
+      now_active:          active,
+      now_inactive:        inactive,
+      breakdown: {
+        high_discount_override: r.rows.filter(row => row.is_active && parseFloat(row.discount_percent) >= 30).length,
+        profit_qualified:       r.rows.filter(row => row.is_active && parseFloat(row.discount_percent) < 30).length,
+      },
+    });
+  } catch (err) {
+    console.error('[recalculate-deals]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // GET /admin/worker-runs — recent cycle history
 router.get('/worker-runs', async (req, res) => {
   try {

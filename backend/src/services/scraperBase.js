@@ -240,6 +240,7 @@ async function saveProductData(dbProduct, scraped, storeSlug) {
       CASE
         WHEN $24::boolean = true THEN false
         WHEN $16::boolean = true THEN true
+        WHEN $4::numeric >= 30 THEN true
         WHEN $2::numeric IS NOT NULL AND $4::numeric >= 20 AND $8::numeric > 0 AND $9::numeric > 0 THEN true
         ELSE false
       END, NOW() + INTERVAL '48 hours', 'live'
@@ -270,6 +271,7 @@ async function saveProductData(dbProduct, scraped, storeSlug) {
       is_active = CASE
         WHEN $24::boolean = true THEN false
         WHEN EXCLUDED.is_error_price = true THEN true
+        WHEN EXCLUDED.discount_percent >= 30 THEN true
         WHEN EXCLUDED.regular_price IS NOT NULL
           AND EXCLUDED.discount_percent >= 20
           AND EXCLUDED.estimated_profit > 0

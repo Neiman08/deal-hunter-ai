@@ -1082,6 +1082,46 @@ router.get('/store-audit/:slug', async (req, res) => {
   }
 });
 
+// ─── Discovery Job Queue (web-safe — no Playwright) ──────────────────────────
+
+// POST /admin/discovery-jobs — enqueue a discovery run for the worker to pick up
+router.post('/discovery-jobs', async (req, res) => {
+  const { store } = req.body;
+  if (!store) return res.status(400).json({ ok: false, error: 'store required in body' });
+  try {
+    const { enqueueJob } = require('../services/discoveryQueue');
+    const result = await enqueueJob(store, req.user?.email || req.user?.id || 'admin');
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    console.error('[discovery-jobs]', err.message);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// GET /admin/discovery-jobs/latest?store=xxx — latest job for a store
+router.get('/discovery-jobs/latest', async (req, res) => {
+  const { store } = req.query;
+  try {
+    const { getLatestJob } = require('../services/discoveryQueue');
+    const job = await getLatestJob(store || null);
+    res.json({ ok: true, job: job || null });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// GET /admin/discovery-jobs — list recent jobs (optional ?store=xxx&limit=20)
+router.get('/discovery-jobs', async (req, res) => {
+  const { store, limit } = req.query;
+  try {
+    const { listJobs } = require('../services/discoveryQueue');
+    const jobs = await listJobs({ storeSlug: store || null, limit: Math.min(parseInt(limit) || 20, 100) });
+    res.json({ ok: true, jobs });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // POST /admin/recalculate-deals/:slug — reapply is_active rules to existing deals without re-scraping
 // New rules: discount >= 30% → active regardless of profit; 20-29.99% → needs profit+roi > 0; < 20% → inactive
 router.post('/recalculate-deals/:slug', async (req, res) => {

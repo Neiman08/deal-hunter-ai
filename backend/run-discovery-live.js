@@ -7,6 +7,7 @@ const { runAlertEngine }      = require('./src/services/alertEngine');
 const { detectRecentChanges } = require('./src/services/priceChangeDetector');
 const { restartBrowserPool }  = require('./src/services/browserEngine');
 const { query }               = require('./src/config/database');
+const { claimNextPendingJob, markCompleted, markFailed } = require('./src/services/discoveryQueue');
 
 const POOL_RESTART_EVERY = parseInt(process.env.POOL_RESTART_CYCLES) || 5;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -58,17 +59,21 @@ async function cleanupDeals() {
   if (c1.rowCount > 0) console.log(`  ✂️  Stripped query params from ${c1.rowCount} URLs`);
 
   // 2) Deactivate stale / fake deals
-  // Only activate deals that have a real regular_price, real profit, and real discount.
+  // Rules (must stay in sync with scraperBase.js saveProductData):
+  //   - discount >= 30% → active regardless of profit (high_discount_override)
+  //   - discount 20-29.99% → needs estimated_profit > 0 AND roi_percent > 0
+  //   - discount < 20% → inactive
   const c2 = await query(`
     UPDATE deals SET is_active=false
     WHERE last_seen_at < NOW() - INTERVAL '7 days'
        OR (
          is_error_price = false
+         AND discount_percent < 30
          AND (
            regular_price IS NULL
+           OR discount_percent < 20
            OR estimated_profit <= 0
            OR roi_percent <= 0
-           OR discount_percent < 20
          )
        )
     RETURNING id
@@ -93,6 +98,9 @@ async function cleanupDeals() {
   if (c3.rowCount > 0) console.log(`  🗑️  Deactivated ${c3.rowCount} Best Buy false deals`);
 
   // 4) Reactivate qualifying deals for all active stores
+  // Must stay in sync with scraperBase.js and recalculate-deals endpoint:
+  //   - discount >= 30% → active (high_discount_override, no profit requirement)
+  //   - discount 20-29.99% → active only with estimated_profit > 0 AND roi_percent > 0
   const c4 = await query(`
     UPDATE deals d SET is_active=true
     FROM products p, stores s
@@ -104,15 +112,22 @@ async function cleanupDeals() {
       'costco','walmart'
     )
     AND p.product_url NOT LIKE '%searchpage.jsp%'
-    AND d.deal_price < 10000 AND d.regular_price < 10000
-    AND d.regular_price IS NOT NULL
-    AND d.discount_percent >= 20
-    AND d.estimated_profit > 0
-    AND d.roi_percent > 0
+    AND d.deal_price < 10000
+    AND d.last_seen_at >= NOW() - INTERVAL '7 days'
     AND NOT (
       s.slug='best-buy' AND d.regular_price > d.deal_price * 3
       AND (LOWER(p.name) LIKE '%refurbished%' OR LOWER(p.name) LIKE '%renewed%'
            OR LOWER(p.name) LIKE '%open box%' OR LOWER(p.name) LIKE '%geek squad certified%')
+    )
+    AND (
+      d.is_error_price = true
+      OR d.discount_percent >= 30
+      OR (
+        d.regular_price IS NOT NULL
+        AND d.discount_percent >= 20
+        AND d.estimated_profit > 0
+        AND d.roi_percent > 0
+      )
     )
     RETURNING d.id
   `);
@@ -309,7 +324,24 @@ async function main() {
   startScanJob();
   console.log('  ✅ Scan job cron started (price re-scan every ~30 min)');
 
+  // ── Discovery job queue poller ────────────────────────────────────────────────
+  // Web service enqueues jobs via POST /api/admin/discovery-jobs.
+  // Worker polls every 45s and executes them between cycles (no Playwright on web).
   const engines = loadEngines();
+  setInterval(async () => {
+    try {
+      const job = await claimNextPendingJob();
+      if (!job) return;
+      console.log(`\n[JobQueue] Claimed job #${job.id}: ${job.store_slug} (requested by ${job.requested_by || 'system'})`);
+      const result = await runEngine(engines, job.store_slug, { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, job.store_slug);
+      await markCompleted(job.id, result || {});
+      console.log(`[JobQueue] Job #${job.id} completed — saved:${result?.saved || 0} errors:${result?.errors || 0}`);
+    } catch (err) {
+      console.error(`[JobQueue] Poller error: ${err.message}`);
+    }
+  }, 45 * 1000);
+  console.log('  ✅ Discovery job queue poller started (checks every 45s)');
+
   console.log(`  Engines loaded: ${Object.keys(engines).join(', ')}`);
   console.log(`  Cycle interval: 30 min`);
 

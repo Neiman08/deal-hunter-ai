@@ -210,7 +210,9 @@ async function runHomeDepotDiscovery(options = {}) {
     logger.warn(`[Discovery:${STORE_LABEL}] Sitemap blocked — trying Strategy B (Playwright listing pages)`);
     stats.blocked   = true;
     stats.blockType = 'sitemap_blocked_using_playwright';
-    return discoverViaPlaywright({ ...options, maxTotal, delayMs });
+    const playwrightStats = await discoverViaPlaywright({ ...options, maxTotal, delayMs });
+    await writeStoreRun(STORE_SLUG, startedAt, { ...stats, ...playwrightStats, blocked: true });
+    return { ...stats, ...playwrightStats };
   }
 
   // Strategy A succeeded — filter new URLs and scan

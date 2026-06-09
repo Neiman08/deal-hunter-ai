@@ -14,6 +14,7 @@
 
 const { saveDiscoveryCard, sleep } = require('./baseRetailerDiscovery');
 const { shouldSkipStore } = require('../proxyManager');
+const { writeStoreRun } = require('../../utils/storeRunStats');
 const logger = require('../../utils/logger');
 
 const STORE_SLUG  = 'macys';
@@ -198,6 +199,7 @@ async function fetchProductData(page, productId) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 async function runMacysDiscovery(options = {}) {
+  const startedAt = Date.now();
   const maxTotal = options.maxTotal || 120;
   const delayMs  = options.delayMs  || 800;
 
@@ -329,6 +331,7 @@ async function runMacysDiscovery(options = {}) {
   logger.info(`   group="${stats.group}" | ids:${stats.ids_discovered} | new:${stats.ids_new} | saved:${stats.saved} | no_price:${stats.no_price} | errors:${stats.errors}`);
   logger.info('═'.repeat(60) + '\n');
 
+  await writeStoreRun(STORE_SLUG, startedAt, stats);
   return stats;
 }
 

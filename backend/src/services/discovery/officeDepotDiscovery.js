@@ -207,7 +207,7 @@ async function runOfficeDepotDiscovery(options = {}) {
 
   const { scrapeOfficeDepotProduct } = require('../scrapers/officedepot');
 
-  logger.info(`\n[Discovery:${STORE_LABEL}] Scanning ${toProcess.length} candidates (sale-only)...`);
+  logger.info(`\n[Discovery:${STORE_LABEL}] Scanning ${toProcess.length} candidates (all prices)...`);
 
   async function scanOneOd(url, idx) {
     logger.info(`[Discovery:${STORE_LABEL}] [${idx + 1}/${toProcess.length}] ${url}`);
@@ -221,13 +221,12 @@ async function runOfficeDepotDiscovery(options = {}) {
       }
 
       if (!scraped.regularPrice) {
-        // Regular price only — not on sale. Skip entirely (don't save to DB).
         stats.no_price++;
-        logger.info(`[Discovery:${STORE_LABEL}]   ⏭️  Regular price only ($${scraped.currentPrice}) — skipping`);
-        return;
+        logger.info(`[Discovery:${STORE_LABEL}]   ⏭️  No regular price found ($${scraped.currentPrice}) — saving anyway`);
+        // Fall through: save product regardless so we can track price changes
       }
 
-      // Product is on sale — save to DB
+      // Save product (on sale or regular price — catalog building)
       let dbProduct = null;
 
       if (url) {
@@ -265,7 +264,8 @@ async function runOfficeDepotDiscovery(options = {}) {
 
       await saveProductData(dbProduct, scraped, STORE_SLUG);
       stats.saved++;
-      logger.info(`[Discovery:${STORE_LABEL}]   ✅ SALE! $${scraped.currentPrice} (was $${scraped.regularPrice}) | "${scraped.name?.slice(0,50) || ''}"`);
+      const saleTag = scraped.regularPrice ? ` (was $${scraped.regularPrice})` : '';
+      logger.info(`[Discovery:${STORE_LABEL}]   ✅ $${scraped.currentPrice}${saleTag} | "${scraped.name?.slice(0,50) || ''}"`);
     } catch (err) {
       stats.errors++;
       logger.error(`[Discovery:${STORE_LABEL}]   ❌ ${err.message.slice(0, 100)}`);

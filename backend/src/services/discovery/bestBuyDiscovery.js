@@ -23,6 +23,7 @@
 const { newBestBuyContext }  = require('../browserEngine');
 const { saveProductData }    = require('../scraperBase');
 const { query }              = require('../../config/database');
+const { writeStoreRun }      = require('../../utils/storeRunStats');
 const logger                 = require('../../utils/logger');
 
 const STORE_SLUG = 'best-buy';
@@ -731,6 +732,7 @@ async function saveCard(card, storeId) {
 // ENTRADA PRINCIPAL
 // ─────────────────────────────────────────────────────────────────────────────
 async function runBestBuyDiscovery(options = {}) {
+  const startedAt    = Date.now();
   const maxPerSearch = options.maxPerSearch || options.maxPerPage || parseInt(process.env.BB_DISCOVERY_MAX_PER_SEARCH) || 20;
   const maxTotal     = options.maxTotal    || parseInt(process.env.BB_DISCOVERY_MAX_TOTAL)      || 60;
   const delayMs      = options.delayMs     || parseInt(process.env.BB_DISCOVERY_DELAY_MS)       || 3000;
@@ -825,14 +827,17 @@ async function runBestBuyDiscovery(options = {}) {
   // ── Resumen ───────────────────────────────────────────────────────────────
   logger.info('\n' + '═'.repeat(60));
   logger.info('🟦 BEST BUY DISCOVERY — COMPLETE');
-  logger.info(`   searches_run:  ${stats.searches_run}`);
-  logger.info(`   cards_found:   ${stats.cards_found}`);
-  logger.info(`   cards_new:     ${stats.cards_new}`);
-  logger.info(`   saved:         ${stats.saved}`);
-  logger.info(`   no_price:      ${stats.no_price}`);
-  logger.info(`   errors:        ${stats.errors}`);
+  logger.info(`   searches_run:${stats.searches_run} | cards_found:${stats.cards_found} | cards_new:${stats.cards_new} | saved:${stats.saved} | errors:${stats.errors}`);
   logger.info('═'.repeat(60) + '\n');
 
+  await writeStoreRun('best-buy', startedAt, {
+    pages_visited: stats.searches_run,
+    urls_discovered: stats.cards_found,
+    urls_new: stats.cards_new,
+    saved: stats.saved,
+    errors: stats.errors,
+    blocked: false,
+  });
   return stats;
 }
 

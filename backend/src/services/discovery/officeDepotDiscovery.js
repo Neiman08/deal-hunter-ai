@@ -21,6 +21,7 @@ const { shouldSkipStore } = require('../proxyManager');
 const { buildHttpProxyAgent } = require('../../utils/proxyUtils');
 const { saveProductData } = require('../scraperBase');
 const { query }           = require('../../config/database');
+const { writeStoreRun }   = require('../../utils/storeRunStats');
 const logger  = require('../../utils/logger');
 
 const STORE_SLUG  = 'office-depot';
@@ -122,6 +123,7 @@ function cycleShuffled(arr, cycleSeed) {
 }
 
 async function runOfficeDepotDiscovery(options = {}) {
+  const startedAt  = Date.now();
   const maxTotal  = options.maxTotal  || 300;
   const delayMs   = options.delayMs   || 2000;
   const CONCURRENCY = parseInt(process.env.SCAN_CONCURRENCY) || 2;
@@ -287,6 +289,8 @@ async function runOfficeDepotDiscovery(options = {}) {
   logger.info(`🏪 ${STORE_LABEL.toUpperCase()} DISCOVERY — COMPLETE`);
   logger.info(`   scanned: ${stats.urls_new} | saved: ${stats.saved} | no_price: ${stats.no_price} | errors: ${stats.errors}`);
   logger.info('═'.repeat(60) + '\n');
+
+  await writeStoreRun(STORE_SLUG, startedAt, stats);
 
   // Persist stats to DB so /api/admin/discovery-runs can report without Render logs
   try {

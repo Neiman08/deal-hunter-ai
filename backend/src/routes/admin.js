@@ -922,20 +922,36 @@ router.post('/ensure-stores', async (req, res) => {
   res.json({ ok: failed.length === 0, results, failed_count: failed.length });
 });
 
-// GET /admin/discovery-runs — last discovery result per store (written by each discovery engine)
+// GET /admin/discovery-runs — last discovery result per store
+// Reads from worker_store_runs (detailed) with fallback to legacy discovery_runs
 router.get('/discovery-runs', async (req, res) => {
   try {
+    // Try worker_store_runs first (new detailed table)
     const r = await query(`
-      SELECT store, pages_visited, urls_discovered, urls_new, saved, no_price,
-             errors, blocked, block_type, last_error, ran_at
-      FROM discovery_runs
-      ORDER BY ran_at DESC
+      SELECT DISTINCT ON (store_slug)
+        store_slug AS store,
+        pages_visited, urls_discovered, urls_new, saved, errors, blocked,
+        last_error, duration_seconds, commit_sha,
+        completed_at AS ran_at
+      FROM worker_store_runs
+      ORDER BY store_slug, completed_at DESC
     `);
-    res.json({ ok: true, runs: r.rows });
-  } catch (err) {
-    // Table may not exist yet (created on first discovery run)
-    if (err.message.includes('does not exist')) return res.json({ ok: true, runs: [], note: 'table not yet created — run discovery first' });
-    res.status(500).json({ ok: false, error: err.message });
+    if (r.rows.length > 0) return res.json({ ok: true, runs: r.rows, source: 'worker_store_runs' });
+    throw new Error('empty');
+  } catch (newErr) {
+    // Fallback to legacy discovery_runs table
+    try {
+      const r = await query(`
+        SELECT store, pages_visited, urls_discovered, urls_new, saved, 0 AS no_price,
+               errors, blocked, last_error, ran_at
+        FROM discovery_runs
+        ORDER BY ran_at DESC
+      `);
+      return res.json({ ok: true, runs: r.rows, source: 'discovery_runs' });
+    } catch (err) {
+      if (err.message.includes('does not exist')) return res.json({ ok: true, runs: [], note: 'no run data yet' });
+      res.status(500).json({ ok: false, error: err.message });
+    }
   }
 });
 

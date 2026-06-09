@@ -18,6 +18,7 @@ const { buildHttpProxyAgent } = require('../../utils/proxyUtils');
 const { filterNewUrls, sleep, runStoreDiscovery } = require('./baseRetailerDiscovery');
 const { shouldSkipStore } = require('../proxyManager');
 const { scanSingleProduct } = require('../../jobs/scanJob');
+const { writeStoreRun } = require('../../utils/storeRunStats');
 const logger = require('../../utils/logger');
 
 const STORE_SLUG  = 'home-depot';
@@ -27,6 +28,7 @@ const STORE_LABEL = 'Home Depot';
 const PROXY_HOST = process.env.PROXY_HOST || 'brd.superproxy.io';
 const PROXY_PORT = parseInt(process.env.PROXY_PORT) || 22225;
 const PROXY_USER = process.env.PROXY_USER || '';
+const PROXY_PASS = process.env.PROXY_PASS || '';
 
 // ── Proxy diagnostics (printed once at module load) ───────────────────────────
 console.log('[Discovery:HomeDepot] ── PROXY CONFIG ──');
@@ -177,6 +179,7 @@ async function discoverViaPlaywright(options) {
 }
 
 async function runHomeDepotDiscovery(options = {}) {
+  const startedAt = Date.now();
   const maxTotal = options.maxTotal || 150;
   const delayMs  = options.delayMs  || 2000;
 
@@ -258,6 +261,7 @@ async function runHomeDepotDiscovery(options = {}) {
   logger.info(`   found:${stats.urls_discovered} new:${stats.urls_new} saved:${stats.saved} errors:${stats.errors}`);
   logger.info('═'.repeat(60) + '\n');
 
+  await writeStoreRun(STORE_SLUG, startedAt, stats);
   return stats;
 }
 

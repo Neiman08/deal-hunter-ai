@@ -17,6 +17,7 @@ const { filterNewUrls, sleep, runStoreDiscovery } = require('./baseRetailerDisco
 const { buildHttpProxyAgent } = require('../../utils/proxyUtils');
 const { newContext, newBestBuyContext } = require('../browserEngine');
 const { shouldSkipStore }    = require('../proxyManager');
+const { writeStoreRun }      = require('../../utils/storeRunStats');
 const logger  = require('../../utils/logger');
 
 const STORE_SLUG  = 'lowes';
@@ -156,6 +157,7 @@ async function runLowesPlaywrightFallback(options = {}) {
 }
 
 async function runLowesDiscovery(options = {}) {
+  const startedAt = Date.now();
   const maxTotal = options.maxTotal || 150;
   const delayMs  = options.delayMs  || 2500;
 
@@ -281,6 +283,7 @@ async function runLowesDiscovery(options = {}) {
   logger.info(`   active_deals: ${stats.active_deals || 0} | real_opportunities: ${stats.real_opportunities || 0}`);
   logger.info('═'.repeat(60) + '\n');
 
+  await writeStoreRun(STORE_SLUG, startedAt, stats);
   return stats;
 }
 

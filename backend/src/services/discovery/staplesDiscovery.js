@@ -6,6 +6,7 @@
 
 const { newBestBuyContext } = require('../browserEngine');
 const { runStoreDiscovery } = require('./baseRetailerDiscovery');
+const { writeStoreRun } = require('../../utils/storeRunStats');
 
 const STORE_SLUG  = 'staples';
 const STORE_LABEL = 'Staples';
@@ -51,13 +52,13 @@ function cleanUrl(href) {
 }
 
 async function runStaplesDiscovery(options = {}) {
-  // Rotate starting page each 30-min cycle
+  const startedAt = Date.now();
   const cycleNum  = Math.floor(Date.now() / (30 * 60 * 1000));
   const basePages = options.pages || DISCOVERY_PAGES;
   const startIdx  = (cycleNum * 4) % basePages.length;
   const pages     = [...basePages.slice(startIdx), ...basePages.slice(0, startIdx)];
 
-  return runStoreDiscovery({
+  const stats = await runStoreDiscovery({
     storeSlug:  STORE_SLUG,
     storeLabel: STORE_LABEL,
     pages,
@@ -70,6 +71,9 @@ async function runStaplesDiscovery(options = {}) {
     delayMs:    options.delayMs    || 2500,
     maxConsecutiveEmpty: 3,
   });
+
+  await writeStoreRun(STORE_SLUG, startedAt, stats);
+  return stats;
 }
 
 module.exports = { runStaplesDiscovery, runDiscovery: runStaplesDiscovery };

@@ -1010,15 +1010,15 @@ router.get('/store-audit/:slug', async (req, res) => {
         ORDER BY p.created_at DESC LIMIT 5
       `, [slug]),
 
-      // Latest 5 deals by updated_at
+      // Latest 5 deals by last_seen_at
       query(`
         SELECT d.id, p.name, d.deal_price, d.regular_price, d.discount_percent,
-               d.estimated_profit, d.roi_percent, d.is_active, d.updated_at
+               d.estimated_profit, d.roi_percent, d.is_active, d.last_seen_at
         FROM deals d
         JOIN products p ON d.product_id = p.id
         JOIN stores s ON d.store_id = s.id
         WHERE s.slug = $1
-        ORDER BY d.updated_at DESC LIMIT 5
+        ORDER BY d.last_seen_at DESC LIMIT 5
       `, [slug]),
 
       // Sample 20 products with inactive_reason
@@ -1044,7 +1044,7 @@ router.get('/store-audit/:slug', async (req, res) => {
         JOIN stores s ON p.store_id = s.id
         LEFT JOIN deals d ON d.product_id = p.id AND d.store_id = s.id
         WHERE s.slug = $1
-        ORDER BY d.updated_at DESC NULLS LAST
+        ORDER BY d.last_seen_at DESC NULLS LAST
         LIMIT 20
       `, [slug]),
     ]);

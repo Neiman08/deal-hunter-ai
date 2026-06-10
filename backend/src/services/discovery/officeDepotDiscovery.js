@@ -156,10 +156,18 @@ async function runOfficeDepotDiscovery(options = {}) {
   const RETRYABLE = ['407', '403', 'econnreset', 'socket hang up', 'timeout', 'etimedout'];
   const isRetryable = msg => RETRYABLE.some(e => msg.toLowerCase().includes(e));
 
+  // DEBUG: log proxy env visible to this worker process
+  const _resAgent = buildHttpProxyAgent('OfficeDept');
+  logger.info(`[Discovery:${STORE_LABEL}] PROXY_DEBUG residential: host=${process.env.PROXY_HOST || '(not set)'} port=${process.env.PROXY_PORT || '(not set)'} user=${(process.env.PROXY_USER || '(not set)').slice(0, 25)}... pass=${process.env.PROXY_PASS ? '***set***' : '(not set)'} agent_created=${!!_resAgent}`);
+  const _ispUser = process.env.ISP_PROXY_USER || '';
+  const _ispPass = process.env.ISP_PROXY_PASS || '';
+  const _ispHost = process.env.ISP_PROXY_HOST || process.env.PROXY_HOST || '';
+  logger.info(`[Discovery:${STORE_LABEL}] PROXY_DEBUG isp:         host=${_ispHost || '(not set)'} port=${process.env.ISP_PROXY_PORT || '(not set)'} user=${(_ispUser || '(not set)').slice(0, 25)}... pass=${_ispPass ? '***set***' : '(not set)'}`);
+
   let rawXml;
   // Try residential proxy first, fall back to ISP proxy on retryable errors
   try {
-    rawXml = await fetchText(sitemapUrl, 0, buildHttpProxyAgent('OfficeDept'));
+    rawXml = await fetchText(sitemapUrl, 0, _resAgent);
     stats.pages_visited = 1;
     stats.proxy_used = 'residential';
   } catch (err1) {

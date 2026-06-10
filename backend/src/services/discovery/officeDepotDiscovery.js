@@ -28,7 +28,6 @@ const STORE_SLUG  = 'office-depot';
 const STORE_LABEL = 'Office Depot';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// Proxy auto-corrected by buildHttpProxyAgent (residential→22225, ISP→33335)
 function makeProxyAgent() {
   return buildHttpProxyAgent('OfficeDept');
 }
@@ -175,7 +174,12 @@ async function runOfficeDepotDiscovery(options = {}) {
     logger.warn(`[Discovery:${STORE_LABEL}] Residential proxy failed (${err1.message}) — trying ISP fallback`);
 
     if (isRetryable(err1.message)) {
-      const ispAgent = buildIspHttpProxyAgent('OfficeDept');
+      const ispUser = process.env.ISP_PROXY_USER || '';
+      const ispIsRealIsp = ispUser.includes('zone-isp');
+      const ispAgent = ispIsRealIsp ? buildIspHttpProxyAgent('OfficeDept') : null;
+      if (!ispIsRealIsp) {
+        logger.warn(`[Discovery:${STORE_LABEL}] ISP_PROXY_USER does not contain 'zone-isp' — skipping ISP fallback`);
+      }
       if (ispAgent) {
         try {
           rawXml = await fetchText(sitemapUrl, 0, ispAgent);

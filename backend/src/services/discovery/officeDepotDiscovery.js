@@ -157,7 +157,16 @@ async function runOfficeDepotDiscovery(options = {}) {
     rawXml = await fetchText(sitemapUrl);
     stats.pages_visited = 1;
   } catch (err) {
+    stats.last_error = err.message;
+    stats.errors++;
+    const msg = err.message.toLowerCase();
+    if (msg.includes('403') || msg.includes('407') || msg.includes('econnreset') ||
+        msg.includes('etimedout') || msg.includes('socket hang up') || msg.includes('timeout')) {
+      stats.blocked = true;
+      stats.blockType = 'sitemap_fetch_blocked';
+    }
     logger.error(`[Discovery:${STORE_LABEL}] Sitemap fetch failed: ${err.message}`);
+    await writeStoreRun(STORE_SLUG, startedAt, stats);
     return stats;
   }
 

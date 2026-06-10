@@ -88,7 +88,7 @@ async function runScan(storeSlug = null) {
       INSERT INTO scan_logs (store_name, status, started_at)
       VALUES ($1, 'running', NOW())
       RETURNING id
-    `, [stores.join('+')]);
+    `, ['full-cycle']);
     logId = logRes.rows[0]?.id;
   } catch (err) {
     logger.warn(`[ScanJob] Could not create scan_log: ${err.message}`);

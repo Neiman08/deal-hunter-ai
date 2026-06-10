@@ -18,7 +18,7 @@
 const https            = require('https');
 const http             = require('http');
 const { shouldSkipStore } = require('../proxyManager');
-const { buildHttpProxyAgent } = require('../../utils/proxyUtils');
+const { buildHttpProxyAgent, buildIspHttpProxyAgent } = require('../../utils/proxyUtils');
 const { saveProductData } = require('../scraperBase');
 const { query }           = require('../../config/database');
 const { writeStoreRun }   = require('../../utils/storeRunStats');
@@ -131,6 +131,7 @@ async function runOfficeDepotDiscovery(options = {}) {
   const stats = {
     store: STORE_SLUG, pages_visited: 0, urls_discovered: 0,
     urls_new: 0, saved: 0, no_price: 0, errors: 0, blocked: false, blockType: null,
+    proxy_used: null, proxy_fallback_used: false, last_error: null,
   };
 
   if (shouldSkipStore(STORE_SLUG)) {
@@ -152,22 +153,50 @@ async function runOfficeDepotDiscovery(options = {}) {
 
   logger.info(`[Discovery:${STORE_LABEL}] Cycle #${cycleSeed} | Sitemap ${sitemapIdx}: ${sitemapUrl}`);
 
+  const RETRYABLE = ['407', '403', 'econnreset', 'socket hang up', 'timeout', 'etimedout'];
+  const isRetryable = msg => RETRYABLE.some(e => msg.toLowerCase().includes(e));
+
   let rawXml;
+  // Try residential proxy first, fall back to ISP proxy on retryable errors
   try {
-    rawXml = await fetchText(sitemapUrl);
+    rawXml = await fetchText(sitemapUrl, 0, buildHttpProxyAgent('OfficeDept'));
     stats.pages_visited = 1;
-  } catch (err) {
-    stats.last_error = err.message;
-    stats.errors++;
-    const msg = err.message.toLowerCase();
-    if (msg.includes('403') || msg.includes('407') || msg.includes('econnreset') ||
-        msg.includes('etimedout') || msg.includes('socket hang up') || msg.includes('timeout')) {
-      stats.blocked = true;
-      stats.blockType = 'sitemap_fetch_blocked';
+    stats.proxy_used = 'residential';
+  } catch (err1) {
+    stats.last_error = err1.message;
+    logger.warn(`[Discovery:${STORE_LABEL}] Residential proxy failed (${err1.message}) — trying ISP fallback`);
+
+    if (isRetryable(err1.message)) {
+      const ispAgent = buildIspHttpProxyAgent('OfficeDept');
+      if (ispAgent) {
+        try {
+          rawXml = await fetchText(sitemapUrl, 0, ispAgent);
+          stats.pages_visited = 1;
+          stats.proxy_used = 'isp';
+          stats.proxy_fallback_used = true;
+          stats.last_error = null;
+          logger.info(`[Discovery:${STORE_LABEL}] ISP fallback succeeded`);
+        } catch (err2) {
+          stats.last_error = err2.message;
+          stats.errors++;
+          if (isRetryable(err2.message)) { stats.blocked = true; stats.blockType = 'sitemap_fetch_blocked'; }
+          logger.error(`[Discovery:${STORE_LABEL}] ISP fallback also failed: ${err2.message}`);
+          await writeStoreRun(STORE_SLUG, startedAt, stats);
+          return stats;
+        }
+      } else {
+        stats.errors++;
+        stats.blocked = true;
+        stats.blockType = 'isp_proxy_not_configured';
+        logger.error(`[Discovery:${STORE_LABEL}] ISP proxy not configured — cannot fallback`);
+        await writeStoreRun(STORE_SLUG, startedAt, stats);
+        return stats;
+      }
+    } else {
+      stats.errors++;
+      await writeStoreRun(STORE_SLUG, startedAt, stats);
+      return stats;
     }
-    logger.error(`[Discovery:${STORE_LABEL}] Sitemap fetch failed: ${err.message}`);
-    await writeStoreRun(STORE_SLUG, startedAt, stats);
-    return stats;
   }
 
   const allUrls = rawXml.match(/https:\/\/www\.officedepot\.com\/a\/products\/[^<\s"]+/g) || [];

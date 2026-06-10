@@ -1186,4 +1186,60 @@ router.get('/worker-runs', async (req, res) => {
   }
 });
 
+// GET /admin/proxy-url-test?url=<target> — fetch a URL via buildHttpProxyAgent() and return raw diagnostics
+// Uses the EXACT same agent factory as officeDepotDiscovery to isolate proxy vs scraper issues.
+router.get('/proxy-url-test', async (req, res) => {
+  const https = require('https');
+  const http  = require('http');
+  const { buildHttpProxyAgent } = require('../utils/proxyUtils');
+
+  const targetUrl = req.query.url;
+  if (!targetUrl) return res.status(400).json({ error: 'url query param required' });
+
+  const agent = buildHttpProxyAgent('ProxyUrlTest');
+  const host  = process.env.PROXY_HOST || null;
+  const port  = parseInt(process.env.PROXY_PORT) || 22225;
+  const user  = process.env.PROXY_USER || '';
+
+  const proxyMeta = {
+    proxy_host:         host,
+    proxy_port:         port,
+    proxy_user_partial: user ? user.slice(0, 30) + '...' : '(not set)',
+    agent_created:      !!agent,
+  };
+
+  const result = await new Promise(resolve => {
+    const lib  = targetUrl.startsWith('https:') ? https : http;
+    const opts = {
+      timeout: 20000,
+      rejectUnauthorized: false,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    };
+    if (agent) opts.agent = agent;
+
+    const req2 = lib.get(targetUrl, opts, res2 => {
+      const chunks = [];
+      res2.on('data', c => chunks.push(c));
+      res2.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8');
+        resolve({
+          http_status:      res2.statusCode,
+          response_headers: res2.headers,
+          first_200_chars:  body.slice(0, 200),
+          error_message:    null,
+        });
+      });
+      res2.on('error', e => resolve({ http_status: null, response_headers: null, first_200_chars: null, error_message: e.message }));
+    });
+    req2.on('error', e => resolve({ http_status: null, response_headers: null, first_200_chars: null, error_message: e.message }));
+    req2.on('timeout', () => { req2.destroy(); resolve({ http_status: null, response_headers: null, first_200_chars: null, error_message: 'timeout' }); });
+  });
+
+  res.json({ ok: result.http_status === 200, target_url: targetUrl, ...proxyMeta, ...result });
+});
+
 module.exports = router;

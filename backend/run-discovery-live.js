@@ -304,13 +304,17 @@ function loadEngines() {
   return engines;
 }
 
-// ─── Run one engine safely (10-minute hard timeout per store) ─────────────────
-const STORE_TIMEOUT_MS = 10 * 60 * 1000;
+// ─── Run one engine safely (per-store timeout, default 10 min) ───────────────
+const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const STORE_TIMEOUTS_MS  = {
+  'office-depot': 20 * 60 * 1000,  // sitemap + proxy scrape is slow; needs extra headroom
+};
 
 async function runEngine(engines, slug, opts, label) {
   const eng = engines[slug];
   if (!eng) return null;
 
+  const timeoutMs = STORE_TIMEOUTS_MS[slug] || DEFAULT_TIMEOUT_MS;
   const t0 = Date.now();
   try {
     console.log(`\n🏪 ${label || slug} Discovery...`);
@@ -319,7 +323,7 @@ async function runEngine(engines, slug, opts, label) {
     if (!fn) { console.log(`  ⚠️  No runDiscovery export for ${slug}`); return null; }
     const s = await Promise.race([
       fn(opts),
-      new Promise((_, rej) => setTimeout(() => rej(new Error(`Store timeout after ${STORE_TIMEOUT_MS / 60000}min`)), STORE_TIMEOUT_MS)),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`Store timeout after ${timeoutMs / 60000}min`)), timeoutMs)),
     ]);
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     const blocked  = s.blocked ? ` ⛔BLOCKED(${s.blockType || '?'})` : '';
@@ -505,7 +509,7 @@ async function main() {
     }
 
     // Tier 1 direct stores — Office Depot runs early (sitemap-based, fast to discover)
-    cycleStats['office-depot'] = await runEngine(engines, 'office-depot', { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, 'Office Depot');
+    cycleStats['office-depot'] = await runEngine(engines, 'office-depot', { maxTotal: 150, maxPerPage: 30, delayMs: 1000 }, 'Office Depot');
     cycleStats['lowes']        = await runEngine(engines, 'lowes',        { maxTotal: 150, maxPerPage: 30, delayMs: 2500 }, "Lowe's");
     cycleStats['home-depot']   = await runEngine(engines, 'home-depot',   { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, 'Home Depot');
     cycleStats['gamestop']     = await runEngine(engines, 'gamestop',     { maxTotal: 200, maxPerPage: 30, delayMs: 2000 }, 'GameStop');

@@ -186,10 +186,12 @@ async function saveProductData(dbProduct, scraped, storeSlug) {
     return null;
   }
 
-  // Only use real regular price — never fabricate a fallback.
-  // Fake regPrice = currentPrice * 1.4 produces 28.57% phantom discounts.
-  const regPrice    = regularPrice || null;
+  // Use real regular price when available. If null (product not on sale),
+  // fall back to currentPrice so prices.regular_price (NOT NULL) is satisfied.
+  // discount=0 when regPrice===currentPrice → deal stays inactive (no phantom discounts).
+  const regPrice    = regularPrice || currentPrice;
   const discountPct = calcDiscount(currentPrice, regPrice);
+  const hasRealDiscount = regularPrice && regularPrice > currentPrice && discountPct > 0;
 
   // GameStop prices <= $3 are trade-in quotes mistaken for sale prices — never activate
   const forceInactive = (storeSlug === 'gamestop' && currentPrice <= 3);
@@ -239,6 +241,7 @@ async function saveProductData(dbProduct, scraped, storeSlug) {
       $20, $21, $22,
       CASE
         WHEN $24::boolean = true THEN false
+        WHEN $25::boolean = false THEN false
         WHEN $16::boolean = true THEN true
         WHEN $4::numeric >= 30 THEN true
         WHEN $2::numeric IS NOT NULL AND $4::numeric >= 20 AND $8::numeric > 0 AND $9::numeric > 0 THEN true
@@ -270,6 +273,7 @@ async function saveProductData(dbProduct, scraped, storeSlug) {
       last_seen_at      = NOW(),
       is_active = CASE
         WHEN $24::boolean = true THEN false
+        WHEN $25::boolean = false THEN false
         WHEN EXCLUDED.is_error_price = true THEN true
         WHEN EXCLUDED.discount_percent >= 30 THEN true
         WHEN EXCLUDED.regular_price IS NOT NULL
@@ -287,7 +291,7 @@ async function saveProductData(dbProduct, scraped, storeSlug) {
     stockQty, analysis.isErrorPrice,
     liqResult?.type, liqResult?.badge, liqResult?.color,
     analysis.tier || 'Regular', analysis.resaleConfidence || 'MEDIUM', analysis.resaleVelocity || 'unknown',
-    storeSlug, forceInactive,
+    storeSlug, forceInactive, hasRealDiscount,
   ]);
 
   logger.info(`[SaveProduct] ✅ "${dbProduct.name}" | $${currentPrice} | score=${analysis.score} | ${liqResult?.badge || 'no liquidation'}`);

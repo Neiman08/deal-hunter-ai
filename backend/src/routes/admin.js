@@ -1243,4 +1243,139 @@ router.get('/proxy-url-test', async (req, res) => {
   res.json({ ok: result.http_status === 200, target_url: targetUrl, ...proxyMeta, ...result });
 });
 
+// GET /admin/worker-proxy-test — tests BrightData proxy connectivity from the WORKER process
+// Uses buildHttpProxyAgent('OfficeDept'), identical to officeDepotDiscovery.js, to confirm
+// whether the 407 is a worker-side env/config issue vs a BrightData auth issue.
+router.get('/worker-proxy-test', workerOnly, async (req, res) => {
+  const https = require('https');
+  const http  = require('http');
+  const { buildHttpProxyAgent } = require('../utils/proxyUtils');
+
+  const TEST_URLS = [
+    'https://geo.brdtest.com/welcome.txt',
+    'https://lumtest.com/myip.json',
+    'https://www.officedepot.com/product_sitemap_0.xml',
+  ];
+
+  const host = process.env.PROXY_HOST  || null;
+  const port = parseInt(process.env.PROXY_PORT) || 22225;
+  const user = process.env.PROXY_USER  || '';
+  const pass = process.env.PROXY_PASS  || '';
+
+  const agent = buildHttpProxyAgent('OfficeDept');
+
+  const proxyMeta = {
+    proxy_host:         host,
+    proxy_port:         port,
+    proxy_user_partial: user ? user.slice(0, 40) + '...' : '(not set)',
+    proxy_pass_set:     !!pass,
+    proxy_enabled:      process.env.PROXY_ENABLED,
+    agent_created:      !!agent,
+  };
+
+  function classifyError(msg, statusCode) {
+    if (statusCode === 407 || (msg || '').includes('407')) return 'PROXY_AUTH_407';
+    const m = (msg || '').toLowerCase();
+    if (m.includes('etimedout') || m.includes('timeout'))                     return 'TIMEOUT';
+    if (m.includes('cert') || m.includes('tls') || m.includes('ssl'))         return 'TLS';
+    if (m.includes('enotfound') || m.includes('dns'))                         return 'DNS';
+    if (m.includes('econnrefused') || m.includes('econnreset') || m.includes('socket hang up')) return 'CONNECTION';
+    return 'UNKNOWN';
+  }
+
+  async function testUrl(targetUrl) {
+    const t0 = Date.now();
+    return new Promise(resolve => {
+      const lib  = targetUrl.startsWith('https:') ? https : http;
+      const opts = {
+        timeout: 25000,
+        rejectUnauthorized: false,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      };
+      if (agent) opts.agent = agent;
+
+      const onError = (errMsg, statusCode = null) => resolve({
+        url:         targetUrl,
+        ok:          false,
+        http_status: statusCode,
+        ip:          null,
+        country:     null,
+        elapsed_ms:  Date.now() - t0,
+        body_snippet: null,
+        error: {
+          message: errMsg,
+          type:    classifyError(errMsg, statusCode),
+        },
+      });
+
+      const req2 = lib.get(targetUrl, opts, res2 => {
+        const chunks = [];
+        res2.on('data', c => chunks.push(c));
+        res2.on('end', () => {
+          const elapsed = Date.now() - t0;
+          const body    = Buffer.concat(chunks).toString('utf8');
+
+          if (res2.statusCode !== 200) {
+            return resolve({
+              url:         targetUrl,
+              ok:          false,
+              http_status: res2.statusCode,
+              ip:          null,
+              country:     null,
+              elapsed_ms:  elapsed,
+              body_snippet: body.slice(0, 500),
+              error: {
+                message: `HTTP ${res2.statusCode}`,
+                type:    classifyError(`HTTP ${res2.statusCode}`, res2.statusCode),
+              },
+            });
+          }
+
+          let ip = null, country = null;
+          try {
+            const parsed = JSON.parse(body);
+            ip      = parsed.ip      || parsed.clientIp   || null;
+            country = parsed.country || parsed.countryCode || null;
+          } catch { /* not JSON — try text patterns */ }
+
+          if (!ip) {
+            const ipM  = body.match(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/);
+            const cntM = body.match(/Country[:\s]+([A-Z]{2,})/i);
+            ip      = ipM?.[1]  || null;
+            country = cntM?.[1] || null;
+          }
+
+          resolve({
+            url:         targetUrl,
+            ok:          true,
+            http_status: res2.statusCode,
+            ip,
+            country,
+            elapsed_ms:  elapsed,
+            body_snippet: body.slice(0, 500),
+            error:       null,
+          });
+        });
+        res2.on('error', e => onError(e.message));
+      });
+
+      req2.on('error',   e  => onError(e.message));
+      req2.on('timeout', () => { req2.destroy(); onError('timeout'); });
+    });
+  }
+
+  const results = await Promise.all(TEST_URLS.map(testUrl));
+  const allOk   = results.every(r => r.ok);
+
+  res.json({
+    ok:    allOk,
+    proxy: proxyMeta,
+    tests: results,
+  });
+});
+
 module.exports = router;

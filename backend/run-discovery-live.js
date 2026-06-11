@@ -154,6 +154,125 @@ async function cleanupDeals() {
   console.log('  ✅ Cleanup complete');
 }
 
+// ─── Worker proxy diagnostic ──────────────────────────────────────────────────
+// Triggered via discovery_jobs queue (store_slug = 'worker-proxy-test').
+// Uses the same buildHttpProxyAgent('OfficeDept') call as officeDepotDiscovery.js
+// so the result is directly comparable to a real OD discovery run from this worker.
+async function runWorkerProxyTest() {
+  const https = require('https');
+  const http  = require('http');
+  const { buildHttpProxyAgent } = require('./src/utils/proxyUtils');
+
+  const TEST_URLS = [
+    'https://geo.brdtest.com/welcome.txt',
+    'https://lumtest.com/myip.json',
+    'https://www.officedepot.com/product_sitemap_0.xml',
+  ];
+
+  const host  = process.env.PROXY_HOST  || null;
+  const port  = parseInt(process.env.PROXY_PORT) || 22225;
+  const user  = process.env.PROXY_USER  || '';
+  const pass  = process.env.PROXY_PASS  || '';
+  const agent = buildHttpProxyAgent('OfficeDept');
+
+  function classifyError(msg, statusCode) {
+    if (statusCode === 407 || String(msg).includes('407')) return 'PROXY_AUTH_407';
+    const m = String(msg).toLowerCase();
+    if (m.includes('etimedout') || m.includes('timeout'))                     return 'TIMEOUT';
+    if (m.includes('cert') || m.includes('tls') || m.includes('ssl'))         return 'TLS';
+    if (m.includes('enotfound') || m.includes('dns'))                         return 'DNS';
+    if (m.includes('econnrefused') || m.includes('econnreset') || m.includes('socket hang up')) return 'CONNECTION';
+    return 'UNKNOWN';
+  }
+
+  function fetchUrl(targetUrl) {
+    const t0 = Date.now();
+    return new Promise(resolve => {
+      const lib  = targetUrl.startsWith('https:') ? https : http;
+      const opts = {
+        timeout: 25000,
+        rejectUnauthorized: false,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+          'Accept': '*/*',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+      };
+      if (agent) opts.agent = agent;
+
+      const fail = (msg, statusCode = null) => resolve({
+        url: targetUrl, ok: false, http_status: statusCode,
+        ip: null, country: null, elapsed_ms: Date.now() - t0,
+        body_snippet: null,
+        error: { message: msg, type: classifyError(msg, statusCode) },
+      });
+
+      const req = lib.get(targetUrl, opts, res2 => {
+        const chunks = [];
+        res2.on('data', c => chunks.push(c));
+        res2.on('end', () => {
+          const elapsed = Date.now() - t0;
+          const body    = Buffer.concat(chunks).toString('utf8');
+
+          if (res2.statusCode !== 200) {
+            return resolve({
+              url: targetUrl, ok: false, http_status: res2.statusCode,
+              ip: null, country: null, elapsed_ms: elapsed,
+              body_snippet: body.slice(0, 500),
+              error: { message: `HTTP ${res2.statusCode}`, type: classifyError(`HTTP ${res2.statusCode}`, res2.statusCode) },
+            });
+          }
+
+          let ip = null, country = null;
+          try {
+            const parsed = JSON.parse(body);
+            ip      = parsed.ip      || parsed.clientIp    || null;
+            country = parsed.country || parsed.countryCode || null;
+          } catch { /* not JSON */ }
+          if (!ip) {
+            const ipM  = body.match(/\b(\d{1,3}(?:\.\d{1,3}){3})\b/);
+            const cntM = body.match(/Country[:\s]+([A-Z]{2,})/i);
+            ip      = ipM?.[1]  || null;
+            country = cntM?.[1] || null;
+          }
+
+          resolve({
+            url: targetUrl, ok: true, http_status: 200,
+            ip, country, elapsed_ms: elapsed,
+            body_snippet: body.slice(0, 500), error: null,
+          });
+        });
+        res2.on('error', e => fail(e.message));
+      });
+      req.on('error',   e  => fail(e.message));
+      req.on('timeout', () => { req.destroy(); fail('timeout'); });
+    });
+  }
+
+  const tests = await Promise.all(TEST_URLS.map(fetchUrl));
+
+  const result = {
+    ok: tests.every(t => t.ok),
+    proxy: {
+      proxy_host:         host,
+      proxy_port:         port,
+      proxy_user_partial: user ? user.slice(0, 40) + '...' : '(not set)',
+      proxy_pass_set:     !!pass,
+      proxy_enabled:      process.env.PROXY_ENABLED,
+      agent_created:      !!agent,
+    },
+    tests,
+  };
+
+  console.log(`[WorkerProxyTest] ok=${result.ok} proxy_host=${host} proxy_port=${port} agent=${!!agent}`);
+  tests.forEach(t => {
+    if (t.ok) console.log(`  ✅ ${t.url} → HTTP ${t.http_status} ip=${t.ip} country=${t.country} (${t.elapsed_ms}ms)`);
+    else      console.log(`  ❌ ${t.url} → ${t.error.type}: ${t.error.message}`);
+  });
+
+  return result;
+}
+
 // ─── Discovery engine loader ──────────────────────────────────────────────────
 function loadEngines() {
   const engines = {};
@@ -333,7 +452,14 @@ async function main() {
       const job = await claimNextPendingJob();
       if (!job) return;
       console.log(`\n[JobQueue] Claimed job #${job.id}: ${job.store_slug} (requested by ${job.requested_by || 'system'})`);
-      const result = await runEngine(engines, job.store_slug, { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, job.store_slug);
+
+      let result;
+      if (job.store_slug === 'worker-proxy-test') {
+        result = await runWorkerProxyTest();
+      } else {
+        result = await runEngine(engines, job.store_slug, { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, job.store_slug);
+      }
+
       await markCompleted(job.id, result || {});
       console.log(`[JobQueue] Job #${job.id} completed — saved:${result?.saved || 0} errors:${result?.errors || 0}`);
     } catch (err) {

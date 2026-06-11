@@ -25,38 +25,59 @@ const CREATE_TABLE = `
     saved           INTEGER DEFAULT 0,
     errors          INTEGER DEFAULT 0,
     blocked         BOOLEAN DEFAULT false,
+    block_type      VARCHAR(80),
     last_error      TEXT,
+    proxy_used      VARCHAR(30),
+    screenshot_path TEXT,
     duration_seconds NUMERIC(8,1),
     commit_sha      VARCHAR(40)
   )
 `;
 
+const ADD_COLUMNS = `
+  DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='worker_store_runs' AND column_name='block_type') THEN
+      ALTER TABLE worker_store_runs ADD COLUMN block_type VARCHAR(80);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='worker_store_runs' AND column_name='proxy_used') THEN
+      ALTER TABLE worker_store_runs ADD COLUMN proxy_used VARCHAR(30);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='worker_store_runs' AND column_name='screenshot_path') THEN
+      ALTER TABLE worker_store_runs ADD COLUMN screenshot_path TEXT;
+    END IF;
+  END $$;
+`;
+
 const UPSERT = `
   INSERT INTO worker_store_runs
     (store_slug, started_at, completed_at, pages_visited, urls_discovered,
-     urls_new, saved, errors, blocked, last_error, duration_seconds, commit_sha)
-  VALUES ($1,$2,NOW(),$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     urls_new, saved, errors, blocked, block_type, last_error, proxy_used,
+     screenshot_path, duration_seconds, commit_sha)
+  VALUES ($1,$2,NOW(),$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 `;
 
 async function writeStoreRun(storeSlug, startedAt, stats) {
   try {
     await query(CREATE_TABLE);
+    await query(ADD_COLUMNS);
     const dur = ((Date.now() - startedAt) / 1000).toFixed(1);
     await query(UPSERT, [
       storeSlug,
       new Date(startedAt).toISOString(),
-      stats.pages_visited || 0,
-      stats.urls_discovered || 0,
-      stats.urls_new || 0,
-      stats.saved || 0,
-      stats.errors || 0,
-      stats.blocked || false,
-      stats.last_error || null,
+      stats.pages_visited    || 0,
+      stats.urls_discovered  || 0,
+      stats.urls_new         || 0,
+      stats.saved            || 0,
+      stats.errors           || 0,
+      stats.blocked          || false,
+      stats.blockType        || null,
+      stats.last_error       || null,
+      stats.proxy_used       || null,
+      stats.screenshot_path  || null,
       parseFloat(dur),
       getCommitSha(),
     ]);
   } catch (err) {
-    // Non-fatal — logging only
     require('./logger').warn(`[StoreRunStats:${storeSlug}] Failed to write: ${err.message}`);
   }
 }

@@ -931,7 +931,8 @@ router.get('/discovery-runs', async (req, res) => {
       SELECT DISTINCT ON (store_slug)
         store_slug AS store,
         pages_visited, urls_discovered, urls_new, saved, errors, blocked,
-        last_error, duration_seconds, commit_sha,
+        block_type, last_error, proxy_used, screenshot_path,
+        duration_seconds, commit_sha,
         completed_at AS ran_at
       FROM worker_store_runs
       ORDER BY store_slug, completed_at DESC

@@ -20,7 +20,7 @@ services:
       - key: PORT
         value: 3001
 
-  - type: web
+  - type: worker
     name: deal-hunter-worker
     env: node
     buildCommand: cd backend && npm ci
@@ -28,7 +28,3 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: IS_WORKER
-        value: 'true'
-      - key: PORT
-        value: 3002

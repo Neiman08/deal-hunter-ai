@@ -312,7 +312,7 @@ async function restartBrowserPool() {
 process.on('SIGINT',  () => closeBrowser());
 process.on('SIGTERM', () => closeBrowser());
 
-module.exports = { getBrowser, newContext, openPage, withPage, closeBrowser, restartBrowserPool, newBestBuyContext, newMacysContext, newIspContext };
+module.exports = { getBrowser, newContext, openPage, withPage, closeBrowser, restartBrowserPool, newBestBuyContext, newBestBuyDiscoveryContext, newMacysContext, newIspContext };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Best Buy specific context — NO proxy, NO resource abort
@@ -328,37 +328,57 @@ module.exports = { getBrowser, newContext, openPage, withPage, closeBrowser, res
 let bbBrowserInstance = null;
 let bbLaunchPromise   = null;
 
+// Separate browser instance for discovery — prevents discovery from sharing context
+// with the product scanner and crashing the scanner when discovery closes pages.
+let bbDiscoveryBrowserInstance = null;
+let bbDiscoveryLaunchPromise   = null;
+
+function _bbLaunchArgs() {
+  const isLinux = process.platform === 'linux';
+  return {
+    headless: isLinux ? true : process.env.PLAYWRIGHT_HEADLESS !== 'false',
+    args: isLinux ? ['--no-sandbox', '--disable-setuid-sandbox'] : [],
+  };
+}
+
 async function getBestBuyBrowser() {
   if (bbBrowserInstance && bbBrowserInstance.isConnected()) return bbBrowserInstance;
   if (bbLaunchPromise) return bbLaunchPromise;
 
   bbLaunchPromise = (async () => {
-    const isLinux = process.platform === 'linux';
-    // Force headless on Linux (no X server available on Render/CI)
-    const headless = isLinux ? true : process.env.PLAYWRIGHT_HEADLESS !== 'false';
-
-    const args = isLinux
-      ? ['--no-sandbox', '--disable-setuid-sandbox']
-      : [];
-
-    logger.info(`[Browser:BB] Launching | headless=${headless} | platform=${process.platform} | args=[${args.join(', ') || 'none'}] | no proxy`);
-
-    bbBrowserInstance = await chromium.launch({
-      headless,
-      args,
-      // No proxy — Best Buy does not block datacenter IPs
-    });
-
+    const { headless, args } = _bbLaunchArgs();
+    logger.info(`[Browser:BB] Launching | headless=${headless} | no proxy`);
+    bbBrowserInstance = await chromium.launch({ headless, args });
     bbBrowserInstance.on('disconnected', () => {
-      logger.warn('[Browser:BB] Best Buy browser disconnected');
+      logger.warn('[Browser:BB] Disconnected — will relaunch on next request');
       bbBrowserInstance = null;
       bbLaunchPromise   = null;
     });
-    logger.info('[Browser:BB] Best Buy browser ready (clean browser, no proxy)');
+    logger.info('[Browser:BB] Ready');
     return bbBrowserInstance;
   })();
 
   return bbLaunchPromise;
+}
+
+async function getBestBuyDiscoveryBrowser() {
+  if (bbDiscoveryBrowserInstance && bbDiscoveryBrowserInstance.isConnected()) return bbDiscoveryBrowserInstance;
+  if (bbDiscoveryLaunchPromise) return bbDiscoveryLaunchPromise;
+
+  bbDiscoveryLaunchPromise = (async () => {
+    const { headless, args } = _bbLaunchArgs();
+    logger.info(`[Browser:BB-Discovery] Launching | headless=${headless} | no proxy`);
+    bbDiscoveryBrowserInstance = await chromium.launch({ headless, args });
+    bbDiscoveryBrowserInstance.on('disconnected', () => {
+      logger.warn('[Browser:BB-Discovery] Disconnected — will relaunch on next request');
+      bbDiscoveryBrowserInstance = null;
+      bbDiscoveryLaunchPromise   = null;
+    });
+    logger.info('[Browser:BB-Discovery] Ready');
+    return bbDiscoveryBrowserInstance;
+  })();
+
+  return bbDiscoveryLaunchPromise;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -590,45 +610,78 @@ async function newIspContext(options = {}) {
   return ctx;
 }
 
-async function newBestBuyContext(options = {}) {
-  const browser  = await getBestBuyBrowser();
-  const ua       = nextUA();
-  const viewport = randomize(VIEWPORTS);
+const BB_CONTEXT_OPTS = (options = {}) => ({
+  ignoreHTTPSErrors: true,
+  userAgent:  nextUA(),
+  viewport:   randomize(VIEWPORTS),
+  locale:     'en-US',
+  timezoneId: randomize(TIMEZONES),
+  javaScriptEnabled: true,
+  permissions: [],
+  geolocation: undefined,
+  extraHTTPHeaders: {
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'gzip, deflate, br',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+    'Upgrade-Insecure-Requests': '1',
+    'Sec-Fetch-Dest':  'document',
+    'Sec-Fetch-Mode':  'navigate',
+    'Sec-Fetch-Site':  'none',
+    'Sec-Fetch-User':  '?1',
+  },
+  ...options,
+});
 
-  const ctx = await browser.newContext({
-    ignoreHTTPSErrors: true,
-    userAgent:  ua,
-    viewport,
-    locale:     'en-US',
-    timezoneId: randomize(TIMEZONES),
-    javaScriptEnabled: true,
-    // Denegar geolocalización — evita el popup "wants to know your location"
-    permissions: [],
-    geolocation: undefined,
-    extraHTTPHeaders: {
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-      'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest':  'document',
-      'Sec-Fetch-Mode':  'navigate',
-      'Sec-Fetch-Site':  'none',
-      'Sec-Fetch-User':  '?1',
-    },
-    ...options,
-  });
-
-  // Stealth patches + deshabilitar traducción automática
+async function _addBBStealth(ctx) {
   await ctx.addInitScript(() => {
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
     Object.defineProperty(navigator, 'plugins', {
       get: () => [{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' }],
     });
-    // 'en-US' fijo — evita que Chrome detecte otro idioma y ofrezca traducir
     Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
     Object.defineProperty(navigator, 'language',  { get: () => 'en-US' });
     window.chrome = { runtime: {} };
   });
+}
 
-  return ctx;
+const RECONNECT_ERRORS = ['Browser disconnected', 'Target closed', 'Context closed', 'Page closed'];
+
+async function newBestBuyContext(options = {}) {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const browser = await getBestBuyBrowser();
+      const ctx = await browser.newContext(BB_CONTEXT_OPTS(options));
+      await _addBBStealth(ctx);
+      return ctx;
+    } catch (err) {
+      if (i < 2 && RECONNECT_ERRORS.some(e => err.message.includes(e))) {
+        logger.warn(`[Browser:BB] Context creation failed (${err.message}) — re-launching browser`);
+        bbBrowserInstance = null;
+        bbLaunchPromise   = null;
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+// Dedicated context factory for Best Buy Discovery — uses a separate browser instance
+// so discovery pages cannot crash or interfere with the product scanner browser.
+async function newBestBuyDiscoveryContext(options = {}) {
+  for (let i = 0; i < 3; i++) {
+    try {
+      const browser = await getBestBuyDiscoveryBrowser();
+      const ctx = await browser.newContext(BB_CONTEXT_OPTS(options));
+      await _addBBStealth(ctx);
+      return ctx;
+    } catch (err) {
+      if (i < 2 && RECONNECT_ERRORS.some(e => err.message.includes(e))) {
+        logger.warn(`[Browser:BB-Discovery] Context creation failed (${err.message}) — re-launching browser`);
+        bbDiscoveryBrowserInstance = null;
+        bbDiscoveryLaunchPromise   = null;
+        continue;
+      }
+      throw err;
+    }
+  }
 }

@@ -20,7 +20,7 @@
  * SIN abrir la página del producto
  */
 
-const { newBestBuyContext }  = require('../browserEngine');
+const { newBestBuyDiscoveryContext: newBestBuyContext }  = require('../browserEngine');
 const { saveProductData }    = require('../scraperBase');
 const { query }              = require('../../config/database');
 const { writeStoreRun }      = require('../../utils/storeRunStats');

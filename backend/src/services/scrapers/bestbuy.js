@@ -73,9 +73,12 @@ function isValidBestBuySku(sku) {
   return sku && BB_SKU_REGEX.test(String(sku).trim());
 }
 
-/** True when URL has the correct /site/slug/sku.p pattern */
+/** True when URL is a valid Best Buy product URL (old /site/ or new /product/ format) */
 function isValidProductUrl(url) {
-  return Boolean(url && /bestbuy\.com\/site\/.+\/\d{5,8}\.p/.test(url));
+  return Boolean(url && (
+    /bestbuy\.com\/site\/.+\/\d{5,8}\.p/.test(url) ||
+    /bestbuy\.com\/product\/.+/.test(url)
+  ));
 }
 
 // ── URL helpers ───────────────────────────────────────────────────────────────
@@ -151,7 +154,7 @@ async function resolveProductUrl(bbSku, attempt = 1) {
   const page = await ctx.newPage();
 
   try {
-    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
     const searchTitle = await page.title().catch(() => '?');
     logger.info(`[BestBuy] Search page title: "${searchTitle}"`);
@@ -266,7 +269,7 @@ async function scrapeProductPage(productUrl, attempt = 1) {
     // Cuando BB lanza ese error, el HTML ya llegó — el error es del stream,
     // no de la carga del contenido. Capturamos y leemos lo que haya.
     try {
-      await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 45000 });
+      await page.goto(productUrl, { waitUntil: 'domcontentloaded', timeout: 120000 });
     } catch (gotoErr) {
       const isHttp2 = gotoErr.message.includes('ERR_HTTP2_PROTOCOL_ERROR');
       const isTime  = gotoErr.message.includes('Timeout') || gotoErr.message.includes('timeout');
@@ -503,11 +506,13 @@ async function scrapeBestBuyProduct(input) {
     throw new Error(`[BestBuy] Could not resolve product URL for input=${searchTerm}`);
   }
 
+  // Each retry gets a completely fresh context via scrapeProductPage's own newBestBuyContext() call
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       return await scrapeProductPage(productUrl, attempt);
     } catch (err) {
-      logger.error(`[BestBuy] scrapeProductPage attempt ${attempt}/3: ${err.message}`);
+      const isContextErr = /Browser disconnected|Target closed|Context closed|Page closed/i.test(err.message);
+      logger.error(`[BestBuy] scrapeProductPage attempt ${attempt}/3: ${err.message}${isContextErr ? ' (context error — new context on retry)' : ''}`);
       if (attempt < 3) await new Promise(r => setTimeout(r, 3000 * attempt));
       else throw err;
     }
@@ -522,25 +527,30 @@ async function scanBestBuyDeals() {
   logger.info('🟦 BEST BUY PLAYWRIGHT SCAN v4');
   logger.info('═'.repeat(60));
 
-  // ── Report invalid products (skipped) ────────────────────────────────────
+  // ── Auto-fill bestbuy_sku from product_url when missing ──────────────────
   const invalidRows = await query(`
-    SELECT p.name, p.sku, p.bestbuy_sku, p.bestbuy_sku_valid
+    SELECT p.id, p.name, p.sku, p.bestbuy_sku, p.bestbuy_sku_valid, p.product_url
     FROM products p
     JOIN stores s ON p.store_id = s.id
     WHERE s.slug = 'best-buy'
       AND (p.bestbuy_sku_valid = false OR p.bestbuy_sku IS NULL)
   `);
 
-  if (invalidRows.rows.length) {
-    logger.warn(`\n[BestBuy] ⚠️  ${invalidRows.rows.length} product(s) will be SKIPPED (missing or invalid bestbuy_sku):`);
-    invalidRows.rows.forEach(r => {
-      logger.warn(
-        `  "${r.name}" | sku="${r.sku}" (manufacturer) | ` +
-        `bestbuy_sku="${r.bestbuy_sku ?? 'NULL'}" | valid=${r.bestbuy_sku_valid ?? 'NULL'}\n` +
-        `  → Fix: run UPDATE products SET bestbuy_sku='XXXXXXX', bestbuy_sku_valid=true WHERE name='${r.name}';`
+  for (const r of invalidRows.rows) {
+    const url = r.product_url || '';
+    const skuFromUrl =
+      url.match(/\/sku\/(\d{5,8})/)?.[1] ||
+      url.match(/\/site\/[^/]+\/(\d{5,8})\.p/)?.[1] ||
+      url.match(/[?&]skuId=(\d{5,8})/)?.[1];
+    if (skuFromUrl) {
+      await query(
+        'UPDATE products SET bestbuy_sku=$1, bestbuy_sku_valid=true WHERE id=$2',
+        [skuFromUrl, r.id]
       );
-    });
-    logger.warn('');
+      logger.info(`[BestBuy] Auto-filled bestbuy_sku=${skuFromUrl} for "${r.name}" from product_url`);
+    } else {
+      logger.warn(`[BestBuy] SKIP "${r.name}" — bestbuy_sku NULL and no SKU in product_url (${url || 'NULL'})`);
+    }
   }
 
   // ── Fetch valid products only ─────────────────────────────────────────────

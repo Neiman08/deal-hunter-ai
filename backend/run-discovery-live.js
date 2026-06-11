@@ -273,6 +273,267 @@ async function runWorkerProxyTest() {
   return result;
 }
 
+// ─── Office Depot single-product diagnostic ──────────────────────────────────
+// Triggered via store_slug = 'od-product-diag'.
+// 1. Fetches the sitemap to get the first real product URL.
+// 2. Hits that URL with the EXACT same fetchHtml() + proxy as officedepot.js.
+// 3. Logs HTTP status, headers, HTML size, patterns, LD+JSON parsing, save attempt.
+// No side-effects (doesn't write products to DB).
+async function runOdProductDiag() {
+  const https  = require('https');
+  const http   = require('http');
+  const zlib   = require('zlib');
+  const { buildHttpProxyAgent } = require('./src/utils/proxyUtils');
+
+  const diag = {
+    step: null,
+    sitemap_url: 'https://www.officedepot.com/product_sitemap_0.xml',
+    product_url: null,
+    proxy_port:  parseInt(process.env.PROXY_PORT) || null,
+    proxy_user:  (process.env.PROXY_USER || '').slice(0, 40) + '...',
+    agent_created: false,
+
+    // HTTP response fields
+    http_status:       null,
+    content_encoding:  null,
+    content_type:      null,
+    html_length:       null,
+    html_first_1000:   null,
+
+    // Pattern checks
+    has_ld_json:         false,
+    has_next_data:       false,
+    has_currentPrice:    false,
+    has_salePrice:       false,
+    has_offers:          false,
+    has_price_literal:   false,
+    homepage_redirect:   false,
+
+    // Parse result
+    parse_error:         null,
+    parsed_name:         null,
+    parsed_currentPrice: null,
+    parsed_regularPrice: null,
+    parsed_sku:          null,
+    parsed_inStock:      null,
+
+    // Save attempt
+    save_attempted:  false,
+    save_error:      null,
+    save_error_sql:  null,
+  };
+
+  const agent = buildHttpProxyAgent('OfficeDept');
+  diag.agent_created = !!agent;
+
+  // Helper: raw HTTP fetch with full response metadata
+  function rawFetch(url, hops = 0) {
+    if (hops > 5) return Promise.reject(new Error('Too many redirects'));
+    return new Promise((resolve, reject) => {
+      const lib  = url.startsWith('https:') ? https : http;
+      const opts = {
+        timeout: 30000,
+        rejectUnauthorized: false,
+        agent,
+        headers: {
+          'User-Agent':      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+          'Accept':          'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate',  // no brotli — mirrors officedepot.js after fix
+        },
+      };
+      const req = lib.get(url, opts, res => {
+        if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+          res.resume();
+          const base = new URL(url);
+          const next = new URL(res.headers.location, base.origin).href;
+          return rawFetch(next, hops + 1).then(resolve).catch(reject);
+        }
+        const chunks = [];
+        res.on('data', c => chunks.push(c));
+        res.on('end', () => {
+          const raw = Buffer.concat(chunks);
+          const enc = (res.headers['content-encoding'] || '').toLowerCase();
+          const decompress = enc.includes('gzip') || enc.includes('deflate')
+            ? cb => zlib.unzip(raw, cb)
+            : enc.includes('br')
+            ? cb => zlib.brotliDecompress(raw, cb)
+            : cb => cb(null, raw);
+
+          decompress((err, buf) => {
+            if (err) return reject(new Error(`decompress error (${enc}): ${err.message}`));
+            resolve({
+              statusCode:      res.statusCode,
+              contentEncoding: enc,
+              contentType:     res.headers['content-type'] || '',
+              body:            buf.toString('utf8'),
+            });
+          });
+        });
+        res.on('error', reject);
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('fetch timeout')); });
+    });
+  }
+
+  // ── Step 1: fetch sitemap, grab first physical product URL ───────────────────
+  diag.step = 'fetch_sitemap';
+  let sitemapBody;
+  try {
+    const r = await rawFetch(diag.sitemap_url);
+    sitemapBody = r.body;
+  } catch (e) {
+    diag.parse_error = `sitemap fetch failed: ${e.message}`;
+    return diag;
+  }
+
+  const allUrls = sitemapBody.match(/https:\/\/www\.officedepot\.com\/a\/products\/[^<\s"]+/g) || [];
+  if (!allUrls.length) {
+    diag.parse_error = 'no product URLs found in sitemap';
+    return diag;
+  }
+  // Pick a URL that looks like a real product (has a recognizable keyword)
+  const productUrl = allUrls.find(u =>
+    /laptop|monitor|chair|keyboard|desk|printer|tablet|speaker|router|coffee/i.test(u)
+  ) || allUrls[0];
+  diag.product_url = productUrl.split('?')[0].replace(/\/$/, '') + '/';
+
+  // ── Step 2: fetch the product page ───────────────────────────────────────────
+  diag.step = 'fetch_product_page';
+  let res;
+  try {
+    res = await rawFetch(diag.product_url);
+  } catch (e) {
+    diag.parse_error = `product page fetch failed: ${e.message}`;
+    return diag;
+  }
+
+  diag.http_status      = res.statusCode;
+  diag.content_encoding = res.contentEncoding || '(none)';
+  diag.content_type     = res.contentType;
+  diag.html_length      = res.body.length;
+  diag.html_first_1000  = res.body.slice(0, 1000);
+
+  if (res.statusCode !== 200) {
+    diag.parse_error = `HTTP ${res.statusCode}`;
+    return diag;
+  }
+
+  const html = res.body;
+
+  // ── Step 3: pattern checks ───────────────────────────────────────────────────
+  diag.step = 'pattern_check';
+  diag.homepage_redirect = html.includes('<title>Office Supplies, Furniture, Technology at Office Depot</title>');
+  diag.has_ld_json       = /<script[^>]+type="application\/ld\+json"/i.test(html);
+  diag.has_next_data     = html.includes('__NEXT_DATA__');
+  diag.has_currentPrice  = /currentPrice|"price"\s*:/i.test(html);
+  diag.has_salePrice     = /salePrice|sale_price/i.test(html);
+  diag.has_offers        = /"offers"/i.test(html);
+  diag.has_price_literal = /"price"\s*:\s*[\d.]+/.test(html);
+
+  if (diag.homepage_redirect) {
+    diag.parse_error = 'homepage_redirect — product discontinued';
+    return diag;
+  }
+
+  // ── Step 4: LD+JSON parse (mirrors officedepot.js exactly) ───────────────────
+  diag.step = 'parse_ld_json';
+  const ldMatch = html.match(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/i);
+  if (!ldMatch) {
+    // Capture a snippet around any JSON-like price data to hint at real structure
+    const priceSnippet = html.match(/["']price["']\s*[:=]\s*["']?[\d.]+/i);
+    diag.parse_error = `No LD+JSON found. Price snippet: ${priceSnippet ? priceSnippet[0] : '(none found)'}`;
+    diag.html_first_1000 = res.body.slice(0, 1000);  // already set, for context
+    return diag;
+  }
+
+  let item;
+  try {
+    const parsed = JSON.parse(ldMatch[1]);
+    item = Array.isArray(parsed) ? parsed[0] : parsed;
+  } catch (e) {
+    diag.parse_error = `LD+JSON parse error: ${e.message} | raw: ${ldMatch[1].slice(0, 200)}`;
+    return diag;
+  }
+
+  if (!item?.offers) {
+    diag.parse_error = `No offers in LD+JSON. Keys present: ${Object.keys(item || {}).join(', ')}`;
+    return diag;
+  }
+
+  const offer        = Array.isArray(item.offers) ? item.offers[0] : item.offers;
+  const highPriceRaw = offer?.highPrice;
+  diag.parsed_name         = item.name || '';
+  diag.parsed_sku          = item.sku  || item.mpn || '';
+  diag.parsed_currentPrice = parseFloat(offer?.price) || null;
+  diag.parsed_regularPrice = (highPriceRaw && highPriceRaw !== 'None') ? parseFloat(highPriceRaw) || null : null;
+  diag.parsed_inStock      = offer?.availability?.includes('InStock') ?? false;
+
+  if (!diag.parsed_currentPrice) {
+    diag.parse_error = `offer.price is "${offer?.price}" → currentPrice=null. offer keys: ${Object.keys(offer || {}).join(', ')}`;
+    return diag;
+  }
+
+  // ── Step 5: attempt saveProductData (read-only simulation — insert product then rollback) ──
+  diag.step = 'save_attempt';
+  diag.save_attempted = true;
+  try {
+    const { query } = require('./src/config/database');
+
+    const storeRes = await query('SELECT id FROM stores WHERE slug=$1 LIMIT 1', ['office-depot']);
+    const storeId  = storeRes.rows[0]?.id;
+    if (!storeId) {
+      diag.save_error = 'store "office-depot" not found in DB';
+      return diag;
+    }
+
+    const catRes = await query('SELECT id, slug FROM categories ORDER BY name LIMIT 1');
+    const categoryId = catRes.rows[0]?.id || null;
+    const catSlug    = catRes.rows[0]?.slug || null;
+
+    const skuKey = diag.parsed_sku || `od-${diag.product_url.match(/\/a\/products\/(\d+)\//)?.[1] || 'test'}`;
+
+    const inserted = await query(`
+      INSERT INTO products (name, brand, sku, upc, store_id, category_id, image_url, product_url, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
+      ON CONFLICT (sku, store_id) DO UPDATE SET
+        name=EXCLUDED.name, brand=COALESCE(EXCLUDED.brand,products.brand),
+        image_url=COALESCE(EXCLUDED.image_url,products.image_url),
+        product_url=COALESCE(EXCLUDED.product_url,products.product_url),
+        updated_at=NOW()
+      RETURNING *
+    `, [
+      diag.parsed_name || 'OD Diag Product',
+      null,
+      skuKey,
+      null,
+      storeId,
+      categoryId,
+      null,
+      diag.product_url,
+    ]);
+
+    const dbProduct = { ...inserted.rows[0], cat_slug: catSlug };
+    const scraped = {
+      name: diag.parsed_name, brand: '', sku: diag.parsed_sku,
+      currentPrice: diag.parsed_currentPrice, regularPrice: diag.parsed_regularPrice,
+      inStock: diag.parsed_inStock, imageUrl: null,
+      productUrl: diag.product_url, storeSlug: 'office-depot', source: 'ld+json-http',
+    };
+
+    const { saveProductData } = require('./src/services/scraperBase');
+    await saveProductData(dbProduct, scraped, 'office-depot');
+    diag.save_error = null;  // success
+  } catch (e) {
+    diag.save_error     = e.message;
+    diag.save_error_sql = e.detail || e.hint || e.where || null;
+  }
+
+  diag.step = 'done';
+  return diag;
+}
+
 // ─── Discovery engine loader ──────────────────────────────────────────────────
 function loadEngines() {
   const engines = {};
@@ -460,6 +721,8 @@ async function main() {
       let result;
       if (job.store_slug === 'worker-proxy-test') {
         result = await runWorkerProxyTest();
+      } else if (job.store_slug === 'od-product-diag') {
+        result = await runOdProductDiag();
       } else {
         result = await runEngine(engines, job.store_slug, { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, job.store_slug);
       }

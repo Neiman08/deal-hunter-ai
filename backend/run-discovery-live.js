@@ -9,6 +9,19 @@ const { restartBrowserPool }  = require('./src/services/browserEngine');
 const { query }               = require('./src/config/database');
 const { claimNextPendingJob, markCompleted, markFailed } = require('./src/services/discoveryQueue');
 
+// ─── Minimal HTTP server (worker diagnostics only) ────────────────────────────
+// Exposes /api/admin/* endpoints (workerOnly-gated) so the worker can be probed
+// from outside. Render requires type:web services to bind a port.
+{
+  const express = require('express');
+  const app = express();
+  app.use(express.json());
+  app.use('/api/admin', require('./src/routes/admin'));
+  app.get('/healthz', (_, res) => res.json({ status: 'ok', worker: true }));
+  const PORT = parseInt(process.env.PORT) || 3002;
+  app.listen(PORT, () => console.log(`[Worker] HTTP server listening on :${PORT}`));
+}
+
 const POOL_RESTART_EVERY = parseInt(process.env.POOL_RESTART_CYCLES) || 5;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 

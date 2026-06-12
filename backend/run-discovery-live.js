@@ -323,6 +323,9 @@ async function runOdProductDiag() {
     html_mid_500:        null,
     any_price_found:     null,
     homepage_redirect:   false,
+    // Fallback tracking
+    primary_url_status:  null,
+    primary_url_error:   null,
     // API probe results
     api_product_id:      null,
     api_probes:          [],
@@ -436,18 +439,34 @@ async function runOdProductDiag() {
     return INCLUDE_KEYWORDS.some(kw => m[1].includes(kw));
   }
 
-  // Prefer a URL matching the physical product filter (same as what discovery actually scrapes)
-  const productUrl = allUrls.find(u => isPhysical(u)) || allUrls[0];
-  diag.product_url = productUrl.split('?')[0].replace(/\/$/, '') + '/';
+  // Prefer a URL matching the physical product filter (same as what discovery actually scrapes).
+  // FALLBACK: if the sitemap URL returns non-200, retry with a known-good URL (Aleve/100512)
+  // so API probes always run against a reachable product.
+  const FALLBACK_URL = 'https://www.officedepot.com/a/products/100512/Aleve-Pain-Reliever-Tablets-1-Tablet/';
+  const primaryUrl = (allUrls.find(u => isPhysical(u)) || allUrls[0]).split('?')[0].replace(/\/$/, '') + '/';
+  diag.product_url = primaryUrl;
 
-  // ── Step 2: fetch the product page ───────────────────────────────────────────
+  // ── Step 2: fetch the product page (with fallback) ───────────────────────────
   diag.step = 'fetch_product_page';
   let res;
   try {
     res = await rawFetch(diag.product_url);
+    // If primary URL returns non-200, try the known-good fallback
+    if (res.statusCode !== 200 && diag.product_url !== FALLBACK_URL) {
+      diag.primary_url_status = res.statusCode;
+      diag.product_url = FALLBACK_URL;
+      res = await rawFetch(FALLBACK_URL);
+    }
   } catch (e) {
-    diag.parse_error = `product page fetch failed: ${e.message}`;
-    return diag;
+    // Primary failed entirely — try fallback
+    diag.primary_url_error = e.message.slice(0, 80);
+    diag.product_url = FALLBACK_URL;
+    try {
+      res = await rawFetch(FALLBACK_URL);
+    } catch (e2) {
+      diag.parse_error = `both primary and fallback failed: ${e2.message}`;
+      return diag;
+    }
   }
 
   diag.http_status      = res.statusCode;
@@ -456,15 +475,9 @@ async function runOdProductDiag() {
   diag.html_length      = res.body.length;
   diag.html_first_1000  = res.body.slice(0, 1000);
 
-  if (res.statusCode !== 200) {
-    diag.parse_error = `HTTP ${res.statusCode}`;
-    return diag;
-  }
-
-  const html = res.body;
-
-  // ── Step 3: pattern checks ───────────────────────────────────────────────────
+  // ── Step 3: pattern checks (run even on non-200 to capture any body content) ─
   diag.step = 'pattern_check';
+  const html = res.body || '';
   diag.homepage_redirect = html.includes('<title>Office Supplies, Furniture, Technology at Office Depot</title>');
   diag.has_ld_json       = /<script[^>]+type="application\/ld\+json"/i.test(html);
   diag.has_next_data     = html.includes('__NEXT_DATA__');
@@ -472,23 +485,15 @@ async function runOdProductDiag() {
   diag.has_salePrice     = /salePrice|sale_price/i.test(html);
   diag.has_offers        = /"offers"/i.test(html);
   diag.has_price_literal = /"price"\s*:\s*[\d.]+/.test(html);
-  // New: detect embedded state patterns from React/Redux/WCS
   diag.has_window_state  = /window\.__(?:INITIAL_STATE|APP_STATE|REDUX_STATE|STATE|DATA|OD|odData|productData)/i.test(html);
   diag.has_json_script   = /<script[^>]+type="application\/json"/i.test(html);
   diag.script_count      = (html.match(/<script/gi) || []).length;
-  // Capture snippet from middle of page (where SSR product data usually lives)
   const midStart = Math.floor(html.length / 2);
   diag.html_mid_500 = html.slice(midStart, midStart + 500);
-  // Look for any price-like number patterns in the whole page
   const anyPrice = html.match(/[\$"](\d{1,4}\.\d{2})["\s,}]/);
   diag.any_price_found = anyPrice ? anyPrice[0].trim() : null;
 
-  if (diag.homepage_redirect) {
-    diag.parse_error = 'homepage_redirect — product discontinued';
-    return diag;
-  }
-
-  // ── Step 3b: probe OD API endpoints directly (product data JSON APIs) ─────────
+  // ── Step 3b: probe OD JSON API endpoints (always run, regardless of page status) ─
   diag.step = 'probe_api';
   const productId = (diag.product_url.match(/\/a\/products\/(\d+)\//)?.[1]) || null;
   diag.api_product_id = productId;
@@ -510,6 +515,16 @@ async function runOdProductDiag() {
     } catch (e) {
       diag.api_probes.push({ url: apiUrl, status: null, error: e.message.slice(0, 60) });
     }
+  }
+
+  if (res.statusCode !== 200) {
+    diag.parse_error = `HTTP ${res.statusCode} (even fallback URL failed)`;
+    return diag;
+  }
+
+  if (diag.homepage_redirect) {
+    diag.parse_error = 'homepage_redirect — product discontinued';
+    return diag;
   }
 
   // ── Step 4: LD+JSON parse (mirrors officedepot.js exactly) ───────────────────

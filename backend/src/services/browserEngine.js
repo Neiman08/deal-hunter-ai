@@ -49,6 +49,16 @@ if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
 const { chromium } = require('playwright');
 const logger = require('../utils/logger');
 
+// Patchright — patched Chromium fork that bypasses TLS/HTTP2 bot-detection fingerprints.
+// Used exclusively for Best Buy, which detects standard Playwright via HTTP2 RST_STREAM.
+// Graceful fallback to standard chromium if patchright browsers aren't installed yet.
+let _patchrightChromium = null;
+try {
+  _patchrightChromium = require('patchright').chromium;
+} catch {
+  // patchright not available — BB contexts will fall back to standard chromium
+}
+
 // ─── Realistic browser fingerprints ──────────────────────────────────────────
 const VIEWPORTS = [
   { width: 1920, height: 1080 },
@@ -347,14 +357,16 @@ async function getBestBuyBrowser() {
 
   bbLaunchPromise = (async () => {
     const { headless, args } = _bbLaunchArgs();
-    logger.info(`[Browser:BB] Launching | headless=${headless} | no proxy`);
-    bbBrowserInstance = await chromium.launch({ headless, args });
+    const launcher = _patchrightChromium || chromium;
+    const engine   = _patchrightChromium ? 'patchright' : 'playwright';
+    logger.info(`[Browser:BB] Launching | engine=${engine} | headless=${headless} | no proxy`);
+    bbBrowserInstance = await launcher.launch({ headless, args });
     bbBrowserInstance.on('disconnected', () => {
       logger.warn('[Browser:BB] Disconnected — will relaunch on next request');
       bbBrowserInstance = null;
       bbLaunchPromise   = null;
     });
-    logger.info('[Browser:BB] Ready');
+    logger.info(`[Browser:BB] Ready (${engine})`);
     return bbBrowserInstance;
   })();
 
@@ -367,14 +379,16 @@ async function getBestBuyDiscoveryBrowser() {
 
   bbDiscoveryLaunchPromise = (async () => {
     const { headless, args } = _bbLaunchArgs();
-    logger.info(`[Browser:BB-Discovery] Launching | headless=${headless} | no proxy`);
-    bbDiscoveryBrowserInstance = await chromium.launch({ headless, args });
+    const launcher = _patchrightChromium || chromium;
+    const engine   = _patchrightChromium ? 'patchright' : 'playwright';
+    logger.info(`[Browser:BB-Discovery] Launching | engine=${engine} | headless=${headless} | no proxy`);
+    bbDiscoveryBrowserInstance = await launcher.launch({ headless, args });
     bbDiscoveryBrowserInstance.on('disconnected', () => {
       logger.warn('[Browser:BB-Discovery] Disconnected — will relaunch on next request');
       bbDiscoveryBrowserInstance = null;
       bbDiscoveryLaunchPromise   = null;
     });
-    logger.info('[Browser:BB-Discovery] Ready');
+    logger.info(`[Browser:BB-Discovery] Ready (${engine})`);
     return bbDiscoveryBrowserInstance;
   })();
 

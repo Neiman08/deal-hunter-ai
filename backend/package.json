@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "postinstall": "PLAYWRIGHT_BROWSERS_PATH=./pw-browsers npx playwright install chromium --with-deps || PLAYWRIGHT_BROWSERS_PATH=./pw-browsers npx playwright install chromium",
+    "postinstall": "PLAYWRIGHT_BROWSERS_PATH=./pw-browsers npx playwright install chromium --with-deps || PLAYWRIGHT_BROWSERS_PATH=./pw-browsers npx playwright install chromium && PLAYWRIGHT_BROWSERS_PATH=./pw-browsers npx patchright install chromium || true",
     "test": "jest --testPathPattern=tests/ --forceExit --detectOpenHandles",
     "test:watch": "jest --watch",
     "db:migrate": "node src/db/migrate.js",

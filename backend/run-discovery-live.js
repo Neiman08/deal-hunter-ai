@@ -731,6 +731,10 @@ async function main() {
       console.log(`[JobQueue] Job #${job.id} completed — saved:${result?.saved || 0} errors:${result?.errors || 0}`);
     } catch (err) {
       console.error(`[JobQueue] Poller error: ${err.message}`);
+      // Mark the job failed so it doesn't stay stuck in 'running' and block re-queuing
+      if (typeof job !== 'undefined' && job?.id) {
+        await markFailed(job.id, err.message).catch(() => {});
+      }
     }
   }, 45 * 1000);
   console.log('  ✅ Discovery job queue poller started (checks every 45s)');

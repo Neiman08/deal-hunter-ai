@@ -1123,6 +1123,24 @@ router.get('/discovery-jobs', async (req, res) => {
   }
 });
 
+// POST /admin/discovery-jobs/:id/cancel — force-fail a stuck 'running' or 'pending' job
+router.post('/discovery-jobs/:id/cancel', async (req, res) => {
+  const jobId = parseInt(req.params.id);
+  if (!jobId) return res.status(400).json({ ok: false, error: 'invalid job id' });
+  try {
+    const { query: dbQuery } = require('../config/database');
+    const r = await dbQuery(
+      `UPDATE discovery_jobs SET status='failed', completed_at=NOW(), error='cancelled by admin'
+       WHERE id=$1 AND status IN ('pending','running') RETURNING id, status`,
+      [jobId]
+    );
+    if (!r.rowCount) return res.status(404).json({ ok: false, error: 'job not found or already completed' });
+    res.json({ ok: true, cancelled: r.rows[0] });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 // POST /admin/recalculate-deals/:slug — reapply is_active rules to existing deals without re-scraping
 // New rules: discount >= 30% → active regardless of profit; 20-29.99% → needs profit+roi > 0; < 20% → inactive
 router.post('/recalculate-deals/:slug', async (req, res) => {

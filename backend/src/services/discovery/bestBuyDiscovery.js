@@ -236,16 +236,23 @@ async function extractCardsFromSearchPage(keyword, maxCards = 20) {
     // Cerrar overlays
     await dismissOverlays(page);
 
-    // Esperar el contenedor real de cards (confirmado por inspector)
+    // Wait for product content: try known card selectors first, fall back to any /site/ link
     try {
-      await page.waitForSelector('li.sku-item, .sku-item, [data-testid="product-card"], div[data-sku-id]', { timeout: 15000 });
+      await page.waitForSelector(
+        'li.sku-item, .sku-item, [data-testid="product-card"], div[data-sku-id], ' +
+        '[class*="sku-item"], [class*="SkuItem"], ' +
+        'a[href*="/site/"][href*=".p"]',
+        { timeout: 15000 }
+      );
     } catch {
       logger.warn('[Discovery:BB]   Card container timeout — extracting anyway');
     }
 
     // Scroll completo para cargar lazy-load
-    const countBefore = await page.$$eval('li.sku-item, .sku-item, [data-testid="product-card"], div[data-sku-id]', els => els.length).catch(() => 0);
-    logger.info(`[Discovery:BB]   Cards antes del scroll: ${countBefore}`);
+    const BB_CARD_SEL = 'li.sku-item, [class*="sku-item"], [class*="SkuItem"], [data-testid="product-card"], div[data-sku-id], [class*="ProductTile"]';
+    const countBefore = await page.$$eval(BB_CARD_SEL, els => els.length).catch(() => 0);
+    const linksBefore = await page.$$eval('a[href*="/site/"][href*=".p"]', els => els.length).catch(() => 0);
+    logger.info(`[Discovery:BB]   Cards antes del scroll: ${countBefore} (product links: ${linksBefore})`);
 
     await page.evaluate(async () => {
       const limit = Math.max(document.body.scrollHeight, 5000);
@@ -257,8 +264,9 @@ async function extractCardsFromSearchPage(keyword, maxCards = 20) {
     });
     await sleep(1200);
 
-    const countAfter = await page.$$eval('li.sku-item, .sku-item, [data-testid="product-card"], div[data-sku-id]', els => els.length).catch(() => 0);
-    logger.info(`[Discovery:BB]   Cards después del scroll: ${countAfter}`);
+    const countAfter = await page.$$eval(BB_CARD_SEL, els => els.length).catch(() => 0);
+    const linksAfter = await page.$$eval('a[href*="/site/"][href*=".p"]', els => els.length).catch(() => 0);
+    logger.info(`[Discovery:BB]   Cards después del scroll: ${countAfter} (product links: ${linksAfter})`);
 
     // ── Extracción principal: Contenedores actualizados ────────────────────
     // Inspector confirmó: __INITIAL_STATE__ = null en BB actual.
@@ -267,14 +275,20 @@ async function extractCardsFromSearchPage(keyword, maxCards = 20) {
       const results = [];
       const seen    = new Set(); // dedup por productUrl
 
-      // Contenedores confirmados por inspector
-      const containers = [
+      // Contenedores — broad selector set covering classic and modern BB DOM
+      const rawContainers = [
         ...document.querySelectorAll('li.sku-item'),
-        ...document.querySelectorAll('.sku-item'),
+        ...document.querySelectorAll('[class*="sku-item"]'),
+        ...document.querySelectorAll('[class*="SkuItem"]'),
         ...document.querySelectorAll('[data-testid="product-card"]'),
         ...document.querySelectorAll('[data-testid*="shop-product-card"]'),
+        ...document.querySelectorAll('[data-testid*="product-tile"]'),
         ...document.querySelectorAll('div[data-sku-id]'),
+        ...document.querySelectorAll('[class*="ProductTile"]'),
+        ...document.querySelectorAll('[class*="product-tile"]'),
       ];
+      // Dedup in case multiple selectors match the same element
+      const containers = [...new Set(rawContainers)];
 
       for (const card of containers) {
         if (results.length >= max) break;
@@ -325,10 +339,12 @@ async function extractCardsFromSearchPage(keyword, maxCards = 20) {
           if (name.length < 4) continue;
 
           // ── SKU desde la URL del link elegido ────────────────────────────
+          // Current BB format: /site/product-slug/1234567.p
+          const skuFromSite   = rawHref.match(/\/site\/.+?\/(\d{5,8})\.p/)?.[1];
           const skuFromQuery  = rawHref.match(/skuId=(\d{5,8})/)?.[1];
           const skuFromPath   = rawHref.match(/\/sku\/(\d{5,8})/)?.[1];
           const alphaFromPath = rawHref.match(/\/product\/[^/]+\/([A-Z0-9]{6,12})$/)?.[1];
-          const sku = skuFromQuery || skuFromPath || alphaFromPath || '';
+          const sku = skuFromSite || skuFromQuery || skuFromPath || alphaFromPath || '';
 
           // ── Precio DENTRO del card ────────────────────────────────────────
           // Inspector detectó que selectores globales capturan filtros laterales.
@@ -494,12 +510,31 @@ async function extractCardsFromSearchPage(keyword, maxCards = 20) {
           if (seen.has(productUrl)) continue;
           seen.add(productUrl);
 
+          // Current BB format: /site/product-slug/1234567.p
+          const skuFromSite   = rawHref.match(/\/site\/.+?\/(\d{5,8})\.p/)?.[1];
           const skuFromQuery  = rawHref.match(/skuId=(\d{5,8})/)?.[1];
           const skuFromPath   = rawHref.match(/\/sku\/(\d{5,8})/)?.[1];
           const alphaFromPath = rawHref.match(/\/product\/[^/]+\/([A-Z0-9]{6,12})$/)?.[1];
-          const sku = skuFromQuery || skuFromPath || alphaFromPath || '';
+          const sku = skuFromSite || skuFromQuery || skuFromPath || alphaFromPath || '';
 
-          const card = a.closest('[data-testid*="product"], [class*="grid-item"], li, article');
+          // Walk up the DOM to find the product card container (max 8 levels)
+          let card = null;
+          let el = a;
+          for (let i = 0; i < 8; i++) {
+            if (!el.parentElement) break;
+            el = el.parentElement;
+            const hasPrice = el.querySelector(
+              '[data-testid*="price"], [class*="Price"], [class*="price"]'
+            );
+            if (hasPrice) { card = el; break; }
+          }
+          // If walk-up failed, try standard selectors
+          if (!card) {
+            card = a.closest(
+              '[data-testid*="product"], [class*="sku-item"], [class*="SkuItem"], ' +
+              '[class*="grid-item"], [class*="product-tile"], [class*="ProductTile"], li, article'
+            );
+          }
 
           const cardText = card?.innerText || card?.textContent || '';
 
@@ -528,13 +563,39 @@ async function extractCardsFromSearchPage(keyword, maxCards = 20) {
             if (name.length < 20 || /rating|review|stars|sponsored/i.test(name)) continue;
           }
 
-          // Precio dentro del card padre
+          // Precio dentro del card padre — mismos selectores que extracción principal
           let currentPrice = null;
           let regularPrice = null;
           if (card) {
-            const priceEl = card.querySelector('[data-testid*="price"] span, [class*="Price"] span[aria-hidden="true"]');
-            const num = parseFloat(priceEl?.textContent?.replace(/[^0-9.]/g, '') || '');
-            if (num > 0.5 && num < 50000) currentPrice = num;
+            const priceSelectors = [
+              '[data-testid="customer-price"] [aria-hidden="true"]',
+              '[data-testid="customer-price"] span',
+              '.priceView-customer-price [aria-hidden="true"]',
+              '[class*="CustomerPrice"] span[aria-hidden="true"]',
+              '[class*="priceView"] [aria-hidden="true"]',
+              '[class*="Price"][class*="current"] span',
+              '[class*="price-current"]',
+              '[data-testid*="price"] span',
+              '[class*="Price"] span[aria-hidden="true"]',
+            ];
+            for (const sel of priceSelectors) {
+              const el  = card.querySelector(sel);
+              const txt = el?.textContent?.trim();
+              if (!txt) continue;
+              const num = parseFloat(txt.replace(/[^0-9.]/g, ''));
+              if (num > 0.5 && num < 50000) { currentPrice = num; break; }
+            }
+            // Regex fallback
+            if (!currentPrice) {
+              const cardText = card.innerText || card.textContent || '';
+              const priceMatches = cardText.match(/\$\s*([\d,]+(?:\.\d{2})?)/g);
+              if (priceMatches) {
+                for (const m of priceMatches) {
+                  const num = parseFloat(m.replace(/[^0-9.]/g, ''));
+                  if (num > 0.5 && num < 50000) { currentPrice = num; break; }
+                }
+              }
+            }
           }
 
           if (card && currentPrice) {

@@ -488,16 +488,43 @@ async function scrapeBestBuyProduct(input) {
     throw new Error(`[BestBuy] Unsupported Best Buy URL: ${raw}`);
   }
 
-  // Acepta SKU numérico clásico o Product ID nuevo alfanumérico
+  // Numeric SKU (classic) or alphanumeric product ID (new BB format)
+  // resolveProductUrl only accepts numeric SKUs; for alphanumeric IDs search by
+  // the ID directly on searchpage.jsp — BB returns exact match.
   const searchTerm = raw;
   let productUrl = null;
 
+  if (!isValidBestBuySku(searchTerm)) {
+    // Alphanumeric ID — pass directly as search query so BB resolves to its page
+    logger.info(`[BestBuy] Non-numeric ID "${searchTerm}" — searching directly`);
+  }
+
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      productUrl = await resolveProductUrl(searchTerm, attempt);
+      if (isValidBestBuySku(searchTerm)) {
+        productUrl = await resolveProductUrl(searchTerm, attempt);
+      } else {
+        // For alphanumeric IDs, use the search page with the ID as query
+        const ctx  = await (require('../browserEngine')).newBestBuyContext();
+        const page = await ctx.newPage();
+        try {
+          const searchUrl = `https://www.bestbuy.com/site/searchpage.jsp?st=${encodeURIComponent(searchTerm)}`;
+          await page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 20000 });
+          const href = await page.evaluate((id) => {
+            const a = document.querySelector(`a[href*="${id}"]`);
+            return a ? (a.getAttribute('href') || a.href) : null;
+          }, searchTerm);
+          if (href) {
+            productUrl = href.startsWith('http') ? href : 'https://www.bestbuy.com' + href;
+          }
+        } finally {
+          await page.close().catch(() => {});
+          await ctx.close().catch(() => {});
+        }
+      }
       if (productUrl) break;
     } catch (err) {
-      logger.error(`[BestBuy] resolveProductUrl attempt ${attempt}: ${err.message}`);
+      logger.error(`[BestBuy] resolve attempt ${attempt}: ${err.message}`);
       if (attempt < 2) await new Promise(r => setTimeout(r, 5000));
     }
   }
@@ -520,23 +547,25 @@ async function scrapeBestBuyProduct(input) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// BATCH SCAN — uses bestbuy_sku exclusively
+// BATCH SCAN — product_url-first; bestbuy_sku used only as fallback
+// Supports both new /product/SLUG/ALPHANUM[/sku/NNN] and old /site/SLUG/NNN.p
 // ─────────────────────────────────────────────────────────────────────────────
 async function scanBestBuyDeals() {
   logger.info('\n' + '═'.repeat(60));
   logger.info('🟦 BEST BUY PLAYWRIGHT SCAN v4');
   logger.info('═'.repeat(60));
 
-  // ── Auto-fill bestbuy_sku from product_url when missing ──────────────────
-  const invalidRows = await query(`
-    SELECT p.id, p.name, p.sku, p.bestbuy_sku, p.bestbuy_sku_valid, p.product_url
+  // ── Auto-fill bestbuy_sku from product_url when the URL contains a numeric SKU ──
+  const missingSkuRows = await query(`
+    SELECT p.id, p.name, p.product_url
     FROM products p
     JOIN stores s ON p.store_id = s.id
     WHERE s.slug = 'best-buy'
-      AND (p.bestbuy_sku_valid = false OR p.bestbuy_sku IS NULL)
+      AND (p.bestbuy_sku IS NULL OR p.bestbuy_sku_valid IS NOT TRUE)
+      AND p.product_url IS NOT NULL
   `);
 
-  for (const r of invalidRows.rows) {
+  for (const r of missingSkuRows.rows) {
     const url = r.product_url || '';
     const skuFromUrl =
       url.match(/\/sku\/(\d{5,8})/)?.[1] ||
@@ -547,13 +576,15 @@ async function scanBestBuyDeals() {
         'UPDATE products SET bestbuy_sku=$1, bestbuy_sku_valid=true WHERE id=$2',
         [skuFromUrl, r.id]
       );
-      logger.info(`[BestBuy] Auto-filled bestbuy_sku=${skuFromUrl} for "${r.name}" from product_url`);
-    } else {
-      logger.warn(`[BestBuy] SKIP "${r.name}" — bestbuy_sku NULL and no SKU in product_url (${url || 'NULL'})`);
+      logger.info(`[BestBuy] Auto-filled bestbuy_sku=${skuFromUrl} for "${r.name}"`);
     }
+    // Products with alphanumeric-only IDs (no numeric SKU in URL) are still
+    // valid — they'll be scraped directly via product_url
   }
 
-  // ── Fetch valid products only ─────────────────────────────────────────────
+  // ── Fetch scrapeable products:
+  //    (a) has valid numeric bestbuy_sku  — can resolve URL via search
+  //    (b) has /product/ or /site/ URL   — can scrape directly (no search needed)
   const rows = await query(`
     SELECT p.id, p.name, p.brand, p.sku, p.bestbuy_sku, p.product_url,
            p.category_id, c.slug as cat_slug
@@ -561,8 +592,11 @@ async function scanBestBuyDeals() {
     LEFT JOIN categories c ON p.category_id = c.id
     JOIN stores s ON p.store_id = s.id
     WHERE s.slug = 'best-buy'
-      AND p.bestbuy_sku_valid = true
-      AND p.bestbuy_sku ~ '^[0-9]{5,8}$'
+      AND (
+        (p.bestbuy_sku_valid = true AND p.bestbuy_sku ~ '^[0-9]{5,8}$')
+        OR p.product_url LIKE '%bestbuy.com/product/%'
+        OR p.product_url LIKE '%bestbuy.com/site/%'
+      )
       AND NOT EXISTS (
         SELECT 1 FROM prices pr
         WHERE pr.product_id = p.id
@@ -572,21 +606,28 @@ async function scanBestBuyDeals() {
     LIMIT ${parseInt(process.env.SCAN_BATCH_SIZE) || 10}
   `);
 
-  logger.info(`[BestBuy] ${rows.rows.length} valid products queued for scan`);
+  logger.info(`[BestBuy] ${rows.rows.length} products queued for scan`);
 
   const stats = { scanned: 0, deals: 0, errors: 0, skipped: 0 };
 
   for (const p of rows.rows) {
-    // Always prefer a known valid product URL (skips the search step)
+    // Prefer direct product_url (skips searchpage.jsp entirely)
+    // Fall back to bestbuy_sku only when URL is absent/invalid
     const input = isValidProductUrl(p.product_url)
       ? p.product_url
-      : p.bestbuy_sku;  // guaranteed numeric by the WHERE clause above
+      : (isValidBestBuySku(p.bestbuy_sku) ? String(p.bestbuy_sku) : null);
+
+    if (!input) {
+      logger.warn(`[BestBuy] SKIP "${p.name}" — no usable product_url or bestbuy_sku`);
+      stats.skipped++;
+      continue;
+    }
 
     logger.info(`\n[BestBuy] "${p.name}"`);
     logger.info(`  manufacturer_sku = "${p.sku}"`);
-    logger.info(`  bestbuy_sku      = "${p.bestbuy_sku}"`);
-    logger.info(`  product_url      = "${p.product_url ?? 'NULL (will search)'}"`);
-    logger.info(`  → input for scraper: ${input}`);
+    logger.info(`  bestbuy_sku      = "${p.bestbuy_sku ?? 'NULL'}"`);
+    logger.info(`  product_url      = "${p.product_url ?? 'NULL'}"`);
+    logger.info(`  → input: ${input.length > 80 ? input.slice(0, 80) + '…' : input}`);
 
     try {
       const scraped = await scrapeBestBuyProduct(input);

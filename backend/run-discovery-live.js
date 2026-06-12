@@ -285,9 +285,19 @@ async function runOdProductDiag() {
   const zlib   = require('zlib');
   const { buildHttpProxyAgent } = require('./src/utils/proxyUtils');
 
+  // Rotate through all 4 sitemaps matching the discovery engine's cycle logic
+  const SITEMAPS_DIAG = [
+    'https://www.officedepot.com/product_sitemap_0.xml',
+    'https://www.officedepot.com/product_sitemap_1.xml',
+    'https://www.officedepot.com/product_sitemap_2.xml',
+    'https://www.officedepot.com/product_sitemap_3.xml',
+  ];
+  const cycleSeedDiag = Math.floor(Date.now() / (30 * 60 * 1000));
+  const sitemapDiagUrl = SITEMAPS_DIAG[cycleSeedDiag % SITEMAPS_DIAG.length];
+
   const diag = {
     step: null,
-    sitemap_url: 'https://www.officedepot.com/product_sitemap_0.xml',
+    sitemap_url: sitemapDiagUrl,
     product_url: null,
     proxy_port:  parseInt(process.env.PROXY_PORT) || null,
     proxy_user:  (process.env.PROXY_USER || '').slice(0, 40) + '...',
@@ -393,10 +403,33 @@ async function runOdProductDiag() {
     diag.parse_error = 'no product URLs found in sitemap';
     return diag;
   }
-  // Pick a URL that looks like a real product (has a recognizable keyword)
-  const productUrl = allUrls.find(u =>
-    /laptop|monitor|chair|keyboard|desk|printer|tablet|speaker|router|coffee/i.test(u)
-  ) || allUrls[0];
+
+  // Mirror the isPhysicalProduct filter from officeDepotDiscovery.js
+  const INCLUDE_KEYWORDS = [
+    'laptop', 'notebook', 'chromebook', 'computer', 'desktop',
+    'monitor', 'display',
+    'printer', 'copier', 'scanner', 'shredder', 'laminator',
+    'chair', 'desk', 'table', 'cabinet', 'shelv', 'bookcase', 'ergonomic', 'standing',
+    'tablet', 'ipad', 'kindle',
+    'keyboard', 'mouse', 'webcam', 'headphone', 'headset',
+    'speaker', 'microphone',
+    'router', 'modem', 'access-point', 'network-switch',
+    'hard-drive', '-ssd-', '-ssd', 'flash-drive', 'usb-drive', 'external-drive',
+    'projector', 'whiteboard', 'smartboard',
+    'camera',
+    'ups-', '-ups-', 'surge-protector', 'power-strip',
+    'coffee-maker', 'keurig', 'coffee-machine', 'espresso',
+    'tv-', '-tv-', 'television', 'smart-tv',
+    'toner', 'ink-cartridge',
+  ];
+  function isPhysical(u) {
+    const m = u.toLowerCase().match(/\/a\/products\/\d+\/([^/?#]+)/);
+    if (!m) return false;
+    return INCLUDE_KEYWORDS.some(kw => m[1].includes(kw));
+  }
+
+  // Prefer a URL matching the physical product filter (same as what discovery actually scrapes)
+  const productUrl = allUrls.find(u => isPhysical(u)) || allUrls[0];
   diag.product_url = productUrl.split('?')[0].replace(/\/$/, '') + '/';
 
   // ── Step 2: fetch the product page ───────────────────────────────────────────

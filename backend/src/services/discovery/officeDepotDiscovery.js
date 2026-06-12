@@ -131,6 +131,7 @@ async function runOfficeDepotDiscovery(options = {}) {
     store: STORE_SLUG, pages_visited: 0, urls_discovered: 0,
     urls_new: 0, saved: 0, no_price: 0, errors: 0, blocked: false, blockType: null,
     proxy_used: null, proxy_fallback_used: false, last_error: null,
+    sample_errors: [],  // first 5 product-level errors with message + URL
   };
 
   if (shouldSkipStore(STORE_SLUG)) {
@@ -268,7 +269,12 @@ async function runOfficeDepotDiscovery(options = {}) {
 
       if (!scraped?.currentPrice) {
         stats.errors++;
+        const nopriceMsg = 'currentPrice=null after scrape';
         logger.warn(`[Discovery:${STORE_LABEL}]   ⚠️  No price found`);
+        if (stats.sample_errors.length < 5) {
+          stats.sample_errors.push({ url: url.slice(-80), err: nopriceMsg });
+        }
+        if (!stats.last_error) stats.last_error = nopriceMsg;
         return;
       }
 
@@ -324,7 +330,12 @@ async function runOfficeDepotDiscovery(options = {}) {
         return;
       }
       stats.errors++;
-      logger.error(`[Discovery:${STORE_LABEL}]   ❌ ${err.message.slice(0, 100)}`);
+      const errMsg = err.message.slice(0, 100);
+      logger.error(`[Discovery:${STORE_LABEL}]   ❌ ${errMsg}`);
+      if (stats.sample_errors.length < 5) {
+        stats.sample_errors.push({ url: url.slice(-80), err: errMsg });
+      }
+      if (!stats.last_error) stats.last_error = errMsg;
     }
     await sleep(delayMs);
   }

@@ -317,7 +317,15 @@ async function runOdProductDiag() {
     has_salePrice:       false,
     has_offers:          false,
     has_price_literal:   false,
+    has_window_state:    false,
+    has_json_script:     false,
+    script_count:        0,
+    html_mid_500:        null,
+    any_price_found:     null,
     homepage_redirect:   false,
+    // API probe results
+    api_product_id:      null,
+    api_probes:          [],
 
     // Parse result
     parse_error:         null,
@@ -464,10 +472,44 @@ async function runOdProductDiag() {
   diag.has_salePrice     = /salePrice|sale_price/i.test(html);
   diag.has_offers        = /"offers"/i.test(html);
   diag.has_price_literal = /"price"\s*:\s*[\d.]+/.test(html);
+  // New: detect embedded state patterns from React/Redux/WCS
+  diag.has_window_state  = /window\.__(?:INITIAL_STATE|APP_STATE|REDUX_STATE|STATE|DATA|OD|odData|productData)/i.test(html);
+  diag.has_json_script   = /<script[^>]+type="application\/json"/i.test(html);
+  diag.script_count      = (html.match(/<script/gi) || []).length;
+  // Capture snippet from middle of page (where SSR product data usually lives)
+  const midStart = Math.floor(html.length / 2);
+  diag.html_mid_500 = html.slice(midStart, midStart + 500);
+  // Look for any price-like number patterns in the whole page
+  const anyPrice = html.match(/[\$"](\d{1,4}\.\d{2})["\s,}]/);
+  diag.any_price_found = anyPrice ? anyPrice[0].trim() : null;
 
   if (diag.homepage_redirect) {
     diag.parse_error = 'homepage_redirect — product discontinued';
     return diag;
+  }
+
+  // ── Step 3b: probe OD API endpoints directly (product data JSON APIs) ─────────
+  diag.step = 'probe_api';
+  const productId = (diag.product_url.match(/\/a\/products\/(\d+)\//)?.[1]) || null;
+  diag.api_product_id = productId;
+  const API_CANDIDATES = productId ? [
+    `https://www.officedepot.com/catalog/productDetailJson.do?productId=${productId}&langId=-1&storeId=10051`,
+    `https://www.officedepot.com/store/browse/json/pdItem.jsp?productId=${productId}&storeId=10051`,
+    `https://www.officedepot.com/a/products/${productId}/data`,
+    `https://www.officedepot.com/product/${productId}`,
+  ] : [];
+  diag.api_probes = [];
+  for (const apiUrl of API_CANDIDATES) {
+    try {
+      const apiRes = await rawFetch(apiUrl);
+      diag.api_probes.push({
+        url: apiUrl, status: apiRes.statusCode,
+        content_type: apiRes.contentType,
+        body_100: apiRes.body.slice(0, 100),
+      });
+    } catch (e) {
+      diag.api_probes.push({ url: apiUrl, status: null, error: e.message.slice(0, 60) });
+    }
   }
 
   // ── Step 4: LD+JSON parse (mirrors officedepot.js exactly) ───────────────────
@@ -477,7 +519,6 @@ async function runOdProductDiag() {
     // Capture a snippet around any JSON-like price data to hint at real structure
     const priceSnippet = html.match(/["']price["']\s*[:=]\s*["']?[\d.]+/i);
     diag.parse_error = `No LD+JSON found. Price snippet: ${priceSnippet ? priceSnippet[0] : '(none found)'}`;
-    diag.html_first_1000 = res.body.slice(0, 1000);  // already set, for context
     return diag;
   }
 

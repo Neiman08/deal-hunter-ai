@@ -565,6 +565,138 @@ async function tryPatchright(url) {
   }
 }
 
+// ─── Approach 7: Patchright + ISP proxy ──────────────────────────────────────
+
+async function tryPatchrightWithIspProxy(url) {
+  let patchrightMod;
+  try {
+    patchrightMod = require('patchright');
+  } catch {
+    return { ok: false, error: 'patchright module not found' };
+  }
+
+  const host = process.env.ISP_PROXY_HOST;
+  const port = process.env.ISP_PROXY_PORT || '33335';
+  const user = process.env.ISP_PROXY_USER;
+  const pass = process.env.ISP_PROXY_PASS;
+
+  if (!host || !user || !pass) {
+    return { ok: false, error: 'ISP_PROXY credentials missing in env' };
+  }
+
+  const proxyConfig = {
+    server  : `http://${host}:${port}`,
+    username: user,
+    password: pass,
+  };
+
+  const { chromium } = patchrightMod;
+  let browser, ctx, page;
+  const isLinux = process.platform === 'linux';
+  const args    = [
+    '--ignore-certificate-errors',
+    ...(isLinux ? ['--no-sandbox', '--disable-setuid-sandbox'] : []),
+  ];
+
+  try {
+    browser = await chromium.launch({ headless: true, args, proxy: proxyConfig });
+    ctx     = await browser.newContext({
+      ignoreHTTPSErrors: true,
+      userAgent : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+      viewport  : { width: 1920, height: 1080 },
+      locale    : 'en-US',
+      timezoneId: 'America/Chicago',
+      extraHTTPHeaders: {
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Upgrade-Insecure-Requests': '1',
+        'Cache-Control': 'max-age=0',
+      },
+    });
+
+    await ctx.addInitScript(() => {
+      Object.defineProperty(navigator, 'webdriver', { get: () => false });
+      Object.defineProperty(navigator, 'plugins', {
+        get: () => [
+          { name: 'Chrome PDF Plugin',   filename: 'internal-pdf-viewer',             description: 'Portable Document Format' },
+          { name: 'Chrome PDF Viewer',   filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+          { name: 'Native Client',       filename: 'internal-nacl-plugin',             description: '' },
+        ],
+      });
+      Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+      window.chrome = { runtime: {}, loadTimes: function() { return {}; }, csi: function() { return {}; } };
+    });
+
+    page = await ctx.newPage();
+
+    const t0  = Date.now();
+    const res = await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const ms  = Date.now() - t0;
+
+    const finalUrl = page.url();
+    const title    = await page.title();
+    const bodyLen  = (await page.content()).length;
+
+    const priceData = await page.evaluate(() => {
+      // JSON-LD first
+      for (const s of document.querySelectorAll('script[type="application/ld+json"]')) {
+        try {
+          const d    = JSON.parse(s.textContent);
+          const item = Array.isArray(d) ? d[0] : d;
+          if (item?.['@type'] === 'Product') {
+            const offer = Array.isArray(item.offers) ? item.offers[0] : item.offers;
+            return {
+              source      : 'json-ld',
+              name        : item.name?.slice(0, 80),
+              sku         : item.sku || item.productID,
+              brand       : item.brand?.name || item.brand,
+              price       : offer?.price ? parseFloat(offer.price) : null,
+              regularPrice: null,
+              availability: offer?.availability,
+              imageUrl    : Array.isArray(item.image) ? item.image[0] : item.image,
+            };
+          }
+        } catch {}
+      }
+
+      // Embedded JS state
+      for (const s of document.querySelectorAll('script:not([src])')) {
+        const m = s.textContent.match(/"currentPrice"\s*:\s*([\d.]+)/);
+        if (m) return { source: 'embedded-js', price: parseFloat(m[1]) };
+      }
+
+      // DOM price element
+      const el = document.querySelector(
+        '.priceView-customer-price span, [data-testid*="price-block"] span, [class*="PriceBlock"] span'
+      );
+      if (el?.textContent?.trim()) return { source: 'dom', price: el.textContent.trim() };
+
+      return null;
+    }).catch(() => null);
+
+    const isBlocked = /captcha|robot|access denied|verify you are/i.test(title) ||
+                      /captcha|robot|access denied/i.test(finalUrl) ||
+                      bodyLen < 500;
+
+    return {
+      ok        : true,
+      status    : res?.status(),
+      ms,
+      finalUrl  : finalUrl.slice(0, 100),
+      title     : title.slice(0, 80),
+      bodyLen,
+      blocked   : isBlocked,
+      priceData,
+    };
+  } catch (err) {
+    return { ok: false, error: err.message.split('\n')[0] };
+  } finally {
+    await page?.close().catch(() => {});
+    await ctx?.close().catch(() => {});
+    await browser?.close().catch(() => {});
+  }
+}
+
 // ─── Entry point ─────────────────────────────────────────────────────────────
 
 async function main() {
@@ -607,15 +739,57 @@ async function main() {
     await new Promise(r => setTimeout(r, 3000));
   }
 
+  // ── APPROACH 7: Patchright + ISP proxy ──
+  console.log('\n' + '═'.repeat(60));
+  console.log('  APPROACH 7 — Patchright + ISP proxy (BrightData static US IP)');
+  console.log('═'.repeat(60));
+
+  for (const product of TEST_PRODUCTS) {
+    console.log(`\n[7] Patchright+ISP: ${product.label}`);
+    const t0 = Date.now();
+    try {
+      const result = await tryPatchrightWithIspProxy(product.url);
+      const elapsed = Date.now() - t0;
+
+      if (!result.ok) {
+        console.log(`     → ❌ ${result.error}`);
+        continue;
+      }
+
+      const icon = result.blocked ? '⚠️  BLOCKED' : result.priceData ? '✅ SUCCESS' : '⚠️  NO PRICE';
+      console.log(`     → ${icon}`);
+      console.log(`        HTTP status : ${result.status}`);
+      console.log(`        final URL   : ${result.finalUrl}`);
+      console.log(`        title       : ${result.title}`);
+      console.log(`        bodyLen     : ${result.bodyLen}`);
+      console.log(`        blocked     : ${result.blocked}`);
+      console.log(`        elapsed ms  : ${result.ms} (total incl. launch: ${elapsed}ms)`);
+      if (result.priceData) {
+        console.log(`        price       : ${result.priceData.price}`);
+        console.log(`        regularPrice: ${result.priceData.regularPrice ?? '(not found)'}`);
+        console.log(`        availability: ${result.priceData.availability ?? '(not found)'}`);
+        console.log(`        imageUrl    : ${result.priceData.imageUrl?.slice(0, 60) ?? '(not found)'}`);
+        console.log(`        sku/id      : ${result.priceData.sku ?? '(not found)'}`);
+        console.log(`        source      : ${result.priceData.source}`);
+      } else {
+        console.log(`        price       : (not extracted)`);
+      }
+    } catch (err) {
+      console.log(`     → ❌ ERROR: ${err.message.split('\n')[0]}`);
+    }
+    await new Promise(r => setTimeout(r, 3000));
+  }
+
   console.log('\n' + '═'.repeat(60));
   console.log('  PROBE COMPLETE');
   console.log('─'.repeat(60));
   console.log('  Decision guide:');
-  console.log('  [6] ✅ price found    → patchright fix works, deploy as-is');
-  console.log('  [6] ⚠️  no price      → patchright loads page but needs better extraction');
-  console.log('  [6] ⚠️  BLOCKED       → patchright insufficient alone; add ISP proxy to BB');
-  console.log('  [6] ❌ module error   → patchright browsers not yet installed (re-deploy)');
-  console.log('  [6] ❌ timeout/hang   → still blocked even with patchright');
+  console.log('  [7] ✅ price found    → Patchright+ISP works — this is the fix');
+  console.log('  [7] ⚠️  no price      → page loads but extraction needs adjustment');
+  console.log('  [7] ⚠️  BLOCKED       → ISP proxy still blocked by BB');
+  console.log('  [7] ❌ credentials    → ISP_PROXY_* env vars not set on worker');
+  console.log('  [7] ❌ timeout/hang   → proxy connectivity issue');
+  console.log('  [6] ❌ + [7] ✅       → ISP proxy is the key, not patchright alone');
   console.log('═'.repeat(60));
 }
 

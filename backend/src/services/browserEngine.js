@@ -124,6 +124,20 @@ function buildIspProxyConfig() {
   return { server: `http://${host}:${port}`, username: user, password: pass };
 }
 
+// BB always routes through ISP proxy — independent of ISP_PROXY_ENABLED flag.
+// ISP proxies provide static US residential IPs that BB's Akamai CDN cannot block.
+function buildBbIspProxyConfig() {
+  const host = process.env.ISP_PROXY_HOST;
+  const port = process.env.ISP_PROXY_PORT || '33335';
+  const user = process.env.ISP_PROXY_USER;
+  const pass = process.env.ISP_PROXY_PASS;
+  if (!host || !user || !pass) {
+    logger.warn('[Browser:BB] ISP_PROXY credentials missing — BB will run without proxy (may fail)');
+    return null;
+  }
+  return { server: `http://${host}:${port}`, username: user, password: pass };
+}
+
 async function getBrowser() {
   if (browserInstance && browserInstance.isConnected()) return browserInstance;
   if (launchPromise) return launchPromise;
@@ -325,15 +339,12 @@ process.on('SIGTERM', () => closeBrowser());
 module.exports = { getBrowser, newContext, openPage, withPage, closeBrowser, restartBrowserPool, newBestBuyContext, newBestBuyDiscoveryContext, newMacysContext, newIspContext };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Best Buy specific context — NO proxy, NO resource abort
+// Best Buy specific context — ISP proxy + Patchright
 //
-// Why separate from newContext():
-//   1. Best Buy does NOT block datacenter IPs (confirmed by diagnostic)
-//      → proxy is unnecessary and adds latency/complexity
-//   2. Best Buy uses HTTP/2 server push. Aborting resources mid-stream
-//      via route.abort() breaks the HTTP/2 connection → ERR_HTTP2_PROTOCOL_ERROR
-//   3. Without proxy, --disable-http2 in Chromium args actually takes effect
-//      → forces HTTP/1.1 → no server push → no mid-stream abort issues
+// BB's Akamai CDN blocks datacenter IPs via TLS/HTTP2 fingerprint (ERR_HTTP2_PROTOCOL_ERROR).
+// Fix: route all BB traffic (product scan + discovery) through BrightData ISP proxy,
+// which provides static US residential-ISP IPs that Akamai cannot distinguish from
+// real users. Patchright patches the browser binary to remove automation fingerprints.
 // ─────────────────────────────────────────────────────────────────────────────
 let bbBrowserInstance = null;
 let bbLaunchPromise   = null;
@@ -343,11 +354,17 @@ let bbLaunchPromise   = null;
 let bbDiscoveryBrowserInstance = null;
 let bbDiscoveryLaunchPromise   = null;
 
-function _bbLaunchArgs() {
+function _bbLaunchArgs(withProxy = false) {
   const isLinux = process.platform === 'linux';
+  const args = [
+    ...(isLinux ? ['--no-sandbox', '--disable-setuid-sandbox'] : []),
+    // --ignore-certificate-errors required: BrightData ISP proxy presents a
+    // self-signed cert in the CONNECT tunnel that Chromium rejects without this.
+    ...(withProxy ? ['--ignore-certificate-errors'] : []),
+  ];
   return {
     headless: isLinux ? true : process.env.PLAYWRIGHT_HEADLESS !== 'false',
-    args: isLinux ? ['--no-sandbox', '--disable-setuid-sandbox'] : [],
+    args,
   };
 }
 
@@ -356,17 +373,22 @@ async function getBestBuyBrowser() {
   if (bbLaunchPromise) return bbLaunchPromise;
 
   bbLaunchPromise = (async () => {
-    const { headless, args } = _bbLaunchArgs();
+    const proxyConfig = buildBbIspProxyConfig();
+    const { headless, args } = _bbLaunchArgs(!!proxyConfig);
     const launcher = _patchrightChromium || chromium;
     const engine   = _patchrightChromium ? 'patchright' : 'playwright';
-    logger.info(`[Browser:BB] Launching | engine=${engine} | headless=${headless} | no proxy`);
-    bbBrowserInstance = await launcher.launch({ headless, args });
+    const host     = process.env.ISP_PROXY_HOST || '(none)';
+    const port     = process.env.ISP_PROXY_PORT || '33335';
+    logger.info(`[Browser:BB] Launching | engine=${engine} | proxy=ISP | host=${host} | port=${port}`);
+    const launchOpts = { headless, args };
+    if (proxyConfig) launchOpts.proxy = proxyConfig;
+    bbBrowserInstance = await launcher.launch(launchOpts);
     bbBrowserInstance.on('disconnected', () => {
       logger.warn('[Browser:BB] Disconnected — will relaunch on next request');
       bbBrowserInstance = null;
       bbLaunchPromise   = null;
     });
-    logger.info(`[Browser:BB] Ready (${engine})`);
+    logger.info(`[Browser:BB] Ready | engine=${engine} | proxy=${proxyConfig ? 'ISP' : 'none'}`);
     return bbBrowserInstance;
   })();
 
@@ -378,17 +400,22 @@ async function getBestBuyDiscoveryBrowser() {
   if (bbDiscoveryLaunchPromise) return bbDiscoveryLaunchPromise;
 
   bbDiscoveryLaunchPromise = (async () => {
-    const { headless, args } = _bbLaunchArgs();
+    const proxyConfig = buildBbIspProxyConfig();
+    const { headless, args } = _bbLaunchArgs(!!proxyConfig);
     const launcher = _patchrightChromium || chromium;
     const engine   = _patchrightChromium ? 'patchright' : 'playwright';
-    logger.info(`[Browser:BB-Discovery] Launching | engine=${engine} | headless=${headless} | no proxy`);
-    bbDiscoveryBrowserInstance = await launcher.launch({ headless, args });
+    const host     = process.env.ISP_PROXY_HOST || '(none)';
+    const port     = process.env.ISP_PROXY_PORT || '33335';
+    logger.info(`[Browser:BB-Discovery] Launching | engine=${engine} | proxy=ISP | host=${host} | port=${port}`);
+    const launchOpts = { headless, args };
+    if (proxyConfig) launchOpts.proxy = proxyConfig;
+    bbDiscoveryBrowserInstance = await launcher.launch(launchOpts);
     bbDiscoveryBrowserInstance.on('disconnected', () => {
       logger.warn('[Browser:BB-Discovery] Disconnected — will relaunch on next request');
       bbDiscoveryBrowserInstance = null;
       bbDiscoveryLaunchPromise   = null;
     });
-    logger.info(`[Browser:BB-Discovery] Ready (${engine})`);
+    logger.info(`[Browser:BB-Discovery] Ready | engine=${engine} | proxy=${proxyConfig ? 'ISP' : 'none'}`);
     return bbDiscoveryBrowserInstance;
   })();
 

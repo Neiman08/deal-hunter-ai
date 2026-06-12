@@ -653,18 +653,24 @@ async function extractCardsFromSearchPage(keyword, maxCards = 20) {
 async function filterNewCards(cards) {
   if (!cards.length) return [];
 
-  const urls     = cards.map(c => c.productUrl).filter(Boolean);
+  const urls = cards.map(c => c.productUrl).filter(Boolean);
   if (!urls.length) return cards;
 
+  // Products with a valid bestbuy_sku are fully saved — skip them.
+  // Products with bestbuy_sku=NULL need re-processing so we can backfill the SKU.
   const existing = await query(
-    `SELECT product_url FROM products WHERE product_url = ANY($1::text[])`,
+    `SELECT product_url, bestbuy_sku FROM products WHERE product_url = ANY($1::text[])`,
     [urls]
   );
-  const existingSet = new Set(existing.rows.map(r => r.product_url));
+  const fullyComplete = new Set(
+    existing.rows
+      .filter(r => /^\d{5,8}$/.test(r.bestbuy_sku || ''))
+      .map(r => r.product_url)
+  );
 
-  const newCards = cards.filter(c => !c.productUrl || !existingSet.has(c.productUrl));
-  logger.info(`[Discovery:BB] Dedup: ${cards.length} → ${existingSet.size} en DB → ${newCards.length} nuevos`);
-  return newCards;
+  const toProcess = cards.filter(c => !c.productUrl || !fullyComplete.has(c.productUrl));
+  logger.info(`[Discovery:BB] Dedup: ${cards.length} total → ${fullyComplete.size} fully saved → ${toProcess.length} to process (includes SKU backfill)`);
+  return toProcess;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -714,6 +720,15 @@ async function saveCard(card, storeId) {
 
     let dbProduct = existingByUrl;
 
+    // If product exists but was saved without a valid bestbuy_sku, backfill it now
+    if (existingByUrl && /^\d{5,8}$/.test(sku)) {
+      await query(
+        `UPDATE products SET bestbuy_sku=$1, bestbuy_sku_valid=true, updated_at=NOW()
+         WHERE id=$2 AND (bestbuy_sku IS NULL OR bestbuy_sku_valid IS NOT TRUE)`,
+        [sku, existingByUrl.id]
+      ).catch(() => {});
+    }
+
     if (!dbProduct) {
       const productRes = await query(`
         INSERT INTO products
@@ -724,6 +739,8 @@ async function saveCard(card, storeId) {
           brand       = COALESCE(EXCLUDED.brand, products.brand),
           image_url   = COALESCE(EXCLUDED.image_url, products.image_url),
           product_url = COALESCE(EXCLUDED.product_url, products.product_url),
+          bestbuy_sku = COALESCE(EXCLUDED.bestbuy_sku, products.bestbuy_sku),
+          bestbuy_sku_valid = COALESCE(EXCLUDED.bestbuy_sku_valid, products.bestbuy_sku_valid),
           updated_at  = NOW()
         RETURNING id, category_id,
           (SELECT slug FROM categories WHERE id = products.category_id) as cat_slug

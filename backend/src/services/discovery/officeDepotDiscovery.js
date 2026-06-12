@@ -18,7 +18,7 @@
 const https            = require('https');
 const http             = require('http');
 const { shouldSkipStore } = require('../proxyManager');
-const { buildHttpProxyAgent, buildIspHttpProxyAgent } = require('../../utils/proxyUtils');
+const { buildHttpProxyAgent } = require('../../utils/proxyUtils');
 const { saveProductData } = require('../scraperBase');
 const { query }           = require('../../config/database');
 const { writeStoreRun }   = require('../../utils/storeRunStats');
@@ -28,6 +28,7 @@ const STORE_SLUG  = 'office-depot';
 const STORE_LABEL = 'Office Depot';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+// Proxy auto-corrected by buildHttpProxyAgent (residential→22225, ISP→33335)
 function makeProxyAgent() {
   return buildHttpProxyAgent('OfficeDept');
 }
@@ -130,8 +131,6 @@ async function runOfficeDepotDiscovery(options = {}) {
   const stats = {
     store: STORE_SLUG, pages_visited: 0, urls_discovered: 0,
     urls_new: 0, saved: 0, no_price: 0, errors: 0, blocked: false, blockType: null,
-    proxy_used: null, proxy_fallback_used: false, last_error: null,
-    sample_errors: [],  // first 5 product-level errors with message + URL
   };
 
   if (shouldSkipStore(STORE_SLUG)) {
@@ -153,63 +152,13 @@ async function runOfficeDepotDiscovery(options = {}) {
 
   logger.info(`[Discovery:${STORE_LABEL}] Cycle #${cycleSeed} | Sitemap ${sitemapIdx}: ${sitemapUrl}`);
 
-  const RETRYABLE = ['407', '403', 'econnreset', 'socket hang up', 'timeout', 'etimedout'];
-  const isRetryable = msg => RETRYABLE.some(e => msg.toLowerCase().includes(e));
-
-  // DEBUG: log proxy env visible to this worker process
-  const _resAgent = buildHttpProxyAgent('OfficeDept');
-  logger.info(`[Discovery:${STORE_LABEL}] PROXY_DEBUG residential: host=${process.env.PROXY_HOST || '(not set)'} port=${process.env.PROXY_PORT || '(not set)'} user=${(process.env.PROXY_USER || '(not set)').slice(0, 25)}... pass=${process.env.PROXY_PASS ? '***set***' : '(not set)'} agent_created=${!!_resAgent}`);
-  const _ispUser = process.env.ISP_PROXY_USER || '';
-  const _ispPass = process.env.ISP_PROXY_PASS || '';
-  const _ispHost = process.env.ISP_PROXY_HOST || process.env.PROXY_HOST || '';
-  logger.info(`[Discovery:${STORE_LABEL}] PROXY_DEBUG isp:         host=${_ispHost || '(not set)'} port=${process.env.ISP_PROXY_PORT || '(not set)'} user=${(_ispUser || '(not set)').slice(0, 25)}... pass=${_ispPass ? '***set***' : '(not set)'}`);
-
   let rawXml;
-  // Try residential proxy first, fall back to ISP proxy on retryable errors
   try {
-    rawXml = await fetchText(sitemapUrl, 0, _resAgent);
+    rawXml = await fetchText(sitemapUrl);
     stats.pages_visited = 1;
-    stats.proxy_used = 'residential';
-  } catch (err1) {
-    stats.last_error = err1.message;
-    logger.warn(`[Discovery:${STORE_LABEL}] Residential proxy failed (${err1.message}) — trying ISP fallback`);
-
-    if (isRetryable(err1.message)) {
-      const ispUser = process.env.ISP_PROXY_USER || '';
-      const ispIsRealIsp = ispUser.includes('zone-isp');
-      const ispAgent = ispIsRealIsp ? buildIspHttpProxyAgent('OfficeDept') : null;
-      if (!ispIsRealIsp) {
-        logger.warn(`[Discovery:${STORE_LABEL}] ISP_PROXY_USER does not contain 'zone-isp' — skipping ISP fallback`);
-      }
-      if (ispAgent) {
-        try {
-          rawXml = await fetchText(sitemapUrl, 0, ispAgent);
-          stats.pages_visited = 1;
-          stats.proxy_used = 'isp';
-          stats.proxy_fallback_used = true;
-          stats.last_error = null;
-          logger.info(`[Discovery:${STORE_LABEL}] ISP fallback succeeded`);
-        } catch (err2) {
-          stats.last_error = err2.message;
-          stats.errors++;
-          if (isRetryable(err2.message)) { stats.blocked = true; stats.blockType = 'sitemap_fetch_blocked'; }
-          logger.error(`[Discovery:${STORE_LABEL}] ISP fallback also failed: ${err2.message}`);
-          await writeStoreRun(STORE_SLUG, startedAt, stats);
-          return stats;
-        }
-      } else {
-        stats.errors++;
-        stats.blocked = true;
-        stats.blockType = 'isp_proxy_not_configured';
-        logger.error(`[Discovery:${STORE_LABEL}] ISP proxy not configured — cannot fallback`);
-        await writeStoreRun(STORE_SLUG, startedAt, stats);
-        return stats;
-      }
-    } else {
-      stats.errors++;
-      await writeStoreRun(STORE_SLUG, startedAt, stats);
-      return stats;
-    }
+  } catch (err) {
+    logger.error(`[Discovery:${STORE_LABEL}] Sitemap fetch failed: ${err.message}`);
+    return stats;
   }
 
   const allUrls = rawXml.match(/https:\/\/www\.officedepot\.com\/a\/products\/[^<\s"]+/g) || [];
@@ -258,7 +207,15 @@ async function runOfficeDepotDiscovery(options = {}) {
   const categoryId = catRes.rows[0]?.id || null;
   const catSlug    = catRes.rows[0]?.slug || null;
 
-  const { scrapeOfficeDepotProduct } = require('../scrapers/officedepot');
+  const { scrapeOfficeDepotProduct, warmSession } = require('../scrapers/officedepot');
+
+  // Pre-warm session once so all 150 products share the same JWT (no 150 page fetches)
+  try {
+    await warmSession();
+    logger.info(`[Discovery:${STORE_LABEL}] Session warmed (JWT ready)`);
+  } catch (e) {
+    logger.warn(`[Discovery:${STORE_LABEL}] Session warm failed: ${e.message} — will retry per-product`);
+  }
 
   logger.info(`\n[Discovery:${STORE_LABEL}] Scanning ${toProcess.length} candidates (all prices)...`);
 
@@ -269,12 +226,7 @@ async function runOfficeDepotDiscovery(options = {}) {
 
       if (!scraped?.currentPrice) {
         stats.errors++;
-        const nopriceMsg = 'currentPrice=null after scrape';
         logger.warn(`[Discovery:${STORE_LABEL}]   ⚠️  No price found`);
-        if (stats.sample_errors.length < 5) {
-          stats.sample_errors.push({ url: url.slice(-80), err: nopriceMsg });
-        }
-        if (!stats.last_error) stats.last_error = nopriceMsg;
         return;
       }
 
@@ -330,12 +282,7 @@ async function runOfficeDepotDiscovery(options = {}) {
         return;
       }
       stats.errors++;
-      const errMsg = err.message.slice(0, 100);
-      logger.error(`[Discovery:${STORE_LABEL}]   ❌ ${errMsg}`);
-      if (stats.sample_errors.length < 5) {
-        stats.sample_errors.push({ url: url.slice(-80), err: errMsg });
-      }
-      if (!stats.last_error) stats.last_error = errMsg;
+      logger.error(`[Discovery:${STORE_LABEL}]   ❌ ${err.message.slice(0, 100)}`);
     }
     await sleep(delayMs);
   }

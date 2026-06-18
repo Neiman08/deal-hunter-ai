@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
-  ArrowLeft, ExternalLink, Bookmark, Bell, AlertTriangle,
-  Package, MapPin, TrendingDown, TrendingUp, DollarSign, Clock, Zap, BarChart3
+  ArrowLeft, ExternalLink, Bookmark, AlertTriangle,
+  Package, MapPin, TrendingUp
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -14,7 +14,7 @@ import api from '../utils/api';
 function ScoreBar({ label, value, max, color }) {
   return (
     <div className="flex items-center gap-3">
-      <span className="text-gray-300 text-xs w-24 flex-shrink-0">{label}</span>
+      <span className="text-gray-400 text-xs w-24 flex-shrink-0">{label}</span>
       <div className="flex-1 bg-dark-700 rounded-full h-2">
         <div className="h-2 rounded-full transition-all" style={{ width: `${(value / max) * 100}%`, background: color }} />
       </div>
@@ -60,8 +60,6 @@ export default function DealDetail() {
       setHistStats(r.data.history_stats);
     } catch {
       setDeal(null);
-      setHistory([]);
-      setHistStats(null);
     } finally {
       setLoading(false);
     }
@@ -71,22 +69,26 @@ export default function DealDetail() {
     try {
       saved ? await api.delete(`/deals/${id}/save`) : await api.post(`/deals/${id}/save`);
       setSaved(!saved);
-    } catch { setSaved(!saved); }
+    } catch {
+      alert('No se pudo guardar el deal');
+    }
   }
 
   if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-2 border-neon-green border-t-transparent rounded-full animate-spin" /></div>;
-  if (!deal) return <div className="p-6 text-center text-gray-300">Deal not found</div>;
+  if (!deal) return <div className="p-6 text-center text-gray-400">Deal not found</div>;
 
   const score = deal.opportunity_score || 0;
   const scoreColor = score >= 91 ? '#00ff88' : score >= 71 ? '#00d4ff' : score >= 41 ? '#fbbf24' : '#ef4444';
   const chartData = history.map(h => ({ date: new Date(h.recorded_at).toLocaleDateString('en', { month: 'short', day: 'numeric' }), price: parseFloat(h.current_price) }));
+  const isStale = deal.last_seen_at && (Date.now() - new Date(deal.last_seen_at).getTime()) > 48 * 3600000;
+  const isMacysStale = deal.store_slug === 'macys' && isStale;
 
   const trendLabels = { dropping_fast: '📉 Dropping fast', dropping: '↘️ Dropping', stable: '→ Stable', rising: '↗️ Rising', unknown: '' };
 
   return (
     <div className="p-4 lg:p-6 space-y-5 max-w-4xl mx-auto animate-fade-in">
       {/* Back */}
-      <Link to="/" className="inline-flex items-center gap-2 text-gray-300 hover:text-white text-sm transition-colors">
+      <Link to="/" className="inline-flex items-center gap-2 text-gray-400 hover:text-white text-sm transition-colors">
         <ArrowLeft size={16} /> Back to deals
       </Link>
 
@@ -104,10 +106,10 @@ export default function DealDetail() {
                 </span>
               )}
               {deal.price_trend && deal.price_trend !== 'unknown' && (
-                <span className="text-xs text-gray-300">{trendLabels[deal.price_trend]}</span>
+                <span className="text-xs text-gray-400">{trendLabels[deal.price_trend]}</span>
               )}
             </div>
-            {deal.brand && <p className="text-gray-300 text-sm mb-1">{deal.brand} · {deal.category_name}</p>}
+            {deal.brand && <p className="text-gray-400 text-sm mb-1">{deal.brand} · {deal.category_name}</p>}
             <h1 className="text-xl font-bold text-white leading-snug">{deal.name}</h1>
           </div>
           <div className="flex flex-col items-center gap-1 flex-shrink-0">
@@ -129,17 +131,17 @@ export default function DealDetail() {
           </div>
           <div>
             <span className="text-gray-400 text-sm">Regular</span>
-            <div className="text-xl text-gray-400 line-through">${parseFloat(deal.regular_price).toFixed(2)}</div>
+            <div className="text-xl text-gray-500 line-through">${parseFloat(deal.regular_price).toFixed(2)}</div>
           </div>
           <div className="ml-auto text-right">
             <div className="text-2xl font-bold text-red-400">-{Math.round(deal.discount_percent)}%</div>
-            <div className="text-gray-300 text-sm">You save ${parseFloat(deal.savings_amount || 0).toFixed(0)}</div>
+            <div className="text-gray-400 text-sm">You save ${parseFloat(deal.savings_amount || 0).toFixed(0)}</div>
           </div>
         </div>
 
         {/* Stock */}
         {deal.stock_quantity !== null && (
-          <div className={`mt-3 flex items-center gap-2 text-sm ${deal.stock_quantity <= 3 ? 'text-yellow-400' : 'text-gray-300'}`}>
+          <div className={`mt-3 flex items-center gap-2 text-sm ${deal.stock_quantity <= 3 ? 'text-yellow-400' : 'text-gray-400'}`}>
             <Package size={14} />
             {deal.stock_quantity <= 3 ? `🔥 Only ${deal.stock_quantity} left!` : `${deal.stock_quantity} in stock`}
           </div>
@@ -147,16 +149,36 @@ export default function DealDetail() {
 
         {/* Actions */}
         <div className="flex gap-3 mt-4">
-          {deal.product_url && (
+          {deal.product_url ? (
             <a href={deal.product_url} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2 text-sm flex-1 justify-center">
               <ExternalLink size={15} /> View at {deal.store_name}
             </a>
-          )}
+          ) : deal.store_slug === 'macys' ? (
+            <a
+              href={`https://www.macys.com/shop/featured/${encodeURIComponent(deal.name)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-ghost flex items-center gap-2 text-sm flex-1 justify-center"
+            >
+              <ExternalLink size={15} /> Search Macy's
+            </a>
+          ) : null}
           <button onClick={toggleSave} className={`btn-ghost flex items-center gap-2 text-sm px-4 ${saved ? 'text-neon-green border-neon-green/40' : ''}`}>
             <Bookmark size={15} fill={saved ? 'currentColor' : 'none'} />
             {saved ? 'Saved' : 'Save'}
           </button>
         </div>
+        {deal.product_url && isStale && (
+          <p className="text-xs text-yellow-400/80 flex items-center gap-1.5 mt-2">
+            <AlertTriangle size={11} />
+            This deal is stale. The product page may have changed since the last verification.
+          </p>
+        )}
+        {!deal.product_url && deal.store_slug === 'macys' && (
+          <p className="text-xs text-yellow-400/80 flex items-center gap-1.5 mt-2">
+            <AlertTriangle size={11} /> Macy's link needs verification.
+          </p>
+        )}
       </div>
 
       {/* Two-col layout */}
@@ -165,7 +187,7 @@ export default function DealDetail() {
         <div className="card">
           <h2 className="text-white font-semibold mb-1">Price History</h2>
           {histStats && (
-            <div className="flex gap-4 text-xs text-gray-300 mb-4">
+            <div className="flex gap-4 text-xs text-gray-400 mb-4">
               <span>Min: <span className="text-neon-green font-semibold">${histStats.all_time_min}</span></span>
               <span>Max: <span className="text-red-400 font-semibold">${histStats.all_time_max}</span></span>
               <span>Avg: <span className="text-white font-semibold">${parseFloat(histStats.avg_price || 0).toFixed(0)}</span></span>
@@ -176,8 +198,8 @@ export default function DealDetail() {
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
                 <CartesianGrid stroke="#1a1a2e" strokeDasharray="3 3" />
-                <XAxis dataKey="date" tick={{ fill: '#FFFFFF', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fill: '#FFFFFF', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
+                <XAxis dataKey="date" tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} tickFormatter={v => `$${v}`} />
                 <Tooltip contentStyle={{ background: '#111119', border: '1px solid #2a2a3a', borderRadius: 8, color: '#fff' }} formatter={v => [`$${v}`, 'Price']} />
                 {histStats?.all_time_min && (
                   <ReferenceLine y={histStats.all_time_min} stroke="#00ff88" strokeDasharray="3 3" label={{ value: 'ATL', fill: '#00ff88', fontSize: 10 }} />
@@ -186,7 +208,7 @@ export default function DealDetail() {
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <div className="text-center text-gray-400 text-sm py-8">No price history yet</div>
+            <div className="text-center text-gray-500 text-sm py-8">No price history yet</div>
           )}
         </div>
 
@@ -202,12 +224,12 @@ export default function DealDetail() {
               <ScoreBar label="Stock Urgency" value={deal.score_breakdown.stockScore || 0} max={5} color="#fbbf24" />
               <ScoreBar label="Brand Demand" value={deal.score_breakdown.demandScore || 0} max={5} color="#f97316" />
               <div className="pt-2 border-t border-dark-700 flex justify-between">
-                <span className="text-gray-300 text-sm">Total Score</span>
+                <span className="text-gray-400 text-sm">Total Score</span>
                 <span className="font-bold text-lg" style={{ color: scoreColor }}>{score}/100</span>
               </div>
             </div>
           ) : (
-            <div className="text-gray-400 text-sm text-center py-8">Score breakdown unavailable</div>
+            <div className="text-gray-500 text-sm text-center py-8">Score breakdown unavailable</div>
           )}
         </div>
       </div>
@@ -225,23 +247,23 @@ export default function DealDetail() {
         </div>
         <div className="grid grid-cols-3 gap-3 border-t border-dark-700 pt-4">
           <div className="text-center">
-            <p className="text-gray-300 text-xs mb-1">Best Net Profit</p>
+            <p className="text-gray-400 text-xs mb-1">Best Net Profit</p>
             <p className="text-2xl font-bold text-neon-green">${Math.round(deal.estimated_profit || 0)}</p>
           </div>
           <div className="text-center">
-            <p className="text-gray-300 text-xs mb-1">ROI</p>
+            <p className="text-gray-400 text-xs mb-1">ROI</p>
             <p className="text-2xl font-bold text-neon-blue">{Math.round(deal.roi_percent || 0)}%</p>
           </div>
           <div className="text-center">
-            <p className="text-gray-300 text-xs mb-1">Est. Days to Sell</p>
+            <p className="text-gray-400 text-xs mb-1">Est. Days to Sell</p>
             <p className="text-2xl font-bold text-white">{deal.estimated_days_to_sell || '—'}</p>
           </div>
         </div>
         <div className="mt-3 flex items-center gap-2">
-          <span className={`text-xs px-2 py-0.5 rounded-full ${deal.demand_level === 'Very High' ? 'bg-neon-green/20 text-neon-green' : deal.demand_level === 'High' ? 'bg-neon-blue/20 text-neon-blue' : 'bg-dark-700 text-gray-300'}`}>
+          <span className={`text-xs px-2 py-0.5 rounded-full ${deal.demand_level === 'Very High' ? 'bg-neon-green/20 text-neon-green' : deal.demand_level === 'High' ? 'bg-neon-blue/20 text-neon-blue' : 'bg-dark-700 text-gray-400'}`}>
             {deal.demand_level || 'Unknown'} demand
           </span>
-          <span className="text-xs text-gray-400">Based on current Amazon/eBay/FB listings · Estimates only</span>
+          <span className="text-xs text-gray-500">Based on current Amazon/eBay/FB listings · Estimates only</span>
         </div>
       </div>
 
@@ -251,7 +273,7 @@ export default function DealDetail() {
           <MapPin size={18} className="text-neon-blue flex-shrink-0" />
           <div>
             <p className="text-white font-medium text-sm">{deal.store_name}</p>
-            <p className="text-gray-300 text-sm">{deal.store_address}</p>
+            <p className="text-gray-400 text-sm">{deal.store_address}</p>
           </div>
           <Link to="/map" className="ml-auto text-neon-blue text-xs hover:underline">View on map →</Link>
         </div>

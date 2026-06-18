@@ -4,11 +4,7 @@
  * Feeds AI recommendation engine.
  */
 import { useState, useEffect } from 'react';
-import {
-  BarChart, Bar, LineChart, Line, PieChart, Pie, Cell,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend
-} from 'recharts';
-import { TrendingUp, Search, Bookmark, ShoppingBag, DollarSign, Brain, Star, Clock } from 'lucide-react';
+import { TrendingUp, Bookmark, ShoppingBag, DollarSign, Brain, Star } from 'lucide-react';
 import api from '../utils/api';
 
 
@@ -18,26 +14,23 @@ function StatTile({ icon, label, value, sub, color = 'green' }) {
     <div className="card">
       <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-3 ${colors[color]}`}>{icon}</div>
       <p className="text-2xl font-black text-white">{value}</p>
-      <p className="text-gray-300 text-sm mt-0.5">{label}</p>
-      {sub && <p style={{ color: '#94A3B8' }} className="text-xs mt-1">{sub}</p>}
+      <p className="text-gray-400 text-sm mt-0.5">{label}</p>
+      {sub && <p className="text-gray-500 text-xs mt-1">{sub}</p>}
     </div>
   );
 }
 
 export default function Analytics() {
-  const [activity, setActivity] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [brands, setBrands] = useState([]);
   const [saves, setSaves] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('7d');
 
   useEffect(() => {
-    api.get('/recommendations/insights').then(r => {
-      if (r.data.activity?.length) setActivity(r.data.activity);
-    }).catch(() => {});
-    api.get('/deals/user/saved').then(r => {
-      if (r.data.deals?.length) setSaves(r.data.deals.slice(0, 10));
-    }).catch(() => {});
+    setLoading(true);
+    api.get('/deals/user/saved')
+      .then(r => setSaves(r.data.deals?.slice(0, 20) || []))
+      .catch(() => setSaves([]))
+      .finally(() => setLoading(false));
   }, []);
 
   const totalSaves = saves.length;
@@ -56,7 +49,7 @@ export default function Analytics() {
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
             <TrendingUp size={22} className="text-neon-green" /> My Analytics
           </h1>
-          <p style={{ color: '#CBD5E1' }} className="text-sm mt-0.5">Your deal hunting performance & insights</p>
+          <p className="text-gray-400 text-sm mt-0.5">Your deal hunting performance & insights</p>
         </div>
         <div className="flex gap-1 bg-dark-800 rounded-xl p-1">
           {['7d', '30d', '90d'].map(p => (
@@ -76,90 +69,51 @@ export default function Analytics() {
         <StatTile icon={<Star size={18} />} label="Avg Deal Score" value={avgScore} sub="Your picks" color="purple" />
       </div>
 
-      {/* Activity chart */}
-      <div className="card">
-        <h2 className="text-white font-semibold mb-4 flex items-center gap-2">
-          <Clock size={16} className="text-gray-400" /> 7-Day Activity
-        </h2>
-        <ResponsiveContainer width="100%" height={180}>
-          <BarChart data={activity} margin={{ left: -20 }}>
-            <CartesianGrid stroke="#1a1a2e" strokeDasharray="3 3" />
-            <XAxis dataKey="day" tick={{ fill: '#FFFFFF', fontSize: 11 }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fill: '#FFFFFF', fontSize: 11 }} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={{ background: '#111119', border: '1px solid #2a2a3a', borderRadius: 8, color: '#fff' }} />
-            <Legend wrapperStyle={{ fontSize: 11, color: '#FFFFFF' }} />
-            <Bar dataKey="searches" name="Searches" fill="#00d4ff" opacity={0.7} radius={[3, 3, 0, 0]} />
-            <Bar dataKey="saves" name="Saves" fill="#00ff88" radius={[3, 3, 0, 0]} />
-            <Bar dataKey="opens" name="Deal Views" fill="#fbbf24" opacity={0.5} radius={[3, 3, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      {/* Brand leaderboard derived from saved deals */}
+      {(() => {
+        const brandMap = {};
+        saves.forEach(d => {
+          if (!d.brand) return;
+          if (!brandMap[d.brand]) brandMap[d.brand] = { brand: d.brand, saves: 0, totalProfit: 0, totalScore: 0 };
+          brandMap[d.brand].saves++;
+          brandMap[d.brand].totalProfit += parseFloat(d.estimated_profit || 0);
+          brandMap[d.brand].totalScore += parseFloat(d.opportunity_score || 0);
+        });
+        const brands = Object.values(brandMap)
+          .map(b => ({ ...b, avg_profit: Math.round(b.totalProfit / b.saves), avg_score: Math.round(b.totalScore / b.saves) }))
+          .sort((a, b) => b.saves - a.saves)
+          .slice(0, 5);
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        {/* Category breakdown */}
-        <div className="card">
-          <h2 className="text-white font-semibold mb-4">Category Breakdown</h2>
-          <div className="flex gap-4 items-center">
-            <ResponsiveContainer width={140} height={140}>
-              <PieChart>
-                <Pie data={categories} dataKey="value" cx="50%" cy="50%" outerRadius={60} strokeWidth={0}>
-                  {categories.map((c, i) => <Cell key={i} fill={c.color} />)}
-                </Pie>
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex-1 space-y-2">
-              {categories.map(c => (
-                <div key={c.name} className="flex items-center justify-between text-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: c.color }} />
-                    <span className="text-gray-200">{c.name}</span>
+        if (!brands.length) return null;
+        return (
+          <div className="card">
+            <h2 className="text-white font-semibold mb-4 flex items-center gap-2">
+              <Brain size={16} className="text-neon-blue" /> Your Top Brands
+            </h2>
+            <div className="space-y-3">
+              {brands.map((b, i) => (
+                <div key={b.brand} className="flex items-center gap-3">
+                  <span className="text-gray-500 text-xs w-4">{i + 1}</span>
+                  <div className="flex-1">
+                    <div className="flex justify-between text-sm mb-1">
+                      <span className="text-white font-medium">{b.brand}</span>
+                      <div className="flex gap-3 text-xs">
+                        <span className="text-neon-green">${b.avg_profit} avg profit</span>
+                        <span className="text-neon-blue">{b.avg_score} score</span>
+                      </div>
+                    </div>
+                    <div className="bg-dark-700 rounded-full h-1.5">
+                      <div className="h-1.5 rounded-full bg-neon-green"
+                        style={{ width: `${(b.saves / brands[0].saves) * 100}%` }} />
+                    </div>
                   </div>
-                  <div className="flex gap-3 text-xs">
-                    <span className="text-gray-400">{c.value}%</span>
-                    <span className="text-neon-green">${c.profit} avg</span>
-                  </div>
+                  <span className="text-gray-400 text-xs w-8 text-right">{b.saves}</span>
                 </div>
               ))}
             </div>
           </div>
-        </div>
-
-        {/* Brand leaderboard */}
-        <div className="card">
-          <h2 className="text-white font-semibold mb-4 flex items-center gap-2">
-            <Brain size={16} className="text-neon-blue" /> Your Top Brands
-          </h2>
-          <div className="space-y-3">
-            {brands.map((b, i) => (
-              <div key={b.brand} className="flex items-center gap-3">
-                <span className="text-gray-400 text-xs w-4">{i + 1}</span>
-                <div className="flex-1">
-                  <div className="flex justify-between text-sm mb-1">
-                    <span className="text-white font-medium">{b.brand}</span>
-                    <div className="flex gap-3 text-xs">
-                      <span className="text-neon-green">${b.avg_profit}</span>
-                      <span className="text-neon-blue">{b.avg_score} avg</span>
-                    </div>
-                  </div>
-                  <div className="bg-dark-700 rounded-full h-1.5">
-                    <div className="h-1.5 rounded-full bg-neon-green"
-                      style={{ width: `${(b.saves / brands[0].saves) * 100}%` }} />
-                  </div>
-                </div>
-                <span className="text-gray-400 text-xs w-8 text-right">{b.saves}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-4 p-3 bg-neon-blue/5 border border-neon-blue/20 rounded-xl">
-            <p className="text-neon-blue text-xs font-semibold flex items-center gap-1.5">
-              <Brain size={12} /> AI Insight
-            </p>
-            <p className="text-gray-300 text-xs mt-1">
-              Milwaukee generates 22% higher profit margins than your average saved deal. Consider prioritizing Milwaukee alerts.
-            </p>
-          </div>
-        </div>
-      </div>
+        );
+      })()}
 
       {/* Saved deals history */}
       <div className="card">

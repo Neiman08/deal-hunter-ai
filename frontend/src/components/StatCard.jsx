@@ -2,11 +2,13 @@ import React from 'react';
 
 export default function StatCard({ title, value, sub, icon: Icon, color = 'green', trend }) {
   const colorMap = {
-    green: { bg: 'bg-neon-green/5', border: 'border-neon-green/20', icon: 'text-neon-green bg-neon-green/10', value: 'text-neon-green' },
-    blue: { bg: 'bg-neon-blue/5', border: 'border-neon-blue/20', icon: 'text-neon-blue bg-neon-blue/10', value: 'text-neon-blue' },
-    red: { bg: 'bg-red-500/5', border: 'border-red-500/20', icon: 'text-red-400 bg-red-500/10', value: 'text-red-400' },
-    orange: { bg: 'bg-orange-500/5', border: 'border-orange-500/20', icon: 'text-orange-400 bg-orange-500/10', value: 'text-orange-400' },
-    purple: { bg: 'bg-purple-500/5', border: 'border-purple-500/20', icon: 'text-purple-400 bg-purple-500/10', value: 'text-purple-400' },
+    green: { bg: 'bg-neon-green/8', border: 'border-neon-green/30', icon: 'text-neon-green bg-neon-green/15', value: 'text-neon-green' },
+    blue: { bg: 'bg-neon-blue/8', border: 'border-neon-blue/30', icon: 'text-neon-blue bg-neon-blue/15', value: 'text-neon-blue' },
+    red: { bg: 'bg-red-500/8', border: 'border-red-500/30', icon: 'text-red-400 bg-red-500/15', value: 'text-red-400' },
+    orange: { bg: 'bg-orange-500/8', border: 'border-orange-500/30', icon: 'text-orange-400 bg-orange-500/15', value: 'text-orange-400' },
+    purple: { bg: 'bg-purple-500/8', border: 'border-purple-500/30', icon: 'text-purple-400 bg-purple-500/15', value: 'text-purple-400' },
+    yellow: { bg: 'bg-yellow-500/8', border: 'border-yellow-500/30', icon: 'text-yellow-400 bg-yellow-500/15', value: 'text-yellow-400' },
+    gray: { bg: 'bg-gray-500/8', border: 'border-gray-500/30', icon: 'text-gray-400 bg-gray-500/15', value: 'text-gray-400' },
   };
 
   const c = colorMap[color] || colorMap.green;
@@ -30,7 +32,7 @@ export default function StatCard({ title, value, sub, icon: Icon, color = 'green
         </div>
 
         {trend && (
-          <span className="text-xs font-mono" style={{ color: '#CBD5E1' }}>{trend}</span>
+          <span className="text-xs text-gray-500 font-mono">{trend}</span>
         )}
       </div>
 
@@ -40,7 +42,7 @@ export default function StatCard({ title, value, sub, icon: Icon, color = 'green
 
       <div className="text-sm font-medium text-white mb-0.5">{title}</div>
 
-      {sub && <div className="text-xs" style={{ color: '#CBD5E1' }}>{sub}</div>}
+      {sub && <div className="text-xs text-gray-400">{sub}</div>}
     </div>
   );
 }

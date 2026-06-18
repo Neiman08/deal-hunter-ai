@@ -3,7 +3,7 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Search, Map, Scan, Bell, Brain,
   Shield, Tag, Menu, LogOut, Zap, Eye, Crown,
-  Crosshair, BarChart3, Gift, Flame, Users, Star
+  Crosshair, BarChart3, Gift, Flame, Star, Users
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -23,14 +23,8 @@ const NAV_TOOLS = [
   { to: '/referrals', icon: <Gift size={16} />, label: 'Refer & Earn' },
 ];
 
-const NAV_COMMUNITY = [
-  { to: '/feed', icon: <Flame size={16} />, label: 'Deal Feed' },
-  { to: '/collaborator', icon: <Star size={16} />, label: 'Collaborator' },
-  { to: '/teams', icon: <Users size={16} />, label: 'Teams' },
-];
-
 const PLAN_STYLE = {
-  free: 'text-gray-400 bg-dark-700',
+  free: 'text-dark-400 bg-dark-700',
   pro: 'text-neon-blue bg-neon-blue/20',
   elite: 'text-neon-green bg-neon-green/20',
 };
@@ -43,7 +37,7 @@ function NavItem({ item, onClick }) {
         `flex items-center gap-3 px-3 py-2.5 rounded-xl text-[13px] font-medium transition-all group ${
           isActive
             ? 'bg-neon-green/12 text-neon-green border border-neon-green/20'
-            : 'text-gray-300 hover:text-white hover:bg-dark-700'
+            : 'text-gray-400 hover:text-white hover:bg-dark-700'
         }`
       }>
       {item.icon}
@@ -73,7 +67,7 @@ export default function Layout() {
           </div>
           <div>
             <p className="text-white font-black text-sm leading-none">Deal Hunter AI</p>
-            <p className="text-gray-400 text-xs mt-0.5">v4.0 · Launch Ready</p>
+            <p className="text-gray-500 text-xs mt-0.5">v4.0 · Launch Ready</p>
           </div>
         </div>
       </div>
@@ -83,14 +77,16 @@ export default function Layout() {
         {NAV_PRIMARY.map(item => <NavItem key={item.to} item={item} onClick={close} />)}
 
         <div className="pt-2 pb-0.5 px-3">
-          <p className="text-gray-400 text-[10px] uppercase tracking-wider font-semibold">Tools</p>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider font-semibold">Tools</p>
         </div>
         {NAV_TOOLS.map(item => <NavItem key={item.to} item={item} onClick={close} />)}
 
         <div className="pt-2 pb-0.5 px-3">
-          <p className="text-gray-400 text-[10px] uppercase tracking-wider font-semibold">Community</p>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider font-semibold">Community</p>
         </div>
-        {NAV_COMMUNITY.map(item => <NavItem key={item.to} item={item} onClick={close} />)}
+        <NavItem item={{ to: '/feed', icon: <Flame size={16} />, label: 'Deal Feed' }} onClick={close} />
+        <NavItem item={{ to: '/collaborator', icon: <Star size={16} />, label: 'Collaborator' }} onClick={close} />
+        <NavItem item={{ to: '/teams', icon: <Users size={16} />, label: 'Teams' }} onClick={close} />
 
         <div className="pt-2 border-t border-dark-700 mt-1 space-y-0.5">
           <NavItem item={{ to: '/pricing', icon: <Tag size={16} />, label: 'Pricing' }} onClick={close} />
@@ -131,7 +127,7 @@ export default function Layout() {
                 {user.plan}
               </span>
             </div>
-            <button onClick={doLogout} className="text-gray-400 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">
+            <button onClick={doLogout} className="text-gray-500 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all">
               <LogOut size={13} />
             </button>
           </div>

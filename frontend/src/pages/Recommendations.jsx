@@ -6,61 +6,75 @@ import DealCard from '../components/DealCard';
 const BRANDS = ['DeWalt', 'Milwaukee', 'Makita', 'Ryobi', 'Dyson', 'Apple', 'Samsung', 'Sony', 'KitchenAid', 'iRobot'];
 const CATEGORIES = ['Power Tools', 'Electronics', 'Appliances', 'Kitchen', 'Outdoor', 'Automotive', 'Toys'];
 
-const DEMO_INSIGHTS = [
-  { icon: '🎯', type: 'brand', text: 'You favor DeWalt & Milwaukee tools. We prioritize these in your feed.' },
-  { icon: '💡', type: 'tip', text: 'Milwaukee tools generate 42% higher resale margins than Ryobi in Power Tools.' },
-  { icon: '📈', type: 'profit', text: 'Your saved deals average $73 estimated profit per item.' },
-  { icon: '🧠', type: 'pattern', text: 'Weekend morning deals (6–10 AM) show 23% higher profit margins historically.' },
-  { icon: '⚡', type: 'alert', text: '3 new DeWalt deals detected today — matching your preference profile.' },
-];
-
-const DEMO_DEALS = [
-  { id: '1', name: 'DeWalt Flexvolt Advantage Circular Saw', brand: 'DeWalt', store_name: 'Home Depot', store_slug: 'home-depot', store_color: '#F96302', regular_price: 249, deal_price: 89, discount_percent: 64, estimated_profit: 96, roi_percent: 107, opportunity_score: 94, opportunity_label: '🔥 Excelente', stock_quantity: 2, resale_price_amazon: 209, demand_level: 'Very High', category_name: 'Power Tools' },
-  { id: '3', name: 'Milwaukee M18 FUEL Combo Kit', brand: 'Milwaukee', store_name: 'Home Depot', store_slug: 'home-depot', store_color: '#F96302', regular_price: 399, deal_price: 129, discount_percent: 68, estimated_profit: 174, roi_percent: 134, opportunity_score: 93, opportunity_label: '🔥 Excelente', stock_quantity: 1, resale_price_amazon: 339, demand_level: 'Very High', category_name: 'Power Tools' },
-];
-
-const DEMO_FAVORITES = [
-  { id: '1', type: 'brand', value: 'DeWalt' },
-  { id: '2', type: 'brand', value: 'Milwaukee' },
-  { id: '3', type: 'category', value: 'Power Tools' },
-];
-
 export default function Recommendations() {
-  const [recommended, setRecommended] = useState(DEMO_DEALS);
-  const [insights, setInsights] = useState(DEMO_INSIGHTS);
-  const [favorites, setFavorites] = useState(DEMO_FAVORITES);
-  const [profile, setProfile] = useState({ topBrand: 'DeWalt', topCategory: 'Power Tools', avgProfit: 73 });
+  const [recommended, setRecommended] = useState([]);
+  const [insights, setInsights] = useState([]);
+  const [favorites, setFavorites] = useState([]);
+  const [profile, setProfile] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [adding, setAdding] = useState({ type: 'brand', value: '' });
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    api.get('/recommendations').then(r => {
-      setRecommended(r.data.recommended || DEMO_DEALS);
-      setInsights(r.data.insights || DEMO_INSIGHTS);
-      setProfile(r.data.profile || {});
-    }).catch(() => {});
-    api.get('/recommendations/favorites').then(r => setFavorites(r.data.favorites || DEMO_FAVORITES)).catch(() => {});
+    fetchAll();
   }, []);
+
+  async function fetchAll() {
+    setLoading(true);
+    setError(null);
+    try {
+      const [recRes, favRes] = await Promise.all([
+        api.get('/recommendations'),
+        api.get('/recommendations/favorites'),
+      ]);
+      setRecommended(recRes.data.recommended || []);
+      setInsights(recRes.data.insights || []);
+      setProfile(recRes.data.profile || {});
+      setFavorites(favRes.data.favorites || []);
+    } catch {
+      setError('No se pudieron cargar las recomendaciones.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function addFavorite() {
     if (!adding.value) return;
     try {
       const r = await api.post('/recommendations/favorites', adding);
-      setFavorites(prev => [...prev, r.data.favorite || { id: Date.now(), ...adding }]);
+      if (r.data.favorite) {
+        setFavorites(prev => [...prev, r.data.favorite]);
+      }
       setAdding({ ...adding, value: '' });
-    } catch {
-      setFavorites(prev => [...prev, { id: Date.now(), ...adding }]);
-      setAdding({ ...adding, value: '' });
+    } catch (err) {
+      alert(err.response?.data?.error || 'Error al agregar seguimiento');
     }
   }
 
   async function removeFavorite(id) {
-    try { await api.delete(`/recommendations/favorites/${id}`); } catch {}
-    setFavorites(prev => prev.filter(f => f.id !== id));
+    try {
+      await api.delete(`/recommendations/favorites/${id}`);
+      setFavorites(prev => prev.filter(f => f.id !== id));
+    } catch {
+      alert('No se pudo eliminar el seguimiento');
+    }
   }
 
   const typeIcon = { brand: '🏷️', category: '📦', store: '🏪', product: '🛍️' };
   const typeColor = { brand: 'text-neon-green', category: 'text-neon-blue', store: 'text-yellow-400', product: 'text-purple-400' };
+
+  if (loading) return (
+    <div className="flex items-center justify-center h-64">
+      <div className="w-8 h-8 border-2 border-neon-blue/30 border-t-neon-blue rounded-full animate-spin" />
+    </div>
+  );
+
+  if (error) return (
+    <div className="p-6 text-center text-red-400">
+      <Brain size={40} className="mx-auto mb-3 opacity-30" />
+      <p>{error}</p>
+    </div>
+  );
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
@@ -69,24 +83,24 @@ export default function Recommendations() {
         <Brain size={24} className="text-neon-blue" />
         <div>
           <h1 className="text-2xl font-bold text-white">AI Recommendations</h1>
-          <p className="text-dark-300 text-sm">Personalized deals based on your behavior</p>
+          <p className="text-gray-400 text-sm">Personalized deals based on your behavior</p>
         </div>
       </div>
 
       {/* Profile summary */}
       <div className="card border-neon-blue/30 bg-neon-blue/5">
-        <p className="text-dark-300 text-xs uppercase tracking-wider mb-3">Your Profile</p>
+        <p className="text-gray-400 text-xs uppercase tracking-wider mb-3">Your Profile</p>
         <div className="grid grid-cols-3 gap-4">
           <div>
-            <p className="text-dark-400 text-xs">Top Brand</p>
+            <p className="text-gray-400 text-xs">Top Brand</p>
             <p className="text-white font-semibold">{profile.topBrand || '—'}</p>
           </div>
           <div>
-            <p className="text-dark-400 text-xs">Top Category</p>
+            <p className="text-gray-400 text-xs">Top Category</p>
             <p className="text-white font-semibold">{profile.topCategory || '—'}</p>
           </div>
           <div>
-            <p className="text-dark-400 text-xs">Avg Profit/Deal</p>
+            <p className="text-gray-400 text-xs">Avg Profit/Deal</p>
             <p className="text-neon-green font-bold">${profile.avgProfit || 0}</p>
           </div>
         </div>
@@ -145,13 +159,13 @@ export default function Recommendations() {
             <div key={fav.id} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-dark-800 border border-dark-700">
               <span className="text-sm">{typeIcon[fav.type]}</span>
               <span className={`text-sm font-medium ${typeColor[fav.type]}`}>{fav.value}</span>
-              <span className="text-dark-500 text-xs capitalize">{fav.type}</span>
-              <button onClick={() => removeFavorite(fav.id)} className="text-dark-400 hover:text-red-400 ml-1">
+              <span className="text-gray-500 text-xs capitalize">{fav.type}</span>
+              <button onClick={() => removeFavorite(fav.id)} className="text-gray-400 hover:text-red-400 ml-1">
                 <Trash2 size={12} />
               </button>
             </div>
           ))}
-          {favorites.length === 0 && <p className="text-dark-400 text-sm">Follow brands, categories, or stores to get personalized deals.</p>}
+          {favorites.length === 0 && <p className="text-gray-400 text-sm">Follow brands, categories, or stores to get personalized deals.</p>}
         </div>
       </div>
 
@@ -165,7 +179,7 @@ export default function Recommendations() {
             {recommended.map(deal => <DealCard key={deal.id} deal={deal} />)}
           </div>
         ) : (
-          <div className="card text-center text-dark-400 py-10">
+          <div className="card text-center text-gray-400 py-10">
             <Brain size={32} className="mx-auto mb-3 opacity-40" />
             <p>Follow some brands or save deals to get personalized recommendations.</p>
           </div>

@@ -19,17 +19,27 @@ function ScoreRing({ score }) {
   );
 }
 
+function getDealFreshness(lastSeenAt) {
+  if (!lastSeenAt) return null;
+  const ms = Date.now() - new Date(lastSeenAt).getTime();
+  const h = ms / 3600000;
+  if (h <= 24) return { label: `Verified ${Math.round(ms / 60000)}m ago`, color: '#00ff88', bg: 'rgba(0,255,136,0.12)' };
+  if (h <= 48) return { label: `Verified ${Math.round(h)}h ago`, color: '#00d4ff', bg: 'rgba(0,212,255,0.12)' };
+  return { label: 'Stale — needs verification', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' };
+}
+
 export default function DealCard({ deal }) {
   const {
     id, name, brand, store_name, store_slug, store_color,
     regular_price, deal_price, discount_percent, estimated_profit, roi_percent,
     opportunity_score, opportunity_label, is_error_price, stock_quantity,
-    resale_price_amazon, demand_level, category_name, image_url,
+    resale_price_amazon, demand_level, category_name, image_url, last_seen_at,
   } = deal;
 
   const stockUrgent = stock_quantity !== null && stock_quantity <= 3;
   const score = Math.round(opportunity_score || 0);
   const scoreColor = score >= 91 ? '#00ff88' : score >= 71 ? '#00d4ff' : score >= 41 ? '#fbbf24' : '#ef4444';
+  const freshness = getDealFreshness(last_seen_at);
 
   return (
     <Link to={`/deal/${id}`} className="card hover:border-white/20 hover:-translate-y-0.5 transition-all duration-200 flex flex-col gap-3 group">
@@ -47,10 +57,10 @@ export default function DealCard({ deal }) {
               </span>
             )}
             {category_name && (
-              <span className="text-xs text-gray-400">{category_name}</span>
+              <span className="text-xs text-gray-500">{category_name}</span>
             )}
           </div>
-          {brand && <p className="text-gray-300 text-xs mb-0.5">{brand}</p>}
+          {brand && <p className="text-gray-400 text-xs mb-0.5">{brand}</p>}
           <p className="text-white font-semibold text-sm leading-tight line-clamp-2 group-hover:text-neon-green transition-colors">{name}</p>
         </div>
         <ScoreRing score={score} />
@@ -60,7 +70,7 @@ export default function DealCard({ deal }) {
       <div className="flex items-end gap-3">
         <div>
           <span className="text-2xl font-bold text-white">${parseFloat(deal_price || 0).toFixed(0)}</span>
-          <span className="text-gray-400 line-through text-sm ml-2">${parseFloat(regular_price || 0).toFixed(0)}</span>
+          <span className="text-gray-500 line-through text-sm ml-2">${parseFloat(regular_price || 0).toFixed(0)}</span>
         </div>
         <span className="px-2 py-0.5 rounded-lg text-sm font-bold bg-red-500/20 text-red-400 ml-auto">
           -{Math.round(discount_percent || 0)}%
@@ -69,7 +79,7 @@ export default function DealCard({ deal }) {
 
       {/* Resale row */}
       {resale_price_amazon && (
-        <div className="flex items-center justify-between text-xs border-t border-dark-700 pt-2">
+        <div className="flex items-center justify-between text-xs border-t border-white/8 pt-2">
           <span className="text-gray-400">Amazon ~${parseFloat(resale_price_amazon).toFixed(0)}</span>
           {estimated_profit > 0 && (
             <span className="font-bold flex items-center gap-1" style={{ color: '#00ff88' }}>
@@ -82,11 +92,11 @@ export default function DealCard({ deal }) {
       {/* ROI & demand */}
       <div className="flex items-center justify-between text-xs">
         {roi_percent > 0 && (
-          <span className="text-gray-300">ROI <span className="text-neon-blue font-semibold">{Math.round(roi_percent)}%</span></span>
+          <span className="text-gray-400">ROI <span className="text-neon-blue font-semibold">{Math.round(roi_percent)}%</span></span>
         )}
         <div className="flex items-center gap-2 ml-auto">
           {demand_level && (
-            <span className={`px-1.5 py-0.5 rounded text-xs ${demand_level === 'Very High' ? 'bg-neon-green/20 text-neon-green' : demand_level === 'High' ? 'bg-neon-blue/20 text-neon-blue' : 'bg-dark-700 text-gray-300'}`}>
+            <span className={`px-1.5 py-0.5 rounded text-xs ${demand_level === 'Very High' ? 'bg-neon-green/20 text-neon-green' : demand_level === 'High' ? 'bg-neon-blue/20 text-neon-blue' : 'bg-dark-700 text-gray-400'}`}>
               {demand_level} demand
             </span>
           )}
@@ -98,8 +108,16 @@ export default function DealCard({ deal }) {
         </div>
       </div>
 
-      {/* Score label */}
-      <div className="text-xs font-medium" style={{ color: scoreColor }}>{opportunity_label}</div>
+      {/* Freshness + Score label */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-xs font-medium" style={{ color: scoreColor }}>{opportunity_label}</div>
+        {freshness && (
+          <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0" style={{ color: freshness.color, background: freshness.bg }}>
+            <Clock size={9} className="inline mr-1" style={{ verticalAlign: 'middle' }} />
+            {freshness.label}
+          </span>
+        )}
+      </div>
     </Link>
   );
 }

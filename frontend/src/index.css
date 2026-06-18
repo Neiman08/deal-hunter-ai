@@ -5,8 +5,6 @@
 @layer base {
   html { font-family: 'Space Grotesk', system-ui, sans-serif; }
   body { @apply bg-dark-900 text-white; }
-  input::placeholder, textarea::placeholder { color: #94A3B8; }
-  input, select, textarea { color: white; }
 }
 
 @layer components {
@@ -19,10 +17,11 @@
     box-shadow: 0 0 30px rgba(0, 255, 136, 0.1), inset 0 0 30px rgba(0, 255, 136, 0.05);
   }
   .card {
-    @apply bg-dark-600 rounded-2xl border border-dark-400 transition-all duration-300;
+    @apply bg-dark-600 rounded-2xl transition-all duration-300;
+    border: 1px solid rgba(255, 255, 255, 0.08);
   }
   .card:hover {
-    @apply border-dark-300;
+    border-color: rgba(255, 255, 255, 0.14);
     transform: translateY(-2px);
     box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
   }
@@ -36,7 +35,7 @@
     transform: translateY(-1px);
   }
   .btn-ghost {
-    @apply text-gray-400 border border-dark-300 py-2 px-4 rounded-xl hover:border-neon-green hover:text-neon-green transition-all duration-200;
+    @apply text-gray-300 border border-dark-400 py-2 px-4 rounded-xl hover:border-neon-green hover:text-neon-green transition-all duration-200;
   }
   .score-badge {
     @apply font-mono text-xs font-bold py-1 px-2 rounded-lg;
@@ -85,17 +84,5 @@
   border-radius: 16px;
 }
 .leaflet-tile {
-  filter: brightness(0.6) saturate(0.5) hue-rotate(200deg);
-}
-.leaflet-popup-content-wrapper {
-  background: #141A26 !important;
-  color: white !important;
-  border: 1px solid #273449;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-}
-.leaflet-popup-tip {
-  background: #141A26 !important;
-}
-.leaflet-popup-content {
-  color: white;
+  filter: brightness(1.1) contrast(1.05) saturate(0.85);
 }

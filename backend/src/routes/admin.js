@@ -1261,4 +1261,62 @@ router.get('/proxy-url-test', async (req, res) => {
   res.json({ ok: result.http_status === 200, target_url: targetUrl, ...proxyMeta, ...result });
 });
 
+// ── Keepa Admin Endpoints ─────────────────────────────────────────────────────
+
+// GET /admin/keepa-status
+router.get('/keepa-status', async (req, res) => {
+  const { isEnabled } = require('../services/external/keepaService');
+  try {
+    const statsRes = await query(`
+      SELECT COUNT(*) as total,
+        MAX(fetched_at) as last_fetch_at,
+        COUNT(*) FILTER (WHERE fetched_at > NOW() - INTERVAL '24 hours') as fresh_count
+      FROM product_market_data WHERE source = 'keepa'
+    `).catch(() => ({ rows: [{ total: 0, last_fetch_at: null, fresh_count: 0 }] }));
+
+    const row = statsRes.rows[0];
+    res.json({
+      ok: true,
+      enabled: process.env.KEEPA_ENABLED !== 'false',
+      configured: !!process.env.KEEPA_API_KEY,
+      cache_hours: parseFloat(process.env.KEEPA_CACHE_HOURS || '24'),
+      domain: process.env.KEEPA_DOMAIN || '1',
+      products_with_keepa_data: parseInt(row.total) || 0,
+      fresh_products_24h: parseInt(row.fresh_count) || 0,
+      last_fetch_at: row.last_fetch_at || null,
+      tokens_note: 'Keepa token balance not fetched automatically to avoid token waste. Rate limit: 10 calls/min (internal).',
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /admin/keepa/test — test with a known ASIN (cheap call)
+router.post('/keepa/test', async (req, res) => {
+  const { lookupByAsin } = require('../services/external/keepaService');
+  const testAsin = req.body.asin || 'B07PFFMP9P'; // AirPods Pro — well-known ASIN
+  try {
+    const result = await lookupByAsin(testAsin, { skipCache: false });
+    res.json({ ok: true, asin_tested: testAsin, result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /admin/products/:id/enrich-keepa
+router.post('/products/:id/enrich-keepa', async (req, res) => {
+  const { enrichProductWithKeepa } = require('../services/external/keepaService');
+  const productId = req.params.id;
+  try {
+    const productRes = await query('SELECT * FROM products WHERE id = $1', [productId]);
+    if (!productRes.rows.length) return res.status(404).json({ error: 'Product not found' });
+
+    const product = productRes.rows[0];
+    const result = await enrichProductWithKeepa(product, { productId, skipCache: true });
+    res.json({ ok: true, product_id: productId, keepa: result });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
 module.exports = router;

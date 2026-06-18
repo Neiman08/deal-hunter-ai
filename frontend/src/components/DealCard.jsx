@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { TrendingUp, Package, Clock, AlertTriangle, Star } from 'lucide-react';
+import { TrendingUp, Package, Clock, AlertTriangle, CheckCircle } from 'lucide-react';
 
 function ScoreRing({ score }) {
   const r = 20;
@@ -34,6 +34,7 @@ export default function DealCard({ deal }) {
     regular_price, deal_price, discount_percent, estimated_profit, roi_percent,
     opportunity_score, opportunity_label, is_error_price, stock_quantity,
     resale_price_amazon, demand_level, category_name, image_url, last_seen_at,
+    has_keepa_data,
   } = deal;
 
   const stockUrgent = stock_quantity !== null && stock_quantity <= 3;
@@ -54,6 +55,11 @@ export default function DealCard({ deal }) {
             {is_error_price && (
               <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-yellow-400/20 text-yellow-400 flex items-center gap-1">
                 <AlertTriangle size={10} /> Error Price
+              </span>
+            )}
+            {has_keepa_data && (
+              <span className="text-xs px-2 py-0.5 rounded-full bg-neon-green/10 text-neon-green/80 flex items-center gap-1">
+                <CheckCircle size={9} /> Keepa
               </span>
             )}
             {category_name && (

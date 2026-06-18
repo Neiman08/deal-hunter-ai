@@ -1,8 +1,37 @@
 import { useState, useRef, useCallback } from 'react';
-import { Scan, Search, TrendingUp, Package, AlertTriangle, History, Camera, X, ExternalLink, ChevronDown } from 'lucide-react';
+import {
+  Scan, Search, TrendingUp, Package, AlertTriangle, History,
+  Camera, X, ExternalLink, ChevronDown, CheckCircle, ShoppingCart,
+  BarChart2, Clock,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../utils/api';
 import CameraScanner from '../components/CameraScanner';
+
+// ── Helpers ────────────────────────────────────────────────────────────────────
+
+function safe(v) {
+  const n = parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+
+function fmt(v, decimals = 2) {
+  const n = safe(v);
+  return n !== null ? `$${n.toFixed(decimals)}` : '—';
+}
+
+function fmtPct(v) {
+  const n = safe(v);
+  return n !== null ? `${Math.round(n)}%` : '—';
+}
+
+const REC_COLORS = {
+  BUY: { bg: 'bg-neon-green/20', text: 'text-neon-green', border: 'border-neon-green/40' },
+  MAYBE: { bg: 'bg-yellow-400/20', text: 'text-yellow-400', border: 'border-yellow-400/40' },
+  SKIP: { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/40' },
+};
+
+// ── Sub-components ─────────────────────────────────────────────────────────────
 
 function ScoreDisplay({ score, label }) {
   const color = score >= 91 ? '#00ff88' : score >= 71 ? '#00d4ff' : score >= 41 ? '#fbbf24' : '#ef4444';
@@ -27,383 +56,458 @@ function ScoreDisplay({ score, label }) {
   );
 }
 
-// Real SKUs from DB — used as quick-try examples
+function KeepaPanel({ keepa }) {
+  if (!keepa) return null;
+
+  if (!keepa.configured) {
+    return (
+      <div className="bg-dark-800/50 rounded-xl p-3 text-xs text-gray-500 flex items-center gap-2">
+        <BarChart2 size={14} /> Keepa not configured
+      </div>
+    );
+  }
+
+  if (!keepa.found) {
+    return (
+      <div className="bg-dark-800/50 rounded-xl p-3 text-xs text-gray-500 flex items-center gap-2">
+        <BarChart2 size={14} /> {keepa.error || 'Not found in Keepa'}
+      </div>
+    );
+  }
+
+  const hoursAgo = keepa.fetched_at
+    ? Math.round((Date.now() - new Date(keepa.fetched_at).getTime()) / 3600000)
+    : null;
+
+  return (
+    <div className="bg-dark-800/50 rounded-xl p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <CheckCircle size={14} className="text-neon-green" />
+          <span className="text-neon-green text-xs font-bold">Verified by Keepa</span>
+          {keepa.cached && <span className="text-gray-500 text-xs">(cached)</span>}
+        </div>
+        {hoursAgo !== null && (
+          <span className="text-gray-500 text-xs flex items-center gap-1">
+            <Clock size={10} /> {hoursAgo}h ago
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <p className="text-gray-500">Amazon current</p>
+          <p className="text-white font-semibold">{fmt(keepa.amazon_current_price)}</p>
+        </div>
+        <div>
+          <p className="text-gray-500">Buy Box</p>
+          <p className="text-neon-green font-semibold">{fmt(keepa.amazon_buy_box_price)}</p>
+        </div>
+        <div>
+          <p className="text-gray-500">90d avg</p>
+          <p className="text-white">{fmt(keepa.amazon_90d_avg_price)}</p>
+        </div>
+        <div>
+          <p className="text-gray-500">180d avg</p>
+          <p className="text-white">{fmt(keepa.amazon_180d_avg_price)}</p>
+        </div>
+        {keepa.sales_rank && (
+          <div>
+            <p className="text-gray-500">Sales rank</p>
+            <p className="text-white">#{keepa.sales_rank.toLocaleString()}</p>
+          </div>
+        )}
+        <div>
+          <p className="text-gray-500">Confidence</p>
+          <p className="text-white">{keepa.confidence ?? 0}%</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EvalPanel({ evaluation, onSave, saving }) {
+  if (!evaluation) return null;
+  const rec = evaluation.recommendation || 'SKIP';
+  const c = REC_COLORS[rec] || REC_COLORS.SKIP;
+
+  return (
+    <div className={`rounded-xl p-4 border space-y-3 ${c.bg} ${c.border}`}>
+      <div className="flex items-center justify-between">
+        <span className={`text-xl font-bold ${c.text}`}>{rec}</span>
+        <span className="text-gray-400 text-xs">Score {evaluation.opportunity_score}/100</span>
+      </div>
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <p className="text-gray-400 text-xs">Resale price</p>
+          <p className="text-white font-bold">{fmt(evaluation.resale_price)}</p>
+          <p className="text-gray-500 text-xs">{evaluation.resale_source}</p>
+        </div>
+        <div>
+          <p className="text-gray-400 text-xs">Net profit</p>
+          <p className={`font-bold ${(evaluation.net_profit || 0) > 0 ? 'text-neon-green' : 'text-red-400'}`}>
+            {fmt(evaluation.net_profit)}
+          </p>
+        </div>
+        <div>
+          <p className="text-gray-400 text-xs">Amazon fees</p>
+          <p className="text-white">{fmt(evaluation.fees_estimate)}</p>
+        </div>
+        <div>
+          <p className="text-gray-400 text-xs">ROI</p>
+          <p className={`font-bold ${(evaluation.roi_percent || 0) >= 25 ? 'text-neon-blue' : 'text-gray-400'}`}>
+            {fmtPct(evaluation.roi_percent)}
+          </p>
+        </div>
+      </div>
+      <p className="text-gray-500 text-xs">+$10 shipping · 15% FBA fee · based on {evaluation.resale_source}</p>
+      <button
+        onClick={onSave}
+        disabled={saving}
+        className="btn-ghost w-full text-sm py-2 flex items-center justify-center gap-2 disabled:opacity-50"
+      >
+        <ShoppingCart size={14} /> {saving ? 'Saving…' : 'Save Scan'}
+      </button>
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
+
 const REAL_SKU_EXAMPLES = ['gs-344870', '6620073', '6510363'];
 
 export default function Scanner() {
-  const [mode, setMode] = useState('sku'); // 'upc' | 'sku'
+  const [mode, setMode] = useState('upc');
   const [query, setQuery] = useState('');
-  const [result, setResult] = useState(null);   // best deal found
-  const [allDeals, setAllDeals] = useState([]); // all stores for same product
+  const [lookupResult, setLookupResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [history, setHistory] = useState([]);   // session-only, starts empty
   const [showCamera, setShowCamera] = useState(false);
   const [showAllDeals, setShowAllDeals] = useState(false);
-  const inputRef = useRef(null);
 
-  const lookupCode = useCallback(async (code, lookupMode) => {
+  // In-store price flow
+  const [storePrice, setStorePrice] = useState('');
+  const [evaluation, setEvaluation] = useState(null);
+  const [evaluating, setEvaluating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [savedId, setSavedId] = useState(null);
+
+  // History
+  const [history, setHistory] = useState([]);
+
+  const inputRef = useRef(null);
+  const storePriceRef = useRef(null);
+
+  const resetResult = () => {
+    setLookupResult(null);
+    setError('');
+    setStorePrice('');
+    setEvaluation(null);
+    setSavedId(null);
+    setShowAllDeals(false);
+  };
+
+  const doLookup = useCallback(async (code, lookupMode) => {
     const term = (code || query).trim();
     if (!term) return;
 
+    resetResult();
+    setQuery(term);
     setLoading(true);
-    setError('');
-    setResult(null);
-    setAllDeals([]);
-    setShowAllDeals(false);
 
     try {
-      let deals = [];
+      const isUpc = (lookupMode || mode) === 'upc' || /^\d{8,14}$/.test(term);
 
-      if (lookupMode === 'upc' || mode === 'upc') {
-        const r = await api.get(`/search/upc/${encodeURIComponent(term)}`);
-        deals = r.data.all_deals || (r.data.product ? [r.data.product] : []);
+      if (isUpc) {
+        // Use new scanner endpoint for UPC — enriches with Keepa
+        const r = await api.get(`/scanner/lookup/${encodeURIComponent(term)}`);
+        setLookupResult(r.data);
+
+        if (!r.data.found_internal && !r.data.keepa?.found) {
+          setError(`"${term}" not found in Deal Hunter or Keepa.`);
+        }
+
+        addHistory(term, r.data);
       } else {
-        // SKU mode — use search endpoint with sku param
+        // SKU — search internal DB
         const r = await api.get('/search', { params: { sku: term, limit: 20 } });
-        deals = r.data.results || [];
+        const results = r.data.results || [];
+        if (!results.length) {
+          setError(`No deals found for SKU "${term}".`);
+          return;
+        }
+        const sorted = [...results].sort((a, b) => (b.opportunity_score || 0) - (a.opportunity_score || 0));
+        setLookupResult({ found_internal: true, sku_results: sorted, keepa: null, external_enabled: false });
+        addHistory(term, { found_internal: true, deals: sorted });
       }
-
-      if (deals.length === 0) {
-        setError(`No active deals found for "${term}". It may not be in our database yet.`);
-        return;
-      }
-
-      // Best deal = highest score
-      const sorted = [...deals].sort((a, b) => (parseInt(b.opportunity_score) || 0) - (parseInt(a.opportunity_score) || 0));
-      const best = sorted[0];
-
-      setResult(best);
-      setAllDeals(sorted);
-
-      setHistory(prev => [{
-        query: term,
-        mode: lookupMode || mode,
-        name: best.name || 'Unknown',
-        score: parseInt(best.opportunity_score) || 0,
-        profit: parseFloat(best.estimated_profit) || 0,
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      }, ...prev.slice(0, 9)]);
     } catch (err) {
-      if (err.response?.status === 404) {
-        setError(`"${term}" not found — no active deals for this code.`);
-      } else if (err.response?.status === 400) {
-        setError('Enter a valid UPC or SKU to look up.');
-      } else {
-        setError('Lookup failed. Check your connection and try again.');
-      }
+      if (err.response?.status === 401) return;
+      setError('Lookup failed. Check your connection and try again.');
     } finally {
       setLoading(false);
     }
   }, [query, mode]);
 
-  function handleSubmit(e) {
-    e?.preventDefault();
-    lookupCode();
+  function addHistory(term, data) {
+    const bestDeal = data.deals?.[0];
+    setHistory(prev => [{
+      code: term,
+      name: data.product?.name || data.keepa?.title || bestDeal?.name || term,
+      found: data.found_internal || data.keepa?.found,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    }, ...prev.slice(0, 9)]);
   }
 
-  function handleCameraScan(code) {
-    setShowCamera(false);
-    setQuery(code);
-    setMode('upc'); // camera always scans barcodes → UPC mode
-    lookupCode(code, 'upc');
+  async function calculateProfit() {
+    const sp = parseFloat(storePrice);
+    if (!sp || sp <= 0) return;
+
+    setEvaluating(true);
+    setEvaluation(null);
+    try {
+      const keepa = lookupResult?.keepa;
+      const r = await api.post('/scanner/evaluate', {
+        code: query,
+        in_store_price: sp,
+        amazon_current_price: keepa?.amazon_current_price ?? null,
+        amazon_buy_box_price: keepa?.amazon_buy_box_price ?? null,
+        amazon_90d_avg_price: keepa?.amazon_90d_avg_price ?? null,
+        sales_rank: keepa?.sales_rank ?? null,
+        confidence: keepa?.confidence ?? 0,
+      });
+      setEvaluation(r.data);
+    } catch {
+      setError('Profit calculation failed');
+    } finally {
+      setEvaluating(false);
+    }
   }
 
-  function handleExampleClick(ex) {
-    setQuery(ex);
-    setMode('sku');
-    lookupCode(ex, 'sku');
+  async function saveScan() {
+    if (saving || savedId) return;
+    setSaving(true);
+    try {
+      const keepa = lookupResult?.keepa;
+      const r = await api.post('/scanner/history', {
+        code: query,
+        code_type: mode,
+        product_id: lookupResult?.product?.product_id || null,
+        found_internal: lookupResult?.found_internal || false,
+        in_store_price: storePrice ? parseFloat(storePrice) : null,
+        evaluation: evaluation || null,
+        keepa_asin: keepa?.asin || null,
+        keepa_confidence: keepa?.confidence || null,
+      });
+      setSavedId(r.data.id);
+    } catch {
+      // fail silently — don't disrupt UX
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function clearResult() {
-    setResult(null);
-    setAllDeals([]);
-    setError('');
-    setQuery('');
-    inputRef.current?.focus();
-  }
+  function handleSubmit(e) { e?.preventDefault(); doLookup(); }
+  function handleCameraScan(code) { setShowCamera(false); setMode('upc'); doLookup(code, 'upc'); }
+  function handleExampleClick(ex) { setMode('sku'); doLookup(ex, 'sku'); }
 
-  // Field helpers — API returns strings from Postgres
-  const dealPrice = result ? parseFloat(result.deal_price || 0) : 0;
-  const regularPrice = result ? parseFloat(result.regular_price || 0) : 0;
-  const discount = result ? Math.round(parseFloat(result.discount_percent || 0)) : 0;
-  const score = result ? (parseInt(result.opportunity_score) || 0) : 0;
-  const profit = result ? parseFloat(result.estimated_profit || 0) : 0;
-  const roi = result ? Math.round(parseFloat(result.roi_percent || 0)) : 0;
-  const inStock = result ? (result.stock_quantity !== null || result.deal_price) : false;
-  const stockQty = result ? result.stock_quantity : null;
+  // Derived data from lookupResult
+  const keepa = lookupResult?.keepa;
+  const product = lookupResult?.product;
+  const deals = lookupResult?.deals || [];
+  const skuResults = lookupResult?.sku_results || [];
+  const bestDeal = deals[0] || skuResults[0] || null;
 
   return (
     <div className="p-4 lg:p-6 space-y-5 max-w-2xl mx-auto">
 
       {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <Scan size={24} className="text-neon-green" /> UPC / SKU Scanner
-          </h1>
-          <p className="text-gray-400 text-sm mt-1">
-            Look up any product to check price, history, and resale potential
-          </p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-white flex items-center gap-3">
+          <Scan size={24} className="text-neon-green" /> In-Store Scanner
+        </h1>
+        <p className="text-gray-400 text-sm mt-1">
+          Scan a barcode or enter UPC/SKU to check deal potential in real time
+        </p>
       </div>
 
       {/* Mode toggle */}
       <div className="flex gap-2 p-1 bg-dark-800 rounded-xl w-fit">
-        {[
-          { id: 'sku', label: 'SKU' },
-          { id: 'upc', label: 'UPC' },
-        ].map(m => (
-          <button
-            key={m.id}
-            onClick={() => { setMode(m.id); setError(''); }}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              mode === m.id ? 'bg-neon-green text-dark-900' : 'text-gray-400 hover:text-white'
-            }`}
-          >
+        {[{ id: 'upc', label: 'UPC / Barcode' }, { id: 'sku', label: 'SKU' }].map(m => (
+          <button key={m.id} onClick={() => { setMode(m.id); setError(''); }}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${mode === m.id ? 'bg-neon-green text-dark-900' : 'text-gray-400 hover:text-white'}`}>
             {m.label}
           </button>
         ))}
       </div>
 
-      {/* Input row */}
+      {/* Input */}
       <form onSubmit={handleSubmit} className="flex gap-3">
         <div className="flex-1 relative">
           <Scan size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={e => setQuery(e.target.value)}
+          <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
             placeholder={mode === 'upc' ? 'Enter UPC barcode…' : 'Enter SKU / model number…'}
-            className="w-full bg-dark-800 border border-dark-700 text-white rounded-xl pl-10 pr-4 py-3 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-green/50"
-          />
+            className="w-full bg-dark-800 border border-dark-700 text-white rounded-xl pl-10 pr-4 py-3 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-green/50" />
           {query && (
-            <button type="button" onClick={clearResult} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
+            <button type="button" onClick={() => { resetResult(); setQuery(''); inputRef.current?.focus(); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white">
               <X size={14} />
             </button>
           )}
         </div>
-        <button
-          type="button"
-          onClick={() => setShowCamera(true)}
-          className="btn-ghost px-3 text-neon-blue border-neon-blue/30 flex items-center gap-1.5 text-sm"
-          title="Scan with camera"
-        >
+        <button type="button" onClick={() => setShowCamera(true)}
+          className="btn-ghost px-3 text-neon-blue border-neon-blue/30 flex items-center gap-1.5 text-sm" title="Scan with camera">
           <Camera size={16} />
         </button>
         <button type="submit" disabled={loading || !query.trim()} className="btn-primary flex items-center gap-2 px-5 disabled:opacity-50">
-          <Search size={16} /> {loading ? 'Looking up…' : 'Lookup'}
+          <Search size={16} /> {loading ? 'Searching…' : 'Lookup'}
         </button>
       </form>
 
-      {/* Real SKU examples */}
-      {!result && !loading && (
+      {/* SKU examples */}
+      {!lookupResult && !loading && (
         <div className="flex gap-2 flex-wrap items-center">
           <span className="text-gray-500 text-xs">Try a real SKU:</span>
           {REAL_SKU_EXAMPLES.map(ex => (
-            <button
-              key={ex}
-              onClick={() => handleExampleClick(ex)}
-              className="text-xs text-neon-blue hover:underline font-mono"
-            >
-              {ex}
-            </button>
+            <button key={ex} onClick={() => handleExampleClick(ex)} className="text-xs text-neon-blue hover:underline font-mono">{ex}</button>
           ))}
         </div>
       )}
 
-      {/* Error state */}
+      {/* Error */}
       {error && !loading && (
         <div className="py-4 px-5 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
           <AlertTriangle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-red-400 text-sm">{error}</p>
-            <p className="text-gray-500 text-xs mt-1">
-              {mode === 'upc'
-                ? 'UPCs may not exist in our DB yet — try a SKU instead.'
-                : 'Check the SKU and try again, or use the Search page for keyword lookups.'}
-            </p>
-          </div>
+          <p className="text-red-400 text-sm">{error}</p>
         </div>
       )}
 
-      {/* Loading skeleton */}
+      {/* Loading */}
       {loading && (
         <div className="card space-y-4 animate-pulse">
+          <p className="text-gray-400 text-sm">Searching Deal Hunter{keepa !== undefined ? ' + Keepa' : ''}…</p>
           <div className="h-6 bg-dark-700 rounded w-3/4" />
           <div className="h-4 bg-dark-700 rounded w-1/2" />
-          <div className="grid grid-cols-3 gap-3">
-            {[1, 2, 3].map(i => <div key={i} className="h-20 bg-dark-700 rounded-xl" />)}
-          </div>
         </div>
       )}
 
-      {/* Result card */}
-      {result && !loading && (
-        <div className="card space-y-5 animate-fade-in">
+      {/* Result — UPC lookup */}
+      {lookupResult && !loading && (
 
-          {/* Header row */}
-          <div className="flex items-start gap-4">
-            <div className="flex-1 min-w-0">
-              {result.is_error_price && (
-                <div className="flex items-center gap-1 text-yellow-400 text-xs mb-2">
-                  <AlertTriangle size={12} /> Possible price error detected
-                </div>
-              )}
-              <div className="flex items-center gap-2 mb-1 flex-wrap">
-                {result.store_color && (
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                    style={{ background: `${result.store_color}25`, color: result.store_color }}>
-                    {result.store_name}
-                  </span>
+        <div className="space-y-4 animate-fade-in">
+
+          {/* Product header */}
+          {(product || keepa?.found) && (
+            <div className="card space-y-3">
+              <div className="flex items-start gap-3">
+                {(product?.image_url || keepa?.image_url) && (
+                  <img src={product?.image_url || keepa?.image_url} alt=""
+                    className="w-16 h-16 object-contain rounded-lg bg-dark-800/50 flex-shrink-0"
+                    onError={e => { e.currentTarget.style.display = 'none'; }} />
                 )}
-                {result.category_name && (
-                  <span className="text-xs text-gray-500">{result.category_name}</span>
-                )}
-              </div>
-              {result.brand && <p className="text-gray-400 text-xs mb-0.5">{result.brand}</p>}
-              <h2 className="text-white font-bold text-lg leading-snug">{result.name}</h2>
-              <div className="flex gap-3 mt-1 flex-wrap">
-                {result.sku && <p className="text-gray-500 text-xs font-mono">SKU: {result.sku}</p>}
-                {result.upc && <p className="text-gray-500 text-xs font-mono">UPC: {result.upc}</p>}
-              </div>
-            </div>
-            <ScoreDisplay score={score} label={result.opportunity_label} />
-          </div>
-
-          {/* Image */}
-          {result.image_url && (
-            <img
-              src={result.image_url}
-              alt={result.name}
-              className="w-full max-h-48 object-contain rounded-xl bg-dark-800/50"
-              onError={e => { e.currentTarget.style.display = 'none'; }}
-            />
-          )}
-
-          {/* Price grid */}
-          <div className="grid grid-cols-3 gap-3">
-            <div className="bg-dark-800/50 rounded-xl p-3 text-center">
-              <p className="text-gray-400 text-xs mb-1">Deal Price</p>
-              <p className="text-2xl font-bold text-white">${dealPrice.toFixed(0)}</p>
-            </div>
-            <div className="bg-dark-800/50 rounded-xl p-3 text-center">
-              <p className="text-gray-400 text-xs mb-1">Regular</p>
-              <p className="text-2xl font-bold text-gray-500 line-through">${regularPrice.toFixed(0)}</p>
-            </div>
-            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 text-center">
-              <p className="text-gray-400 text-xs mb-1">Discount</p>
-              <p className="text-2xl font-bold text-red-400">-{discount}%</p>
-            </div>
-          </div>
-
-          {/* Stock */}
-          <div className="flex items-center gap-2 text-sm">
-            <Package size={14} className={inStock ? 'text-neon-green' : 'text-red-400'} />
-            <span className={inStock ? 'text-neon-green' : 'text-red-400'}>
-              {inStock
-                ? (stockQty != null ? `${stockQty} in stock` : 'In stock')
-                : 'Stock unknown'}
-            </span>
-            {stockQty != null && stockQty <= 3 && (
-              <span className="text-yellow-400 text-xs">⚠️ Low stock</span>
-            )}
-            {result.demand_level && (
-              <span className="ml-auto text-xs text-gray-400">{result.demand_level} demand</span>
-            )}
-          </div>
-
-          {/* Resale breakdown */}
-          {(result.resale_price_amazon || result.resale_price_ebay || result.resale_price_facebook) && (
-            <div>
-              <p className="text-gray-400 text-xs uppercase tracking-wider mb-2">Resale Breakdown</p>
-              <div className="space-y-0">
-                {[
-                  { label: 'Amazon', price: parseFloat(result.resale_price_amazon || 0), feeRate: 0.15, ship: 12 },
-                  { label: 'eBay', price: parseFloat(result.resale_price_ebay || 0), feeRate: 0.13, ship: 12 },
-                  { label: 'FB Marketplace', price: parseFloat(result.resale_price_facebook || 0), feeRate: 0, ship: 0 },
-                ].filter(p => p.price > 0).map(p => {
-                  const fees = Math.round(p.price * p.feeRate);
-                  const net = Math.round(p.price - fees - p.ship - dealPrice);
-                  return (
-                    <div key={p.label} className="flex items-center justify-between text-sm py-2 border-b border-dark-800 last:border-0">
-                      <span className="text-gray-400 w-28">{p.label}</span>
-                      <span className="text-white">${p.price.toFixed(0)}</span>
-                      <span className="text-gray-500 text-xs">-${fees + p.ship} fees</span>
-                      <span className={`font-bold text-sm ${net > 0 ? 'text-neon-green' : 'text-red-400'}`}>
-                        {net > 0 ? '+' : ''}{net > 0 ? `$${net}` : `$${net}`}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="mt-3 grid grid-cols-2 gap-4">
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-neon-green">${profit.toFixed(2)}</p>
-                  <p className="text-gray-400 text-xs">Best net profit</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-2xl font-bold text-neon-blue">{roi}%</p>
-                  <p className="text-gray-400 text-xs">ROI</p>
+                <div className="flex-1 min-w-0">
+                  <p className="text-gray-400 text-xs mb-0.5">{product?.brand || keepa?.brand}</p>
+                  <h2 className="text-white font-bold text-base leading-snug">
+                    {product?.name || keepa?.title || query}
+                  </h2>
+                  {product?.store_name && (
+                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full mt-1 inline-block"
+                      style={{ background: `${product.store_color}25`, color: product.store_color }}>
+                      {product.store_name}
+                    </span>
+                  )}
                 </div>
               </div>
+
+              {/* UPC/SKU codes */}
+              <div className="flex gap-3 text-xs text-gray-500 font-mono">
+                {product?.upc && <span>UPC: {product.upc}</span>}
+                {product?.sku && <span>SKU: {product.sku}</span>}
+              </div>
             </div>
           )}
 
-          {/* Product link */}
-          {result.product_url && (
-            <a
-              href={result.product_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 text-neon-blue text-sm hover:underline"
-            >
-              <ExternalLink size={14} /> View product page
-            </a>
-          )}
+          {/* Keepa market data */}
+          {keepa && <KeepaPanel keepa={keepa} />}
 
-          {/* Full deal link */}
-          {result.id && (
-            <Link to={`/deal/${result.id}`} className="btn-primary w-full text-center text-sm py-2.5 block">
-              View Full Deal Details
-            </Link>
-          )}
-
-          {/* Other stores */}
-          {allDeals.length > 1 && (
-            <div>
-              <button
-                onClick={() => setShowAllDeals(!showAllDeals)}
-                className="flex items-center gap-1.5 text-gray-400 text-xs hover:text-white transition-colors"
-              >
-                <ChevronDown size={14} className={showAllDeals ? 'rotate-180 transition-transform' : 'transition-transform'} />
-                {allDeals.length - 1} more deal{allDeals.length - 1 !== 1 ? 's' : ''} at other stores
-              </button>
-              {showAllDeals && (
-                <div className="mt-2 space-y-2">
-                  {allDeals.slice(1).map(d => (
-                    <div key={d.id} className="flex items-center gap-3 p-2.5 bg-dark-800/50 rounded-xl text-sm">
-                      <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                        style={{ background: `${d.store_color}25`, color: d.store_color }}>
-                        {d.store_name}
-                      </span>
-                      <span className="text-white font-bold">${parseFloat(d.deal_price || 0).toFixed(0)}</span>
-                      <span className="text-red-400">-{Math.round(parseFloat(d.discount_percent || 0))}%</span>
-                      <span className="text-neon-green ml-auto text-xs">Score {d.opportunity_score}</span>
-                    </div>
-                  ))}
+          {/* Internal deals */}
+          {deals.length > 0 && (
+            <div className="card space-y-3">
+              <p className="text-gray-400 text-xs uppercase tracking-wider">Deal Hunter Match</p>
+              {deals.slice(0, 3).map(d => (
+                <div key={d.deal_id} className="flex items-center justify-between text-sm p-2.5 bg-dark-800/50 rounded-xl">
+                  <div>
+                    <span className="text-white font-bold">{fmt(d.deal_price, 0)}</span>
+                    <span className="text-gray-500 line-through ml-2">{fmt(d.regular_price, 0)}</span>
+                    <span className="text-red-400 ml-2">-{Math.round(d.discount_percent || 0)}%</span>
+                  </div>
+                  <Link to={`/deal/${d.deal_id}`} className="text-neon-blue text-xs hover:underline flex items-center gap-1">
+                    <ExternalLink size={11} /> View
+                  </Link>
                 </div>
+              ))}
+              {deals.length > 3 && (
+                <button onClick={() => setShowAllDeals(!showAllDeals)} className="text-xs text-gray-400 flex items-center gap-1">
+                  <ChevronDown size={12} className={showAllDeals ? 'rotate-180' : ''} /> {deals.length - 3} more
+                </button>
               )}
             </div>
           )}
-        </div>
-      )}
 
-      {/* Empty state — after lookup returns nothing and no error */}
-      {!result && !loading && !error && query && (
-        <div className="text-center py-12 text-gray-400">
-          <Scan size={32} className="mx-auto mb-3 text-gray-500" />
-          <p className="text-sm">Enter a SKU or UPC and press Lookup</p>
+          {/* SKU results (non-UPC mode) */}
+          {skuResults.length > 0 && (
+            <div className="card space-y-3">
+              <p className="text-gray-400 text-xs uppercase tracking-wider">SKU Results</p>
+              {skuResults.slice(0, 5).map(d => (
+                <div key={d.id} className="flex items-center gap-3 text-sm p-2.5 bg-dark-800/50 rounded-xl">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-xs font-medium truncate">{d.name}</p>
+                    <p className="text-gray-500 text-xs">{d.store_name} · {fmt(d.deal_price, 0)}</p>
+                  </div>
+                  <Link to={`/deal/${d.id}`} className="text-neon-blue text-xs hover:underline flex-shrink-0">View →</Link>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* In-store price → profit calculation */}
+          {(keepa?.found || deals.length > 0) && (
+            <div className="card space-y-3">
+              <p className="text-white font-semibold text-sm flex items-center gap-2">
+                <ShoppingCart size={15} className="text-neon-green" /> What's the in-store price?
+              </p>
+              <div className="flex gap-3">
+                <div className="flex-1 relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                  <input ref={storePriceRef} type="number" min="0.01" step="0.01"
+                    value={storePrice} onChange={e => { setStorePrice(e.target.value); setEvaluation(null); setSavedId(null); }}
+                    placeholder="0.00"
+                    className="w-full bg-dark-800 border border-dark-700 text-white rounded-xl pl-7 pr-4 py-2.5 text-sm focus:outline-none focus:border-neon-green/50" />
+                </div>
+                <button onClick={calculateProfit} disabled={evaluating || !storePrice}
+                  className="btn-primary px-5 text-sm disabled:opacity-50 flex items-center gap-2">
+                  <TrendingUp size={14} /> {evaluating ? 'Calculating…' : 'Calculate Profit'}
+                </button>
+              </div>
+
+              {evaluation && (
+                <EvalPanel evaluation={evaluation} onSave={saveScan} saving={saving} />
+              )}
+
+              {savedId && (
+                <p className="text-neon-green text-xs flex items-center gap-1">
+                  <CheckCircle size={12} /> Scan saved to history
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Not found state */}
+          {!lookupResult.found_internal && !keepa?.found && (
+            <div className="card text-center py-6 text-gray-400">
+              <Scan size={28} className="mx-auto mb-2 text-gray-600" />
+              <p className="text-sm">Product not found in Deal Hunter or Keepa</p>
+              <p className="text-xs mt-1 text-gray-500">Try searching with a different code or check the Search page</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -414,32 +518,24 @@ export default function Scanner() {
             <History size={15} className="text-gray-400" /> Recent Lookups
           </h3>
           <div className="space-y-1">
-            {history.map((h, i) => {
-              const c = h.score >= 91 ? '#00ff88' : h.score >= 71 ? '#00d4ff' : h.score >= 41 ? '#fbbf24' : '#ef4444';
-              return (
-                <button
-                  key={i}
-                  onClick={() => { setQuery(h.query); setMode(h.mode); lookupCode(h.query, h.mode); }}
-                  className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-dark-800 transition-colors text-left"
-                >
-                  <span className="font-mono text-gray-400 text-xs w-28 truncate">{h.query}</span>
-                  <span className="text-white text-sm flex-1 truncate">{h.name}</span>
-                  {h.score > 0 && <span className="text-xs font-bold flex-shrink-0" style={{ color: c }}>Score {h.score}</span>}
-                  {h.profit > 0 && <span className="text-neon-green text-xs font-semibold flex-shrink-0">+${h.profit.toFixed(0)}</span>}
-                  <span className="text-gray-500 text-xs flex-shrink-0">{h.time}</span>
-                </button>
-              );
-            })}
+            {history.map((h, i) => (
+              <button key={i} onClick={() => { setMode('upc'); doLookup(h.code, 'upc'); }}
+                className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-dark-800 transition-colors text-left">
+                <span className="font-mono text-gray-400 text-xs w-28 truncate">{h.code}</span>
+                <span className="text-white text-sm flex-1 truncate">{h.name}</span>
+                {h.found
+                  ? <CheckCircle size={12} className="text-neon-green flex-shrink-0" />
+                  : <X size={12} className="text-red-400 flex-shrink-0" />}
+                <span className="text-gray-500 text-xs flex-shrink-0">{h.time}</span>
+              </button>
+            ))}
           </div>
         </div>
       )}
 
-      {/* Camera scanner modal */}
+      {/* Camera modal */}
       {showCamera && (
-        <CameraScanner
-          onDetected={handleCameraScan}
-          onClose={() => setShowCamera(false)}
-        />
+        <CameraScanner onDetected={handleCameraScan} onClose={() => setShowCamera(false)} />
       )}
     </div>
   );

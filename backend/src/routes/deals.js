@@ -209,7 +209,7 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// GET /deals/:id — full detail with price history
+// GET /deals/:id — full detail with price history and cached market data
 router.get('/:id', async (req, res) => {
   try {
     const dealRes = await query(`${BASE_DEAL_QUERY} AND d.id = $1`, [req.params.id]);
@@ -217,13 +217,20 @@ router.get('/:id', async (req, res) => {
 
     const deal = dealRes.rows[0];
 
-    const historyRes = await query(`
-      SELECT current_price, regular_price, discount_percent, recorded_at, source
-      FROM prices
-      WHERE product_id = $1
-      ORDER BY recorded_at ASC
-      LIMIT 90
-    `, [deal.product_id]);
+    const [historyRes, marketRes] = await Promise.all([
+      query(`
+        SELECT current_price, regular_price, discount_percent, recorded_at, source
+        FROM prices
+        WHERE product_id = $1
+        ORDER BY recorded_at ASC
+        LIMIT 90
+      `, [deal.product_id]),
+      query(`
+        SELECT * FROM product_market_data
+        WHERE product_id = $1
+        ORDER BY fetched_at DESC LIMIT 1
+      `, [deal.product_id]).catch(() => ({ rows: [] })),
+    ]);
 
     const priceHistory = historyRes.rows;
     const prices = priceHistory.map(r => parseFloat(r.current_price));
@@ -234,7 +241,25 @@ router.get('/:id', async (req, res) => {
       data_points: prices.length,
     } : null;
 
-    res.json({ deal, price_history: priceHistory, history_stats: historyStats });
+    const mRow = marketRes.rows[0] || null;
+    const market_data = mRow ? {
+      source: mRow.source,
+      asin: mRow.asin,
+      upc: mRow.upc,
+      amazon_current_price: mRow.amazon_current_price ? parseFloat(mRow.amazon_current_price) : null,
+      amazon_buy_box_price: mRow.amazon_buy_box_price ? parseFloat(mRow.amazon_buy_box_price) : null,
+      amazon_90d_avg_price: mRow.amazon_90d_avg_price ? parseFloat(mRow.amazon_90d_avg_price) : null,
+      amazon_180d_avg_price: mRow.amazon_180d_avg_price ? parseFloat(mRow.amazon_180d_avg_price) : null,
+      amazon_new_price: mRow.amazon_new_price ? parseFloat(mRow.amazon_new_price) : null,
+      amazon_used_price: mRow.amazon_used_price ? parseFloat(mRow.amazon_used_price) : null,
+      sales_rank: mRow.sales_rank ? parseInt(mRow.sales_rank) : null,
+      category: mRow.category,
+      is_amazon_in_stock: mRow.is_amazon_in_stock,
+      confidence: mRow.keepa_confidence ? parseInt(mRow.keepa_confidence) : 0,
+      fetched_at: mRow.fetched_at,
+    } : null;
+
+    res.json({ deal, price_history: priceHistory, history_stats: historyStats, market_data });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: 'Failed to fetch deal' });

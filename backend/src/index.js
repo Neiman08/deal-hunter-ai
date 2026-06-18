@@ -93,6 +93,7 @@ app.use('/api/inventory', require('./routes/inventory'));
 app.use('/api/markets', require('./routes/markets'));
 app.use('/api/collaborators', require('./routes/collaborators'));
 app.use('/api/feed', require('./routes/feed'));
+app.use('/api/scanner', require('./routes/scanner'));
 
 // ── Health & Status ───────────────────────────────────────────────────────────
 app.get('/api/health', async (req, res) => {
@@ -121,8 +122,15 @@ app.use((req, res) => {
 });
 
 // ── Start ─────────────────────────────────────────────────────────────────────
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   logger.info(`🚀 Deal Hunter AI v4.0 — port ${PORT} [${process.env.NODE_ENV || 'development'}]`);
+  // Run Keepa migration (idempotent — safe to run on every start)
+  try {
+    const { migrateKeepa } = require('./db/migrate-keepa');
+    await migrateKeepa();
+  } catch (err) {
+    logger.warn(`[startup] Keepa migration warning: ${err.message}`);
+  }
   // Scan job runs only on the worker (deal-hunter-worker service).
   // Running it here caused OOM crashes on the web service.
   const { startWorkerMonitor } = require('./services/workerMonitor');

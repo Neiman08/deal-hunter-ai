@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, ExternalLink, Bookmark, AlertTriangle,
-  Package, MapPin, TrendingUp
+  Package, MapPin, TrendingUp, CheckCircle, Clock,
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -47,6 +47,7 @@ export default function DealDetail() {
   const [deal, setDeal] = useState(null);
   const [history, setHistory] = useState([]);
   const [histStats, setHistStats] = useState(null);
+  const [marketData, setMarketData] = useState(null);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -58,6 +59,7 @@ export default function DealDetail() {
       setDeal(r.data.deal);
       setHistory(r.data.price_history || []);
       setHistStats(r.data.history_stats);
+      setMarketData(r.data.market_data || null);
     } catch {
       setDeal(null);
     } finally {
@@ -236,6 +238,64 @@ export default function DealDetail() {
           <TrendingUp size={18} className="text-neon-green" />
           Resale Analysis
         </h2>
+
+        {/* Keepa verified data panel */}
+        {marketData ? (
+          <div className="mb-4 bg-dark-800/50 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle size={14} className="text-neon-green" />
+                <span className="text-neon-green text-xs font-bold">Amazon data verified by Keepa</span>
+              </div>
+              {marketData.fetched_at && (
+                <span className="text-gray-500 text-xs flex items-center gap-1">
+                  <Clock size={10} />
+                  {Math.round((Date.now() - new Date(marketData.fetched_at).getTime()) / 3600000)}h ago
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <p className="text-gray-500 text-xs">Amazon current</p>
+                <p className="text-white font-semibold">
+                  {marketData.amazon_current_price ? `$${parseFloat(marketData.amazon_current_price).toFixed(2)}` : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-500 text-xs">Buy Box</p>
+                <p className="text-neon-green font-bold">
+                  {marketData.amazon_buy_box_price ? `$${parseFloat(marketData.amazon_buy_box_price).toFixed(2)}` : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-500 text-xs">90d avg</p>
+                <p className="text-white">
+                  {marketData.amazon_90d_avg_price ? `$${parseFloat(marketData.amazon_90d_avg_price).toFixed(2)}` : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-gray-500 text-xs">180d avg</p>
+                <p className="text-white">
+                  {marketData.amazon_180d_avg_price ? `$${parseFloat(marketData.amazon_180d_avg_price).toFixed(2)}` : '—'}
+                </p>
+              </div>
+              {marketData.sales_rank && (
+                <div>
+                  <p className="text-gray-500 text-xs">Sales rank</p>
+                  <p className="text-white">#{parseInt(marketData.sales_rank).toLocaleString()}</p>
+                </div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="mb-4 px-3 py-2 bg-dark-800/30 rounded-lg">
+            <p className="text-gray-500 text-xs flex items-center gap-1.5">
+              <AlertTriangle size={11} className="text-yellow-500/70" />
+              Estimate only — not verified by marketplace API
+            </p>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
           <PlatformRow platform="Amazon FBA" price={deal.resale_price_amazon || 0} fees={deal.amazon_fees || 0} shipping={deal.shipping_estimate || 0} currentPrice={deal.deal_price} />
           <PlatformRow platform="eBay" price={deal.resale_price_ebay || 0} fees={deal.ebay_fees || 0} shipping={deal.shipping_estimate || 0} currentPrice={deal.deal_price} />
@@ -259,7 +319,10 @@ export default function DealDetail() {
           <span className={`text-xs px-2 py-0.5 rounded-full ${deal.demand_level === 'Very High' ? 'bg-neon-green/20 text-neon-green' : deal.demand_level === 'High' ? 'bg-neon-blue/20 text-neon-blue' : 'bg-dark-700 text-gray-400'}`}>
             {deal.demand_level || 'Unknown'} demand
           </span>
-          <span className="text-xs text-gray-500">Based on current Amazon/eBay/FB listings · Estimates only</span>
+          {marketData
+            ? <span className="text-xs text-neon-green/70">Keepa verified · {marketData.confidence}% confidence</span>
+            : <span className="text-xs text-gray-500">Internal estimates · no marketplace verification</span>
+          }
         </div>
       </div>
 

@@ -31,6 +31,10 @@ services:
         value: "true"
       - key: KEEPA_CACHE_HOURS
         value: "24"
+      - key: EBAY_ENABLED
+        value: "true"
+      - key: EBAY_CACHE_HOURS
+        value: "24"
 
   - type: worker
     name: deal-hunter-worker
@@ -42,3 +46,7 @@ services:
         value: production
       - key: PROXY_ENABLED
         value: "false"
+      - key: EBAY_ENABLED
+        value: "true"
+      - key: EBAY_CACHE_HOURS
+        value: "24"

@@ -122,6 +122,7 @@ router.post('/evaluate', authenticate, async (req, res) => {
     in_store_price,
     amazon_current_price, amazon_buy_box_price, amazon_90d_avg_price,
     sales_rank, confidence,
+    ebay_avg_price, ebay_median_price, ebay_sold_count,
   } = req.body;
 
   if (!in_store_price) {
@@ -135,6 +136,9 @@ router.post('/evaluate', authenticate, async (req, res) => {
     amazon_90d_avg_price,
     sales_rank,
     confidence,
+    ebay_avg_price,
+    ebay_median_price,
+    ebay_sold_count,
   });
 
   res.json({

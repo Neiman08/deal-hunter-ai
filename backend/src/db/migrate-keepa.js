@@ -79,8 +79,35 @@ async function migrateKeepa() {
       CREATE INDEX IF NOT EXISTS idx_scanner_history_code ON scanner_history(code);
     `);
 
+    // eBay market data table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS ebay_market_data (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        product_id UUID REFERENCES products(id) ON DELETE CASCADE,
+        upc TEXT UNIQUE,
+        search_query TEXT,
+        avg_sold_price NUMERIC(10,2),
+        min_price NUMERIC(10,2),
+        max_price NUMERIC(10,2),
+        median_price NUMERIC(10,2),
+        sold_count INTEGER,
+        active_listings INTEGER,
+        top_item_id TEXT,
+        top_item_url TEXT,
+        raw_summary JSONB DEFAULT '{}'::jsonb,
+        fetched_at TIMESTAMPTZ DEFAULT NOW(),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS idx_ebay_market_data_product_id ON ebay_market_data(product_id);
+      CREATE INDEX IF NOT EXISTS idx_ebay_market_data_upc ON ebay_market_data(upc);
+      CREATE INDEX IF NOT EXISTS idx_ebay_market_data_fetched_at ON ebay_market_data(fetched_at DESC);
+    `);
+
     await client.query('COMMIT');
-    console.log('[migrate-keepa] Done — product_market_data + scanner_history created');
+    console.log('[migrate-keepa] Done — product_market_data + scanner_history + ebay_market_data created');
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[migrate-keepa] Failed:', err.message);

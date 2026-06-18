@@ -75,7 +75,12 @@ router.get('/', async (req, res) => {
         d.detected_at, d.last_seen_at,
         p.name, p.brand, p.image_url, p.product_url,
         s.name as store_name, s.slug as store_slug, s.color as store_color,
-        c.name as category_name
+        c.name as category_name,
+        EXISTS(
+          SELECT 1 FROM product_market_data pmd
+          WHERE pmd.product_id = p.id AND pmd.source = 'keepa'
+          AND pmd.fetched_at > NOW() - INTERVAL '7 days'
+        ) as has_keepa_data
       FROM deals d
       JOIN products p ON d.product_id = p.id
       JOIN stores s ON d.store_id = s.id

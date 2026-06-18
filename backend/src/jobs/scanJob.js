@@ -145,11 +145,17 @@ async function runScan(storeSlug = null) {
     const storeStart = Date.now();
     logger.info(`\n[ScanJob] ── Starting ${store} ──`);
 
-    const STORE_TIMEOUT_MS = 12 * 60 * 1000; // 12 minutes per store
+    const STORE_TIMEOUT_MS = 3 * 60 * 1000; // 3 min per store (was 12 — caused 26-min hangs)
+    const totalElapsed = Date.now() - startTime;
+    const TOTAL_SCAN_CAP_MS = 8 * 60 * 1000; // 8 min total hard cap
+    if (totalElapsed > TOTAL_SCAN_CAP_MS) {
+      logger.warn(`[ScanJob] Total scan cap reached (${Math.round(totalElapsed/1000)}s) — stopping remaining stores`);
+      break;
+    }
     try {
       const result = await Promise.race([
         scraper(),
-        new Promise((_, rej) => setTimeout(() => rej(new Error(`Scan timeout after 12min`)), STORE_TIMEOUT_MS)),
+        new Promise((_, rej) => setTimeout(() => rej(new Error(`Scan timeout after 3min`)), STORE_TIMEOUT_MS)),
       ]);
       totals.scanned += result.products_scanned || 0;
       totals.deals   += result.deals_found      || 0;

@@ -928,6 +928,40 @@ async function main() {
       console.log(`\n📈 DB after cycle #${cycleCount}: products=${p.rows[0].cnt} active_deals=${d.rows[0].cnt} saved_this_cycle=${savedThisCycle}`);
     } catch {}
 
+    // ── Keepa auto-enrichment: new products with UPC but no Keepa data ──────────
+    try {
+      const { enrichProductWithKeepa, isEnabled: keepaEnabled } = require('./src/services/external/keepaService');
+      if (keepaEnabled()) {
+        const unenriched = await query(`
+          SELECT p.id, p.upc, p.name
+          FROM products p
+          JOIN deals d ON d.product_id = p.id AND d.is_active = true
+          LEFT JOIN product_market_data pmd
+            ON pmd.product_id = p.id AND pmd.source = 'keepa'
+          WHERE p.upc IS NOT NULL AND p.upc != ''
+            AND pmd.id IS NULL
+          GROUP BY p.id, p.upc, p.name
+          LIMIT 10
+        `);
+        if (unenriched.rowCount > 0) {
+          console.log(`\n🔍 Keepa auto-enrichment: ${unenriched.rowCount} products queued`);
+          for (const product of unenriched.rows) {
+            try {
+              const result = await enrichProductWithKeepa(product);
+              if (result?.asin) {
+                console.log(`  ✅ Enriched ${product.name?.slice(0, 40)} → ASIN=${result.asin}`);
+              } else {
+                console.log(`  ⚠️  No Keepa data for UPC=${product.upc}`);
+              }
+            } catch (enrichErr) {
+              console.error(`  ❌ Keepa enrich error (${product.upc}): ${enrichErr.message}`);
+            }
+            await sleep(6000); // 6s between calls — well within 10 calls/min budget
+          }
+        }
+      }
+    } catch (e) { console.error('Keepa auto-enrichment error:', e.message); }
+
     const elapsed = Math.round((Date.now() - cycleStart) / 1000);
     console.log(`\n⏱️  Cycle #${cycleCount} completed in ${elapsed}s. Next cycle in 30 min...`);
 

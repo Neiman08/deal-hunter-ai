@@ -149,18 +149,19 @@ export default function DealDetail() {
 
         {/* Actions */}
         <div className="flex gap-3 mt-4">
-          {deal.product_url ? (
-            <a href={deal.product_url} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2 text-sm flex-1 justify-center">
-              <ExternalLink size={15} /> View at {deal.store_name}
-            </a>
-          ) : deal.store_slug === 'macys' ? (
+          {deal.store_slug === 'macys' ? (
+            // Always use search URL for Macy's — product_url in DB is missing ?ID= and returns 404
             <a
               href={`https://www.macys.com/shop/featured/${encodeURIComponent(deal.name)}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="btn-ghost flex items-center gap-2 text-sm flex-1 justify-center"
+              className="btn-primary flex items-center gap-2 text-sm flex-1 justify-center"
             >
-              <ExternalLink size={15} /> Search Macy's
+              <ExternalLink size={15} /> Search on Macy's
+            </a>
+          ) : deal.product_url ? (
+            <a href={deal.product_url} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2 text-sm flex-1 justify-center">
+              <ExternalLink size={15} /> View at {deal.store_name}
             </a>
           ) : null}
           <button onClick={toggleSave} className={`btn-ghost flex items-center gap-2 text-sm px-4 ${saved ? 'text-neon-green border-neon-green/40' : ''}`}>
@@ -168,15 +169,10 @@ export default function DealDetail() {
             {saved ? 'Saved' : 'Save'}
           </button>
         </div>
-        {deal.product_url && isStale && (
+        {isStale && (
           <p className="text-xs text-yellow-400/80 flex items-center gap-1.5 mt-2">
             <AlertTriangle size={11} />
             This deal is stale. The product page may have changed since the last verification.
-          </p>
-        )}
-        {!deal.product_url && deal.store_slug === 'macys' && (
-          <p className="text-xs text-yellow-400/80 flex items-center gap-1.5 mt-2">
-            <AlertTriangle size={11} /> Macy's link needs verification.
           </p>
         )}
       </div>

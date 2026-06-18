@@ -42,40 +42,73 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /api/stores/map?zip=77001&radius=25
+// GET /api/stores/map?lat=42.11&lng=-88.03&radius=25  OR  ?zip=60074&radius=25
 router.get('/map', async (req, res) => {
   try {
     const { zip, lat, lng, radius = 25 } = req.query;
 
-    let sql = `
+    // Require at least one search parameter — never return random stores
+    if (!lat && !lng && !zip) {
+      return res.json({ locations: [] });
+    }
+
+    const params = [];
+    let distanceExpr = 'NULL';
+    let distanceFilter = '';
+    let orderBy = 'deal_count DESC';
+    let idx = 1;
+
+    if (lat && lng) {
+      const latF = parseFloat(lat);
+      const lngF = parseFloat(lng);
+      const radF = parseFloat(radius);
+      if (isNaN(latF) || isNaN(lngF) || isNaN(radF)) {
+        return res.status(400).json({ error: 'Invalid lat/lng/radius' });
+      }
+      // Haversine in km, converted to miles
+      const haversine = `(6371 * acos(GREATEST(-1, LEAST(1,
+        cos(radians($${idx})) * cos(radians(sl.latitude::float)) *
+        cos(radians(sl.longitude::float) - radians($${idx + 1})) +
+        sin(radians($${idx})) * sin(radians(sl.latitude::float))
+      ))) * 0.621371)`;
+      params.push(latF, lngF, radF);
+      distanceExpr = `ROUND(${haversine}::numeric, 1)`;
+      distanceFilter = `AND ${haversine} <= $${idx + 2}`;
+      orderBy = 'distance_miles ASC NULLS LAST';
+      idx += 3;
+    }
+
+    if (zip) {
+      params.push(`${zip.substring(0, 3)}%`);
+    }
+
+    const sql = `
       SELECT
         sl.id, sl.store_number, sl.name, sl.address, sl.city, sl.state,
         sl.zip_code, sl.latitude, sl.longitude, sl.phone,
         s.name AS store_chain, s.slug AS store_slug, s.color AS store_color,
         s.logo_url,
+        ${distanceExpr} AS distance_miles,
         COUNT(d.id) FILTER (WHERE d.is_active = true) AS deal_count,
         MAX(d.opportunity_score) AS best_score,
         MIN(d.deal_price) AS lowest_price,
-        MAX(d.discount_percent) AS max_discount
+        MAX(d.discount_percent) AS max_discount,
+        MAX(d.estimated_profit) AS best_profit
       FROM store_locations sl
       JOIN stores s ON sl.store_id = s.id
       LEFT JOIN deals d ON d.store_location_id = sl.id
       WHERE sl.is_active = true AND sl.latitude IS NOT NULL
+        ${distanceFilter}
+        ${zip ? `AND sl.zip_code LIKE $${idx}` : ''}
+      GROUP BY sl.id, s.id
+      ORDER BY ${orderBy}
+      LIMIT 50
     `;
-
-    const params = [];
-    let idx = 1;
-
-    if (zip) {
-      sql += ` AND sl.zip_code LIKE $${idx++}`;
-      params.push(`${zip.substring(0, 3)}%`);
-    }
-
-    sql += ` GROUP BY sl.id, s.id ORDER BY deal_count DESC LIMIT 50`;
 
     const result = await query(sql, params);
     res.json({ locations: result.rows });
   } catch (err) {
+    console.error('stores/map error:', err);
     res.status(500).json({ error: 'Failed to fetch store map' });
   }
 });

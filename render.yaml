@@ -20,7 +20,7 @@ services:
       - key: PORT
         value: 3001
       - key: ACTIVE_STORES
-        value: office-depot,gamestop
+        value: discovery-only
       - key: SCAN_INTERVAL_MINUTES
         value: "90"
       - key: PROXY_ENABLED

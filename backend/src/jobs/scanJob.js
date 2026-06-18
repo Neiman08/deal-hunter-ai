@@ -94,6 +94,22 @@ async function runScan(storeSlug = null) {
     logger.warn(`[ScanJob] Could not create scan_log: ${err.message}`);
   }
 
+  // Skip browser launch entirely if no active store has a registered Playwright scraper.
+  // This avoids the 20s browser pre-check (and any hanging launch) when ACTIVE_STORES
+  // is set to 'discovery-only' or any placeholder — the HTTP discovery worker handles deals.
+  const scrapableStores = stores.filter(s => STORE_SCRAPERS[s]);
+  if (!scrapableStores.length) {
+    logger.info(`[ScanJob] No Playwright-scrapable stores in ACTIVE_STORES (${stores.join(',')}) — completing immediately`);
+    if (logId) {
+      await query(
+        `UPDATE scan_logs SET status='success', completed_at=NOW(), duration_seconds=0, products_scanned=0, deals_found=0, errors_count=0 WHERE id=$1`,
+        [logId]
+      ).catch(() => {});
+    }
+    isRunning = false;
+    return { stores_run: 0 };
+  }
+
   // Fast browser availability check — if Playwright can't launch in 20s, abort cleanly
   // instead of letting each store hang for 12 min (which caused 1565s error scans).
   const BROWSER_CHECK_MS = 20000;
@@ -119,7 +135,7 @@ async function runScan(storeSlug = null) {
   const totals = { scanned: 0, deals: 0, errors: 0 };
   const storeResults = {};
 
-  for (const store of stores) {
+  for (const store of scrapableStores) {
     const scraper = STORE_SCRAPERS[store];
     if (!scraper) {
       logger.warn(`[ScanJob] No scraper registered for "${store}"`);

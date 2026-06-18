@@ -58,27 +58,22 @@ async function cleanupDeals() {
   `);
   if (c1.rowCount > 0) console.log(`  ✂️  Stripped query params from ${c1.rowCount} URLs`);
 
-  // 2) Deactivate stale / fake deals
-  // Rules (must stay in sync with scraperBase.js saveProductData):
-  //   - discount >= 30% → active regardless of profit (high_discount_override)
-  //   - discount 20-29.99% → needs estimated_profit > 0 AND roi_percent > 0
-  //   - discount < 20% → inactive
+  // 2) Deactivate stale / clearly-no-discount deals
+  // Profit-based criteria (estimated_profit <= 0, roi_percent <= 0) removed:
+  // those fields come from estimated resale data that is often 0 for newly
+  // discovered products, causing the cleanup to immediately wipe valid deals.
+  // Rule: keep any deal with discount >= 20% and seen within 7 days.
   const c2 = await query(`
     UPDATE deals SET is_active=false
     WHERE last_seen_at < NOW() - INTERVAL '7 days'
        OR (
          is_error_price = false
-         AND discount_percent < 30
-         AND (
-           regular_price IS NULL
-           OR discount_percent < 20
-           OR estimated_profit <= 0
-           OR roi_percent <= 0
-         )
+         AND discount_percent < 20
+         AND regular_price IS NULL
        )
     RETURNING id
   `);
-  console.log(`  🗑️  Deactivated ${c2.rowCount} stale/fake deals`);
+  console.log(`  🗑️  Deactivated ${c2.rowCount} stale/no-discount deals`);
 
   // 3) Deactivate Best Buy search-page and inflated refurbished entries
   const c3 = await query(`
@@ -121,17 +116,11 @@ async function cleanupDeals() {
     )
     AND (
       d.is_error_price = true
-      OR d.discount_percent >= 30
-      OR (
-        d.regular_price IS NOT NULL
-        AND d.discount_percent >= 20
-        AND d.estimated_profit > 0
-        AND d.roi_percent > 0
-      )
+      OR d.discount_percent >= 20
     )
     RETURNING d.id
   `);
-  console.log(`  ✅ Reactivated ${c4.rowCount} qualifying deals`);
+  console.log(`  ✅ Reactivated ${c4.rowCount} qualifying deals (>=20% off, seen <7 days)`);
 
   // 5) Dedup active deals by canonical URL (keep highest-score one)
   const c5 = await query(`

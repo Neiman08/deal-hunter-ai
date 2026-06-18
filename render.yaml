@@ -19,6 +19,12 @@ services:
         value: production
       - key: PORT
         value: 3001
+      - key: ACTIVE_STORES
+        value: office-depot,gamestop
+      - key: SCAN_INTERVAL_MINUTES
+        value: "90"
+      - key: PROXY_ENABLED
+        value: "false"
 
   - type: worker
     name: deal-hunter-worker
@@ -28,3 +34,5 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: PROXY_ENABLED
+        value: "false"

@@ -15,7 +15,7 @@
 const cron   = require('node-cron');
 const { query }          = require('../config/database');
 const { processAlerts }  = require('../services/notificationService');
-const { closeBrowser }   = require('../services/browserEngine');
+const { getBrowser, closeBrowser } = require('../services/browserEngine');
 const logger             = require('../utils/logger');
 const { saveProductData } = require('../services/scraperBase');
 
@@ -94,6 +94,28 @@ async function runScan(storeSlug = null) {
     logger.warn(`[ScanJob] Could not create scan_log: ${err.message}`);
   }
 
+  // Fast browser availability check — if Playwright can't launch in 20s, abort cleanly
+  // instead of letting each store hang for 12 min (which caused 1565s error scans).
+  const BROWSER_CHECK_MS = 20000;
+  try {
+    await Promise.race([
+      getBrowser(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('Browser launch timeout (20s)')), BROWSER_CHECK_MS)),
+    ]);
+    logger.info('[ScanJob] Playwright browser ready');
+  } catch (browserErr) {
+    logger.warn(`[ScanJob] Playwright browser unavailable: ${browserErr.message}`);
+    logger.warn('[ScanJob] Skipping Playwright scan — HTTP discovery worker handles deals');
+    if (logId) {
+      await query(
+        `UPDATE scan_logs SET status='error', completed_at=NOW(), duration_seconds=$1 WHERE id=$2`,
+        [Math.round((Date.now() - startTime) / 1000), logId]
+      ).catch(() => {});
+    }
+    isRunning = false;
+    return { stores_run: 0, browser_unavailable: true };
+  }
+
   const totals = { scanned: 0, deals: 0, errors: 0 };
   const storeResults = {};
 
@@ -129,18 +151,24 @@ async function runScan(storeSlug = null) {
     }
   }
 
-  // Deactivate stale deals (not seen in last 2 hours)
-  try {
-    const deactivated = await query(`
-      UPDATE deals SET is_active = false
-      WHERE last_seen_at < NOW() - INTERVAL '24 hours'
-        AND is_active = true
-    `);
-    if (deactivated.rowCount > 0) {
-      logger.info(`[ScanJob] Deactivated ${deactivated.rowCount} stale deals`);
+  // Deactivate stale deals — ONLY when the scan actually produced results.
+  // Running cleanup after a failed/empty scan would wipe deals that the
+  // discovery worker just saved, leaving 0 deals on the dashboard.
+  if (totals.scanned > 0) {
+    try {
+      const deactivated = await query(`
+        UPDATE deals SET is_active = false
+        WHERE last_seen_at < NOW() - INTERVAL '24 hours'
+          AND is_active = true
+      `);
+      if (deactivated.rowCount > 0) {
+        logger.info(`[ScanJob] Deactivated ${deactivated.rowCount} stale deals`);
+      }
+    } catch (err) {
+      logger.warn(`[ScanJob] Could not deactivate stale deals: ${err.message}`);
     }
-  } catch (err) {
-    logger.warn(`[ScanJob] Could not deactivate stale deals: ${err.message}`);
+  } else {
+    logger.info('[ScanJob] Scan produced 0 products — skipping stale deal cleanup to preserve existing deals');
   }
 
   // Send alerts for new deals

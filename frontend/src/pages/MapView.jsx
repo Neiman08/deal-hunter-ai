@@ -153,10 +153,13 @@ export default function MapView() {
       const locs = (r.data.locations || []).map(normalizeLocation);
       setLocations(locs);
       if (pos) {
-        if (locs.length === 0) {
-          setGeoMsg('No stores found near your location. Try a larger radius or ZIP.');
+        if (r.data.no_deals_yet && r.data.discovered?.length > 0) {
+          setGeoMsg(`Found ${r.data.discovered.length} stores near you — no deals scanned yet. Check back soon!`);
+          setGeoError(false);
+        } else if (locs.length === 0) {
+          setGeoMsg('No stores found near your location. Try a larger radius or ZIP code.');
         } else {
-          setGeoMsg('Using your location');
+          setGeoMsg(`${locs.length} store${locs.length !== 1 ? 's' : ''} near you`);
           setGeoError(false);
         }
       }

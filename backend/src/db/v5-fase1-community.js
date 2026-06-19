@@ -124,6 +124,11 @@ async function migrate() {
   `);
   console.log('[fase1] submission_rate_limits created');
 
+  // ── 9. store_locations: source column + unique lat/lng for Places dedup ───
+  await query(`ALTER TABLE store_locations ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'manual'`);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_store_locs_lat_lng_unique ON store_locations (latitude, longitude)`);
+  console.log('[fase1] store_locations.source + unique lat/lng index added');
+
   console.log('[fase1] Migration complete ✓');
 }
 

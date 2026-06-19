@@ -106,12 +106,92 @@ router.get('/map', async (req, res) => {
     `;
 
     const result = await query(sql, params);
-    res.json({ locations: result.rows });
+    let locations = result.rows;
+
+    // ── Auto-discovery via Google Places when no DB locations found ───────
+    if (locations.length === 0 && lat && lng && process.env.GOOGLE_MAPS_API_KEY) {
+      const discovered = await discoverAndSaveStores(parseFloat(lat), parseFloat(lng), parseFloat(radius));
+      if (discovered.length > 0) {
+        // Re-query DB now that stores are saved
+        const reQuery = await query(sql, params);
+        locations = reQuery.rows;
+        // If still empty (no deals yet), return raw discovered list with flag
+        if (locations.length === 0) {
+          return res.json({ locations: [], discovered, no_deals_yet: true });
+        }
+      }
+    }
+
+    res.json({ locations });
   } catch (err) {
     console.error('stores/map error:', err);
     res.status(500).json({ error: 'Failed to fetch store map' });
   }
 });
+
+async function discoverAndSaveStores(lat, lng, radiusMiles) {
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  const radiusMeters = Math.min(Math.round(radiusMiles * 1609.34), 50000);
+  const saved = [];
+
+  // Get store_id map: slug → id
+  const storeRows = await query('SELECT id, name, slug FROM stores WHERE is_active = true');
+  const storeMap = {};
+  for (const s of storeRows.rows) {
+    storeMap[s.name.toLowerCase()] = s;
+    storeMap[s.slug.toLowerCase()] = s;
+  }
+
+  for (const brand of STORE_BRANDS) {
+    const keyword = encodeURIComponent(brand);
+    const path = `/maps/api/place/nearbysearch/json?location=${lat},${lng}&radius=${radiusMeters}&keyword=${keyword}&type=store&key=${apiKey}`;
+
+    let data;
+    try { data = await googlePlacesRequest(path); } catch { continue; }
+    if (!['OK', 'ZERO_RESULTS'].includes(data.status)) continue;
+
+    for (const place of (data.results || []).slice(0, 5)) {
+      const pName = (place.name || '').toLowerCase();
+      const matchedStore = Object.values(storeMap).find(s =>
+        pName.includes(s.name.toLowerCase()) || pName.includes(s.slug.toLowerCase())
+      );
+      if (!matchedStore) continue;
+
+      const plat = place.geometry?.location?.lat;
+      const plng = place.geometry?.location?.lng;
+      if (!plat || !plng) continue;
+
+      // Upsert by place_id or coordinates
+      try {
+        const vicinity  = place.vicinity || '';
+        const cityParts = vicinity.split(',');
+        const city = cityParts.length > 1 ? cityParts[cityParts.length - 2].trim() : cityParts[0].trim() || 'Unknown';
+
+        const ins = await query(`
+          INSERT INTO store_locations (
+            store_id, name, address, city, state, zip_code,
+            latitude, longitude, is_active, source
+          )
+          VALUES ($1, $2, $3, $4, '', '', $5, $6, true, 'google_places')
+          ON CONFLICT (latitude, longitude) DO NOTHING
+          RETURNING id, name, address, latitude, longitude
+        `, [
+          matchedStore.id,
+          place.name,
+          vicinity,
+          city,
+          plat, plng,
+        ]);
+        if (ins.rows[0]) saved.push({ ...ins.rows[0], store_chain: matchedStore.name, store_slug: matchedStore.slug });
+      } catch (e) {
+        console.warn(`[Places] insert failed for ${place.name}:`, e.message);
+      }
+    }
+  }
+
+  console.log(`[Places] discovered and saved ${saved.length} new store locations near ${lat},${lng}`);
+  return saved;
+}
 
 // GET /api/stores/nearby?lat=41.88&lng=-87.63&radius=24140
 // radius in meters (default 24140 = 15 miles). Requires GOOGLE_MAPS_API_KEY.

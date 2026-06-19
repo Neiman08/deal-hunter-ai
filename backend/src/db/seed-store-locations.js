@@ -72,6 +72,10 @@ const LOCATIONS = [
 ];
 
 async function seedStoreLocations() {
+  // Ensure source column + unique index exist (idempotent)
+  await query(`ALTER TABLE store_locations ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'manual'`);
+  await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_store_locs_lat_lng_unique ON store_locations (latitude, longitude)`);
+
   // Check if already seeded
   const check = await query("SELECT 1 FROM db_migrations WHERE name='store_locations_v1' LIMIT 1");
   if (check.rows.length) {

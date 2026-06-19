@@ -81,6 +81,17 @@ const PRICE_TYPE_META = {
   ebay:      { dot: '🔵', label: 'eBay Estimate',   color: 'text-neon-blue',   bg: 'bg-neon-blue/10   border-neon-blue/25'  },
 };
 
+// Priority: buy_box > amazon_current > 90d_avg > 180d_avg > ebay_median
+function deriveEffectivePrice(keepa) {
+  if (!keepa) return { price: null, source: null };
+  if (keepa.amazon_buy_box_price   != null) return { price: safe(keepa.amazon_buy_box_price),   source: 'buy_box' };
+  if (keepa.amazon_current_price   != null) return { price: safe(keepa.amazon_current_price),   source: 'amazon_current' };
+  if (keepa.amazon_90d_avg_price   != null) return { price: safe(keepa.amazon_90d_avg_price),   source: 'amazon_90d_avg' };
+  if (keepa.amazon_180d_avg_price  != null) return { price: safe(keepa.amazon_180d_avg_price),  source: 'amazon_180d_avg' };
+  if (keepa.ebay_median_price      != null) return { price: safe(keepa.ebay_median_price),      source: 'ebay_median' };
+  return { price: null, source: null };
+}
+
 function KeepaPanel({ keepa }) {
   if (!keepa) return null;
 
@@ -104,11 +115,11 @@ function KeepaPanel({ keepa }) {
     ? Math.round((Date.now() - new Date(keepa.fetched_at).getTime()) / 3600000)
     : null;
 
-  const hasEffective = keepa.effective_market_price != null;
-  const src        = keepa.effective_market_source;
-  const sourceLabel = SOURCE_LABELS[src] || src;
-  const type       = priceType(src);
-  const typeMeta   = type ? PRICE_TYPE_META[type] : null;
+  const { price: empPrice, source: empSrc } = deriveEffectivePrice(keepa);
+  const hasEffective = empPrice != null;
+  const sourceLabel  = SOURCE_LABELS[empSrc] || empSrc || '—';
+  const type         = priceType(empSrc);
+  const typeMeta     = type ? PRICE_TYPE_META[type] : null;
 
   const showCurrent = keepa.amazon_current_price != null;
   const showBuyBox  = keepa.amazon_buy_box_price  != null;
@@ -141,7 +152,7 @@ function KeepaPanel({ keepa }) {
                 </p>
               </div>
               <p className={`font-bold text-xl leading-none ${typeMeta?.color ?? 'text-white'}`}>
-                {fmt(keepa.effective_market_price)}
+                {fmt(empPrice)}
               </p>
             </div>
             <div className="text-right">
@@ -366,18 +377,19 @@ export default function Scanner() {
     setEvaluating(true);
     setEvaluation(null);
     try {
-      const keepa = lookupResult?.keepa;
+      const k = lookupResult?.keepa;
+      const { price: empPrice, source: empSrc } = deriveEffectivePrice(k);
       const r = await api.post('/scanner/evaluate', {
         code: query,
         in_store_price: sp,
-        effective_market_price: keepa?.effective_market_price ?? null,
-        effective_market_source: keepa?.effective_market_source ?? null,
-        pricing_confidence: keepa?.pricing_confidence ?? 0,
-        amazon_current_price: keepa?.amazon_current_price ?? null,
-        amazon_buy_box_price: keepa?.amazon_buy_box_price ?? null,
-        amazon_90d_avg_price: keepa?.amazon_90d_avg_price ?? null,
-        sales_rank: keepa?.sales_rank ?? null,
-        confidence: keepa?.confidence ?? 0,
+        effective_market_price:  empPrice,
+        effective_market_source: empSrc,
+        pricing_confidence: k?.pricing_confidence ?? 0,
+        amazon_current_price: k?.amazon_current_price ?? null,
+        amazon_buy_box_price: k?.amazon_buy_box_price ?? null,
+        amazon_90d_avg_price: k?.amazon_90d_avg_price ?? null,
+        sales_rank: k?.sales_rank ?? null,
+        confidence: k?.confidence ?? 0,
       });
       setEvaluation(r.data);
     } catch {
@@ -416,6 +428,7 @@ export default function Scanner() {
     try {
       const k = lookupResult?.keepa;
       const p = lookupResult?.product;
+      const { price: empPrice, source: empSrc } = deriveEffectivePrice(k);
       const r = await api.post('/scanner/submit-deal', {
         upc:   p?.upc  || (mode === 'upc' ? query : null),
         sku:   p?.sku  || (mode === 'sku' ? query : null),
@@ -423,8 +436,8 @@ export default function Scanner() {
         brand: p?.brand || k?.brand || null,
         store_slug:              p?.store_slug || null,
         found_price:             parseFloat(storePrice),
-        effective_market_price:  k?.effective_market_price ?? null,
-        effective_market_source: k?.effective_market_source ?? null,
+        effective_market_price:  empPrice,
+        effective_market_source: empSrc,
         net_profit:              evaluation?.net_profit ?? null,
         roi_percent:             evaluation?.roi_percent ?? null,
         opportunity_score:       evaluation?.opportunity_score ?? null,
@@ -668,11 +681,11 @@ export default function Scanner() {
           {(keepa?.found || deals.length > 0) && (() => {
             const sp = parseFloat(storePrice);
             const storePriceValid = sp > 0;
-            const empSrc = keepa?.effective_market_source;
-            const empType = priceType(empSrc);
-            const empMeta = empType ? PRICE_TYPE_META[empType] : null;
+            const { price: empPrice, source: empSrc } = deriveEffectivePrice(keepa);
+            const empType  = priceType(empSrc);
+            const empMeta  = empType ? PRICE_TYPE_META[empType] : null;
             const empLabel = SOURCE_LABELS[empSrc] || empSrc;
-            const hasEmp = keepa?.effective_market_price != null;
+            const hasEmp   = empPrice != null;
 
             return (
               <div className="card space-y-3">
@@ -704,7 +717,7 @@ export default function Scanner() {
                   <p className="text-xs text-gray-500 flex items-center gap-1.5">
                     {empMeta && <span>{empMeta.dot}</span>}
                     ROI calculated using <span className={`font-semibold ${empMeta?.color ?? 'text-gray-300'}`}>
-                      {fmt(keepa.effective_market_price)}
+                      {fmt(empPrice)}
                     </span>
                     &nbsp;·&nbsp;{empLabel}
                   </p>

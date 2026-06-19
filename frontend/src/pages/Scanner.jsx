@@ -196,6 +196,8 @@ export default function Scanner() {
 
   const inputRef = useRef(null);
   const storePriceRef = useRef(null);
+  const isSearchingRef = useRef(false);
+  const lastCameraScanRef = useRef({ code: '', time: 0 });
 
   const resetResult = () => {
     setLookupResult(null);
@@ -206,10 +208,22 @@ export default function Scanner() {
     setShowAllDeals(false);
   };
 
-  const doLookup = useCallback(async (code, lookupMode) => {
+  const doLookup = useCallback(async (code, lookupMode, opts = {}) => {
     const term = (code || query).trim();
     if (!term) return;
 
+    // Block concurrent requests
+    if (isSearchingRef.current) return;
+
+    // Camera debounce: ignore the same code within 5 seconds to prevent duplicate scans
+    if (opts.fromCamera) {
+      const now = Date.now();
+      const last = lastCameraScanRef.current;
+      if (last.code === term && now - last.time < 5000) return;
+      lastCameraScanRef.current = { code: term, time: now };
+    }
+
+    isSearchingRef.current = true;
     resetResult();
     setQuery(term);
     setLoading(true);
@@ -244,17 +258,21 @@ export default function Scanner() {
       setError('Lookup failed. Check your connection and try again.');
     } finally {
       setLoading(false);
+      isSearchingRef.current = false;
     }
   }, [query, mode]);
 
   function addHistory(term, data) {
     const bestDeal = data.deals?.[0];
-    setHistory(prev => [{
-      code: term,
-      name: data.product?.name || data.keepa?.title || bestDeal?.name || term,
-      found: data.found_internal || data.keepa?.found,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    }, ...prev.slice(0, 9)]);
+    setHistory(prev => [
+      {
+        code: term,
+        name: data.product?.name || data.keepa?.title || bestDeal?.name || term,
+        found: data.found_internal || data.keepa?.found,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      },
+      ...prev.filter(h => h.code !== term).slice(0, 9),
+    ]);
   }
 
   async function calculateProfit() {
@@ -306,7 +324,7 @@ export default function Scanner() {
   }
 
   function handleSubmit(e) { e?.preventDefault(); doLookup(); }
-  function handleCameraScan(code) { setShowCamera(false); setMode('upc'); doLookup(code, 'upc'); }
+  function handleCameraScan(code) { setShowCamera(false); setMode('upc'); doLookup(code, 'upc', { fromCamera: true }); }
   function handleExampleClick(ex) { setMode('sku'); doLookup(ex, 'sku'); }
 
   // Derived data from lookupResult

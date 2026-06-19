@@ -11,6 +11,7 @@ export default function CameraScanner({ onDetected, onClose }) {
   const videoRef = useRef(null);
   const readerRef = useRef(null);
   const streamRef = useRef(null);
+  const hasDetectedRef = useRef(false);
   const [error, setError] = useState('');
   const [scanning, setScanning] = useState(false);
   const [devices, setDevices] = useState([]);
@@ -29,6 +30,7 @@ export default function CameraScanner({ onDetected, onClose }) {
   async function startScanner(deviceId) {
     setError('');
     setScanning(true);
+    hasDetectedRef.current = false;
     stopCamera();
 
     try {
@@ -48,7 +50,8 @@ export default function CameraScanner({ onDetected, onClose }) {
       }
 
       reader.decodeFromStream(stream, videoRef.current, (result, err) => {
-        if (result) {
+        if (result && !hasDetectedRef.current) {
+          hasDetectedRef.current = true;
           const code = result.getText();
           stopCamera();
           setScanning(false);

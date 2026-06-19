@@ -96,9 +96,9 @@ app.use('/api/feed', require('./routes/feed'));
 app.use('/api/scanner', require('./routes/scanner'));
 app.use('/api/community', require('./routes/community'));
 app.use('/api/ebay', require('./routes/ebay'));
-app.use('/api/business', require('./routes/business'));
 app.use('/api/business/coach', require('./routes/aiCoach'));
 app.use('/api/business/hall-of-fame', require('./routes/hallOfFame'));
+app.use('/api/business', require('./routes/business'));
 app.use('/api/university', require('./routes/university'));
 
 // ── Health & Status ───────────────────────────────────────────────────────────

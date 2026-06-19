@@ -556,9 +556,9 @@ export default function Scanner() {
                     try {
                       const r = await api.post('/scanner/submit-deal', {
                         upc: query || `manual-${Date.now()}`,
-                        store_name: store,
+                        store_slug: store.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
                         found_price: price,
-                        product_name: name,
+                        title: name,
                         feedback_tag: 'Found in Store',
                       });
                       alert(`✅ Submitted! Needs ${r.data.confirmations_needed} confirmations to go live. +${r.data.points_pending} pts pending.`);

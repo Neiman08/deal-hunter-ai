@@ -368,4 +368,75 @@ router.get('/wallet', authenticate, async (req, res) => {
   }
 });
 
+// ── Monetization: points redemption tiers ─────────────────────────────────────
+const REDEMPTION_TIERS = [
+  { id: 'pro_1_month',   points: 500,   label: '1 month Pro',   kind: 'pro_months',  value: 1  },
+  { id: 'credit_10',     points: 1000,  label: '$10 credit',    kind: 'credit',      value: 10 },
+  { id: 'credit_25',     points: 2500,  label: '$25 credit',    kind: 'credit',      value: 25 },
+  { id: 'credit_75',     points: 5000,  label: '$75 credit',    kind: 'credit',      value: 75 },
+  { id: 'credit_200',    points: 10000, label: '$200 credit',   kind: 'credit',      value: 200 },
+];
+
+// GET /api/community/redemption-tiers
+router.get('/redemption-tiers', authenticate, async (req, res) => {
+  try {
+    const w = await query('SELECT points_available FROM contributor_wallets WHERE user_id=$1', [req.user.id]);
+    const available = w.rows[0]?.points_available || 0;
+    res.json({
+      available_points: available,
+      tiers: REDEMPTION_TIERS.map(t => ({ ...t, can_redeem: available >= t.points })),
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch redemption tiers' });
+  }
+});
+
+// POST /api/community/redeem
+router.post('/redeem', authenticate, async (req, res) => {
+  const { tier_id } = req.body;
+  const tier = REDEMPTION_TIERS.find(t => t.id === tier_id);
+  if (!tier) return res.status(400).json({ error: 'Invalid tier_id' });
+
+  try {
+    const w = await query('SELECT points_available FROM contributor_wallets WHERE user_id=$1', [req.user.id]);
+    const available = w.rows[0]?.points_available || 0;
+    if (available < tier.points) {
+      return res.status(402).json({ error: `Need ${tier.points} pts, you have ${available}` });
+    }
+
+    // Deduct points
+    await query(`
+      UPDATE contributor_wallets
+      SET points_available = points_available - $1, points_redeemed = points_redeemed + $1, updated_at = NOW()
+      WHERE user_id = $2
+    `, [tier.points, req.user.id]);
+
+    // Apply reward
+    if (tier.kind === 'pro_months') {
+      await query(`
+        UPDATE users
+        SET plan = 'pro',
+            plan_expires_at = COALESCE(plan_expires_at, NOW()) + ($1 || ' months')::INTERVAL
+        WHERE id = $2
+      `, [tier.value, req.user.id]);
+    } else if (tier.kind === 'credit') {
+      await query(`
+        UPDATE contributor_wallets SET credit_balance = credit_balance + $1, updated_at = NOW() WHERE user_id = $2
+      `, [tier.value, req.user.id]);
+    }
+
+    // Log reward
+    await query(`
+      INSERT INTO contributor_rewards (user_id, reward_type, points_cost, value_description, status, redeemed_at)
+      VALUES ($1, $2, $3, $4, 'active', NOW())
+    `, [req.user.id, tier.id, tier.points, tier.label]);
+
+    logger.info(`[Community] redemption: user=${req.user.id} tier=${tier.id} pts=${tier.points}`);
+    res.json({ redeemed: true, tier: tier.label, remaining_points: available - tier.points });
+  } catch (err) {
+    logger.error(`[Community] redeem error: ${err.message}`);
+    res.status(500).json({ error: 'Redemption failed' });
+  }
+});
+
 module.exports = router;

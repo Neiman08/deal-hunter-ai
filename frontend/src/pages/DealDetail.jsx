@@ -291,18 +291,18 @@ export default function DealDetail() {
               )}
 
               <div className="grid grid-cols-2 gap-3 text-sm">
-                <div>
-                  <p className="text-gray-500 text-xs">Amazon current</p>
-                  <p className={marketData.amazon_current_price ? 'text-white font-semibold' : 'text-gray-600 text-xs'}>
-                    {marketData.amazon_current_price ? `$${parseFloat(marketData.amazon_current_price).toFixed(2)}` : 'Not available'}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-gray-500 text-xs">Buy Box</p>
-                  <p className={marketData.amazon_buy_box_price ? 'text-neon-green font-bold' : 'text-gray-600 text-xs'}>
-                    {marketData.amazon_buy_box_price ? `$${parseFloat(marketData.amazon_buy_box_price).toFixed(2)}` : 'Not available'}
-                  </p>
-                </div>
+                {marketData.amazon_current_price && (
+                  <div>
+                    <p className="text-gray-500 text-xs">Amazon current</p>
+                    <p className="text-white font-semibold">${parseFloat(marketData.amazon_current_price).toFixed(2)}</p>
+                  </div>
+                )}
+                {marketData.amazon_buy_box_price && (
+                  <div>
+                    <p className="text-gray-500 text-xs">Buy Box</p>
+                    <p className="text-neon-green font-bold">${parseFloat(marketData.amazon_buy_box_price).toFixed(2)}</p>
+                  </div>
+                )}
                 <div>
                   <p className="text-gray-500 text-xs">90d avg</p>
                   <p className="text-white">

@@ -110,11 +110,8 @@ function KeepaPanel({ keepa }) {
   const type       = priceType(src);
   const typeMeta   = type ? PRICE_TYPE_META[type] : null;
 
-  // Only show live price fields when they have data OR when effective is live
   const showCurrent = keepa.amazon_current_price != null;
   const showBuyBox  = keepa.amazon_buy_box_price  != null;
-  // When both live prices are absent but we have avg data, skip the "Not available" noise
-  const showLiveRows = showCurrent || showBuyBox || !hasEffective;
 
   return (
     <div className="bg-dark-800/50 rounded-xl p-4 space-y-3">
@@ -161,23 +158,19 @@ function KeepaPanel({ keepa }) {
         </div>
       )}
 
-      {/* Price detail grid — only rows that have data */}
+      {/* Price detail grid — only rows with actual data */}
       <div className="grid grid-cols-2 gap-2 text-xs">
-        {showLiveRows && (
-          <>
-            <div>
-              <p className="text-gray-500">Amazon current</p>
-              <p className={showCurrent ? 'text-white font-semibold' : 'text-gray-600'}>
-                {showCurrent ? fmt(keepa.amazon_current_price) : 'Not available'}
-              </p>
-            </div>
-            <div>
-              <p className="text-gray-500">Buy Box</p>
-              <p className={showBuyBox ? 'text-neon-green font-semibold' : 'text-gray-600'}>
-                {showBuyBox ? fmt(keepa.amazon_buy_box_price) : 'Not available'}
-              </p>
-            </div>
-          </>
+        {showCurrent && (
+          <div>
+            <p className="text-gray-500">Amazon current</p>
+            <p className="text-white font-semibold">{fmt(keepa.amazon_current_price)}</p>
+          </div>
+        )}
+        {showBuyBox && (
+          <div>
+            <p className="text-gray-500">Buy Box</p>
+            <p className="text-neon-green font-semibold">{fmt(keepa.amazon_buy_box_price)}</p>
+          </div>
         )}
         {keepa.amazon_90d_avg_price != null && (
           <div>

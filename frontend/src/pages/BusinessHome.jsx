@@ -4,7 +4,7 @@ import {
   Briefcase, TrendingUp, Star, Shield, Wallet, Users,
   Zap, Gift, Target, CheckCircle, Clock, Award, Plus,
   ChevronRight, Copy, Check, AlertTriangle, BarChart2,
-  Scan, Upload, ThumbsUp, Flame, Activity,
+  Scan, Upload, ThumbsUp, Flame, Activity, GraduationCap, Bot,
 } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
@@ -91,10 +91,12 @@ function MissionCard({ m }) {
 export default function BusinessHome() {
   const { user } = useAuth();
   const navigate  = useNavigate();
-  const [data, setData]       = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError]     = useState('');
-  const [copied, setCopied]   = useState(false);
+  const [data, setData]         = useState(null);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState('');
+  const [copied, setCopied]     = useState(false);
+  const [univData, setUnivData] = useState(null);
+  const [coachData, setCoachData] = useState(null);
 
   useEffect(() => {
     api.get('/business/home')
@@ -104,6 +106,14 @@ export default function BusinessHome() {
         else setError('Failed to load Business dashboard.');
       })
       .finally(() => setLoading(false));
+
+    // Load University + Coach data in background (non-blocking)
+    api.get('/university/courses')
+      .then(r => setUnivData(r.data))
+      .catch(() => {});
+    api.get('/business/coach/suggestions')
+      .then(r => setCoachData(r.data))
+      .catch(() => {});
   }, [navigate]);
 
   function copyRef() {
@@ -318,6 +328,103 @@ export default function BusinessHome() {
           </p>
         </div>
       )}
+
+      {/* ── University Progress card ─────────────────────────────────────────── */}
+      {(() => {
+        const courses     = univData?.courses || [];
+        const completed   = courses.filter(c => c.is_completed).length;
+        const inProgress  = courses.filter(c => !c.is_completed && (c.completed_lessons || 0) > 0).length;
+        const certs       = courses.filter(c => c.has_certificate).length;
+        const next        = courses.find(c => !c.is_completed && (c.completed_lessons || 0) > 0)
+                         || courses.find(c => !c.is_completed);
+        const totalXp     = courses.filter(c => !c.is_completed).reduce((s, c) => s + (c.xp_reward || 0), 0);
+        return (
+          <div className="rounded-2xl border border-dark-700 bg-dark-800/40 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-dark-700">
+              <GraduationCap size={14} className="text-neon-green" />
+              <h2 className="text-white font-bold text-sm">University Progress</h2>
+              <Link to="/business/university" className="ml-auto text-neon-blue text-xs hover:underline">
+                Continue Learning →
+              </Link>
+            </div>
+            <div className="grid grid-cols-3 divide-x divide-dark-700">
+              {[
+                { label: 'Completed',   value: completed,   color: '#4ADE80' },
+                { label: 'In Progress', value: inProgress,  color: '#60A5FA' },
+                { label: 'Certificates', value: certs,      color: '#FBBF24' },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="p-3 text-center">
+                  <p className="text-gray-500 text-[10px] uppercase tracking-wide mb-0.5">{label}</p>
+                  <p className="font-black text-lg leading-none" style={{ color }}>{value}</p>
+                </div>
+              ))}
+            </div>
+            {next && (
+              <div className="px-4 py-3 border-t border-dark-700 flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <p className="text-gray-500 text-[10px]">
+                    {inProgress > 0 ? 'Continue:' : 'Next course:'}
+                  </p>
+                  <p className="text-white text-xs font-semibold truncate">{next.title}</p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                  {totalXp > 0 && (
+                    <span className="text-neon-green text-xs font-bold">+{totalXp} XP available</span>
+                  )}
+                  <Link to="/business/university"
+                    className="text-xs px-3 py-1.5 rounded-lg font-semibold transition-colors"
+                    style={{ background: '#4ADE8015', color: '#4ADE80', border: '1px solid #4ADE8030' }}>
+                    {inProgress > 0 ? 'Continue' : 'Start'} →
+                  </Link>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* ── Coach IA card ─────────────────────────────────────────────────────── */}
+      {(() => {
+        const suggs = coachData?.suggestions?.slice(0, 2) || [];
+        return (
+          <div className="rounded-2xl border border-dark-700 bg-dark-800/40 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-dark-700">
+              <Bot size={14} className="text-neon-green" />
+              <h2 className="text-white font-bold text-sm">Coach IA</h2>
+              <Link to="/business/coach" className="ml-auto text-neon-blue text-xs hover:underline">
+                Open Coach →
+              </Link>
+            </div>
+            {suggs.length > 0 ? (
+              <div className="divide-y divide-dark-700">
+                {suggs.map((s, i) => (
+                  <div key={i} className="px-4 py-3 flex items-start gap-3">
+                    <div className="w-7 h-7 rounded-lg bg-neon-green/10 flex items-center justify-center flex-shrink-0">
+                      <Zap size={12} className="text-neon-green" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white text-xs font-semibold">{s.title}</p>
+                      <p className="text-gray-500 text-[11px] mt-0.5 leading-relaxed line-clamp-2">{s.message}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="px-4 py-4 text-center">
+                <Bot size={20} className="mx-auto text-gray-600 mb-1.5" />
+                <p className="text-gray-500 text-xs">Your coach is analyzing your data…</p>
+              </div>
+            )}
+            <div className="px-4 py-3 border-t border-dark-700">
+              <Link to="/business/coach"
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold transition-colors"
+                style={{ background: '#4ADE8010', color: '#4ADE80', border: '1px solid #4ADE8025' }}>
+                <Bot size={13} /> Chat with Coach
+              </Link>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Missions ────────────────────────────────────────────────────────── */}
       <div className="space-y-4">

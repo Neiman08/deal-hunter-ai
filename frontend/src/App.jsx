@@ -25,6 +25,8 @@ import TeamDetail from './pages/TeamDetail';
 import AdminSubmittedDeals from './pages/AdminSubmittedDeals';
 import Community from './pages/Community';
 import BusinessHome from './pages/BusinessHome';
+import University from './pages/University';
+import AICoach from './pages/AICoach';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -71,6 +73,8 @@ export default function App() {
             <Route path="teams/:id" element={<TeamDetail />} />
             <Route path="admin" element={<AdminRoute><Admin /></AdminRoute>} />
             <Route path="business" element={<BusinessHome />} />
+            <Route path="business/university" element={<University />} />
+            <Route path="business/coach" element={<AICoach />} />
             <Route path="admin/submitted-deals" element={<AdminRoute><AdminSubmittedDeals /></AdminRoute>} />
           </Route>
         </Routes>

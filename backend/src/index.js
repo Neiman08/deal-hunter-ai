@@ -97,6 +97,8 @@ app.use('/api/scanner', require('./routes/scanner'));
 app.use('/api/community', require('./routes/community'));
 app.use('/api/ebay', require('./routes/ebay'));
 app.use('/api/business', require('./routes/business'));
+app.use('/api/business/coach', require('./routes/aiCoach'));
+app.use('/api/university', require('./routes/university'));
 
 // ── Health & Status ───────────────────────────────────────────────────────────
 app.get('/api/health', async (req, res) => {
@@ -148,12 +150,19 @@ app.listen(PORT, async () => {
   } catch (err) {
     logger.warn(`[startup] store location seed warning: ${err.message}`);
   }
-  // Deal Hunter Business — Phase A migration (missions, badges, extra columns)
+  // Deal Hunter Business — Phase A+B migration (missions, badges, extra columns, transactions)
   try {
     const { migrateBusinessPhaseA } = require('./db/migrate-business');
     await migrateBusinessPhaseA();
   } catch (err) {
     logger.warn(`[startup] business migration warning: ${err.message}`);
+  }
+  // Deal Hunter University + AI Coach — Phase C migration
+  try {
+    const { migrateUniversity } = require('./db/migrate-university');
+    await migrateUniversity();
+  } catch (err) {
+    logger.warn(`[startup] university migration warning: ${err.message}`);
   }
   // Scan job runs only on the worker (deal-hunter-worker service).
   // Running it here caused OOM crashes on the web service.

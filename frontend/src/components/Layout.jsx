@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Search, Map, Scan, Bell, Brain,
   Shield, Tag, Menu, LogOut, Zap, Eye, Crown,
   Crosshair, BarChart3, Gift, Flame, Star, Users, Briefcase,
-  Target, Wallet,
+  Target, Wallet, GraduationCap, Bot,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -89,6 +89,8 @@ export default function Layout() {
           </p>
         </div>
         <NavItem item={{ to: '/business', icon: <Briefcase size={16} />, label: 'Business Home' }} onClick={close} />
+        <NavItem item={{ to: '/business/university', icon: <GraduationCap size={16} />, label: 'Universidad' }} onClick={close} />
+        <NavItem item={{ to: '/business/coach', icon: <Bot size={16} />, label: 'Coach IA' }} onClick={close} />
         <NavItem item={{ to: '/referrals', icon: <Gift size={16} />, label: 'Refer & Earn' }} onClick={close} />
         <NavItem item={{ to: '/teams', icon: <Users size={16} />, label: 'Teams' }} onClick={close} />
         <NavItem item={{ to: '/collaborator/leaderboard', icon: <Target size={16} />, label: 'Ranking' }} onClick={close} />

@@ -1294,7 +1294,7 @@ router.get('/keepa-status', async (req, res) => {
 // POST /admin/keepa/test — test with a known ASIN (cheap call)
 router.post('/keepa/test', async (req, res) => {
   const { lookupByAsin } = require('../services/external/keepaService');
-  const testAsin = req.body.asin || 'B07PFFMP9P'; // AirPods Pro — well-known ASIN
+  const testAsin = req.body.asin || 'B07PFFMP9P'; // Amazon staging ASIN — reliable for connectivity test (always has price data)
   try {
     const result = await lookupByAsin(testAsin, { skipCache: false });
     res.json({ ok: true, asin_tested: testAsin, result });

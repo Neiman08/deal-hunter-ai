@@ -86,8 +86,8 @@ function evaluate({
   else if (confidence >= 60) score += 15;
   else if (confidence >= 40) score += 8;
 
-  // Sales rank (0–15)
-  if (sales_rank) {
+  // Sales rank (0–15); Keepa uses -1 for "no data" — only score when rank is a real positive value
+  if (sales_rank && parseInt(sales_rank) > 0) {
     if (sales_rank < 1000) score += 15;
     else if (sales_rank < 10000) score += 10;
     else if (sales_rank < 100000) score += 5;

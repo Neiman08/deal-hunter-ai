@@ -48,11 +48,13 @@ function parseKeepaProduct(product, requestedUpc) {
   const imageUrl = firstImg ? `https://images-na.ssl-images-amazon.com/images/I/${firstImg}` : null;
 
   // Sales rank — last value in salesRanks for primary category
+  // Keepa uses -1 to mean "no data"; filter it out so -1 doesn't score as a valid rank
   let salesRank = null;
   if (product.salesRanks) {
     const firstCatData = Object.values(product.salesRanks)[0];
     if (Array.isArray(firstCatData) && firstCatData.length >= 2) {
-      salesRank = firstCatData[firstCatData.length - 1];
+      const raw = firstCatData[firstCatData.length - 1];
+      salesRank = raw > 0 ? raw : null;
     }
   }
 

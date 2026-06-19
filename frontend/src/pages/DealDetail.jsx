@@ -240,54 +240,86 @@ export default function DealDetail() {
         </h2>
 
         {/* Keepa verified data panel */}
-        {marketData ? (
-          <div className="mb-4 bg-dark-800/50 rounded-xl p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <CheckCircle size={14} className="text-neon-green" />
-                <span className="text-neon-green text-xs font-bold">Amazon data verified by Keepa</span>
+        {marketData ? (() => {
+          const emp = marketData.effective_market_price ? parseFloat(marketData.effective_market_price) : null;
+          const empSourceMap = {
+            buy_box: 'Buy Box', amazon_current: 'Amazon current',
+            amazon_90d_avg: 'Keepa 90d avg', amazon_180d_avg: 'Keepa 180d avg',
+            ebay_median: 'eBay median', none: null,
+          };
+          const empLabel = empSourceMap[marketData.effective_market_source] || null;
+          return (
+            <div className="mb-4 bg-dark-800/50 rounded-xl p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CheckCircle size={14} className="text-neon-green" />
+                  <span className="text-neon-green text-xs font-bold">Amazon data verified by Keepa</span>
+                </div>
+                {marketData.fetched_at && (
+                  <span className="text-gray-500 text-xs flex items-center gap-1">
+                    <Clock size={10} />
+                    {Math.round((Date.now() - new Date(marketData.fetched_at).getTime()) / 3600000)}h ago
+                  </span>
+                )}
               </div>
-              {marketData.fetched_at && (
-                <span className="text-gray-500 text-xs flex items-center gap-1">
-                  <Clock size={10} />
-                  {Math.round((Date.now() - new Date(marketData.fetched_at).getTime()) / 3600000)}h ago
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <p className="text-gray-500 text-xs">Amazon current</p>
-                <p className="text-white font-semibold">
-                  {marketData.amazon_current_price ? `$${parseFloat(marketData.amazon_current_price).toFixed(2)}` : '—'}
-                </p>
-              </div>
-              <div>
-                <p className="text-gray-500 text-xs">Buy Box</p>
-                <p className="text-neon-green font-bold">
-                  {marketData.amazon_buy_box_price ? `$${parseFloat(marketData.amazon_buy_box_price).toFixed(2)}` : '—'}
-                </p>
-              </div>
-              <div>
-                <p className="text-gray-500 text-xs">90d avg</p>
-                <p className="text-white">
-                  {marketData.amazon_90d_avg_price ? `$${parseFloat(marketData.amazon_90d_avg_price).toFixed(2)}` : '—'}
-                </p>
-              </div>
-              <div>
-                <p className="text-gray-500 text-xs">180d avg</p>
-                <p className="text-white">
-                  {marketData.amazon_180d_avg_price ? `$${parseFloat(marketData.amazon_180d_avg_price).toFixed(2)}` : '—'}
-                </p>
-              </div>
-              {marketData.sales_rank && (
-                <div>
-                  <p className="text-gray-500 text-xs">Sales rank</p>
-                  <p className="text-white">#{parseInt(marketData.sales_rank).toLocaleString()}</p>
+
+              {/* Effective Market Price — prominent highlight */}
+              {emp && (
+                <div className="flex items-center justify-between bg-neon-green/10 border border-neon-green/20 rounded-lg px-3 py-2">
+                  <div>
+                    <p className="text-gray-400 text-xs">Effective Market Price</p>
+                    <p className="text-neon-green font-bold text-xl">${emp.toFixed(2)}</p>
+                  </div>
+                  {empLabel && (
+                    <div className="text-right">
+                      <p className="text-gray-500 text-xs">Source</p>
+                      <p className="text-neon-green text-xs font-semibold">{empLabel}</p>
+                    </div>
+                  )}
                 </div>
               )}
+
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-gray-500 text-xs">Amazon current</p>
+                  <p className={marketData.amazon_current_price ? 'text-white font-semibold' : 'text-gray-600 text-xs'}>
+                    {marketData.amazon_current_price ? `$${parseFloat(marketData.amazon_current_price).toFixed(2)}` : 'Not available'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-500 text-xs">Buy Box</p>
+                  <p className={marketData.amazon_buy_box_price ? 'text-neon-green font-bold' : 'text-gray-600 text-xs'}>
+                    {marketData.amazon_buy_box_price ? `$${parseFloat(marketData.amazon_buy_box_price).toFixed(2)}` : 'Not available'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-500 text-xs">90d avg</p>
+                  <p className="text-white">
+                    {marketData.amazon_90d_avg_price ? `$${parseFloat(marketData.amazon_90d_avg_price).toFixed(2)}` : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-gray-500 text-xs">180d avg</p>
+                  <p className="text-white">
+                    {marketData.amazon_180d_avg_price ? `$${parseFloat(marketData.amazon_180d_avg_price).toFixed(2)}` : '—'}
+                  </p>
+                </div>
+                {marketData.sales_rank && (
+                  <div>
+                    <p className="text-gray-500 text-xs">Sales rank</p>
+                    <p className="text-white">#{parseInt(marketData.sales_rank).toLocaleString()}</p>
+                  </div>
+                )}
+                {marketData.keepa_confidence > 0 && (
+                  <div>
+                    <p className="text-gray-500 text-xs">Keepa confidence</p>
+                    <p className="text-white">{marketData.keepa_confidence}%</p>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ) : (
+          );
+        })() : (
           <div className="mb-4 px-3 py-2 bg-dark-800/30 rounded-lg">
             <p className="text-gray-500 text-xs flex items-center gap-1.5">
               <AlertTriangle size={11} className="text-yellow-500/70" />

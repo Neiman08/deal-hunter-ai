@@ -69,13 +69,26 @@ function parseKeepaProduct(product, requestedUpc) {
 
   const upc = requestedUpc || (product.upcList && product.upcList[0]) || null;
 
-  // Confidence score
+  // Confidence score (data completeness)
   let confidence = 0;
   if (buyBox) confidence += 40;
   if (amazonCurrent) confidence += 20;
   if (avg90Price) confidence += 20;
   if (salesRank) confidence += 10;
   if (upc) confidence += 10;
+
+  // Effective market price — best resale reference when current/buybox are unavailable
+  const effectivePrice = buyBox ?? amazonCurrent ?? avg90Price ?? avg180Price ?? null;
+  const effectiveSource = buyBox ? 'buy_box'
+    : amazonCurrent ? 'amazon_current'
+    : avg90Price ? 'amazon_90d_avg'
+    : avg180Price ? 'amazon_180d_avg'
+    : 'none';
+  const pricingConfidence = effectiveSource === 'buy_box' ? 90
+    : effectiveSource === 'amazon_current' ? 80
+    : effectiveSource === 'amazon_90d_avg' ? 60
+    : effectiveSource === 'amazon_180d_avg' ? 40
+    : 0;
 
   // Compact raw summary (no full csv arrays to keep storage small)
   const rawSummary = {
@@ -103,6 +116,9 @@ function parseKeepaProduct(product, requestedUpc) {
     is_amazon_in_stock: isAmazonInStock,
     offers_count: offersCount,
     keepa_confidence: confidence,
+    effective_market_price: effectivePrice,
+    effective_market_source: effectiveSource,
+    pricing_confidence: pricingConfidence,
     raw_summary: rawSummary,
   };
 }
@@ -149,7 +165,8 @@ async function saveKeepaMarketData(productId, data) {
     amazon_current_price, amazon_buy_box_price, amazon_90d_avg_price,
     amazon_180d_avg_price, amazon_new_price, amazon_used_price,
     sales_rank, category, is_amazon_in_stock, offers_count,
-    keepa_confidence, raw_summary,
+    keepa_confidence, effective_market_price, effective_market_source,
+    pricing_confidence, raw_summary,
   } = data;
 
   // Upsert: prefer asin uniqueness, fall back to upc uniqueness
@@ -161,8 +178,9 @@ async function saveKeepaMarketData(productId, data) {
       amazon_current_price, amazon_buy_box_price, amazon_90d_avg_price, amazon_180d_avg_price,
       amazon_new_price, amazon_used_price, sales_rank, category,
       is_amazon_in_stock, offers_count, keepa_confidence, raw_summary,
+      effective_market_price, effective_market_source, pricing_confidence,
       fetched_at, updated_at
-    ) VALUES ($1,$2,$3,'keepa',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,NOW(),NOW())
+    ) VALUES ($1,$2,$3,'keepa',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,NOW(),NOW())
     ON CONFLICT ${conflictCol} DO UPDATE SET
       product_id = EXCLUDED.product_id,
       upc = EXCLUDED.upc,
@@ -177,6 +195,9 @@ async function saveKeepaMarketData(productId, data) {
       is_amazon_in_stock = EXCLUDED.is_amazon_in_stock,
       offers_count = EXCLUDED.offers_count,
       keepa_confidence = EXCLUDED.keepa_confidence,
+      effective_market_price = EXCLUDED.effective_market_price,
+      effective_market_source = EXCLUDED.effective_market_source,
+      pricing_confidence = EXCLUDED.pricing_confidence,
       raw_summary = EXCLUDED.raw_summary,
       fetched_at = NOW(), updated_at = NOW()
     RETURNING *
@@ -186,6 +207,7 @@ async function saveKeepaMarketData(productId, data) {
     amazon_180d_avg_price || null, amazon_new_price || null, amazon_used_price || null,
     sales_rank || null, category || null, is_amazon_in_stock ?? null, offers_count || null,
     keepa_confidence || 0, raw_summary ? JSON.stringify(raw_summary) : '{}',
+    effective_market_price || null, effective_market_source || 'none', pricing_confidence || 0,
   ]);
   return r.rows[0];
 }
@@ -267,8 +289,26 @@ async function enrichProductWithKeepa(product, options = {}) {
   return { configured: true, found: false, error: 'No matching Keepa product found for product' };
 }
 
+// Derive effective price from existing DB columns for rows saved before the migration
+function deriveEffective(row) {
+  const b  = row.amazon_buy_box_price  ? parseFloat(row.amazon_buy_box_price)  : null;
+  const c  = row.amazon_current_price  ? parseFloat(row.amazon_current_price)  : null;
+  const a9 = row.amazon_90d_avg_price  ? parseFloat(row.amazon_90d_avg_price)  : null;
+  const a18= row.amazon_180d_avg_price ? parseFloat(row.amazon_180d_avg_price) : null;
+  const price  = b ?? c ?? a9 ?? a18 ?? null;
+  const source = b ? 'buy_box' : c ? 'amazon_current' : a9 ? 'amazon_90d_avg' : a18 ? 'amazon_180d_avg' : 'none';
+  const conf   = source === 'buy_box' ? 90 : source === 'amazon_current' ? 80
+    : source === 'amazon_90d_avg' ? 60 : source === 'amazon_180d_avg' ? 40 : 0;
+  return {
+    effective: row.effective_market_price ? parseFloat(row.effective_market_price) : price,
+    source:    row.effective_market_source || source,
+    conf:      row.pricing_confidence != null ? parseInt(row.pricing_confidence)   : conf,
+  };
+}
+
 function formatRow(row, parsed) {
   if (!row) return parsed;
+  const eff = deriveEffective(row);
   return {
     configured: true,
     found: true,
@@ -289,6 +329,9 @@ function formatRow(row, parsed) {
     is_amazon_in_stock: row.is_amazon_in_stock,
     offers_count: row.offers_count ? parseInt(row.offers_count) : null,
     confidence: row.keepa_confidence ? parseInt(row.keepa_confidence) : 0,
+    effective_market_price: eff.effective,
+    effective_market_source: eff.source,
+    pricing_confidence: eff.conf,
     fetched_at: row.fetched_at,
   };
 }

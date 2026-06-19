@@ -45,28 +45,50 @@ router.get('/lookup/:code', authenticate, async (req, res) => {
 
     if (marketData) {
       logger.info(`[Scanner] cache hit for code ${code}`);
+      // Derive effective price — use saved DB value, fall back to inline computation for pre-migration rows
+      const md = marketData;
+      const empRaw  = md.effective_market_price  ? parseFloat(md.effective_market_price)  : null;
+      const empPrice = empRaw ?? (
+        md.amazon_buy_box_price  ? parseFloat(md.amazon_buy_box_price)  :
+        md.amazon_current_price  ? parseFloat(md.amazon_current_price)  :
+        md.amazon_90d_avg_price  ? parseFloat(md.amazon_90d_avg_price)  :
+        md.amazon_180d_avg_price ? parseFloat(md.amazon_180d_avg_price) : null
+      );
+      const empSource = md.effective_market_source || (
+        md.amazon_buy_box_price  ? 'buy_box'         :
+        md.amazon_current_price  ? 'amazon_current'  :
+        md.amazon_90d_avg_price  ? 'amazon_90d_avg'  :
+        md.amazon_180d_avg_price ? 'amazon_180d_avg' : 'none'
+      );
+      const empConf = md.pricing_confidence != null ? parseInt(md.pricing_confidence) :
+        empSource === 'buy_box' ? 90 : empSource === 'amazon_current' ? 80 :
+        empSource === 'amazon_90d_avg' ? 60 : empSource === 'amazon_180d_avg' ? 40 : 0;
+
       keepaResult = {
         configured: true,
         found: true,
         cached: true,
         source: 'keepa',
-        asin: marketData.asin,
-        upc: marketData.upc,
-        title: marketData.title,
-        brand: marketData.brand,
-        image_url: marketData.image_url,
-        amazon_current_price: marketData.amazon_current_price ? parseFloat(marketData.amazon_current_price) : null,
-        amazon_buy_box_price: marketData.amazon_buy_box_price ? parseFloat(marketData.amazon_buy_box_price) : null,
-        amazon_90d_avg_price: marketData.amazon_90d_avg_price ? parseFloat(marketData.amazon_90d_avg_price) : null,
-        amazon_180d_avg_price: marketData.amazon_180d_avg_price ? parseFloat(marketData.amazon_180d_avg_price) : null,
-        amazon_new_price: marketData.amazon_new_price ? parseFloat(marketData.amazon_new_price) : null,
-        amazon_used_price: marketData.amazon_used_price ? parseFloat(marketData.amazon_used_price) : null,
-        sales_rank: marketData.sales_rank ? parseInt(marketData.sales_rank) : null,
-        category: marketData.category,
-        is_amazon_in_stock: marketData.is_amazon_in_stock,
-        offers_count: marketData.offers_count ? parseInt(marketData.offers_count) : null,
-        confidence: marketData.keepa_confidence ? parseInt(marketData.keepa_confidence) : 0,
-        fetched_at: marketData.fetched_at,
+        asin: md.asin,
+        upc: md.upc,
+        title: md.title,
+        brand: md.brand,
+        image_url: md.image_url,
+        amazon_current_price: md.amazon_current_price ? parseFloat(md.amazon_current_price) : null,
+        amazon_buy_box_price: md.amazon_buy_box_price ? parseFloat(md.amazon_buy_box_price) : null,
+        amazon_90d_avg_price: md.amazon_90d_avg_price ? parseFloat(md.amazon_90d_avg_price) : null,
+        amazon_180d_avg_price: md.amazon_180d_avg_price ? parseFloat(md.amazon_180d_avg_price) : null,
+        amazon_new_price: md.amazon_new_price ? parseFloat(md.amazon_new_price) : null,
+        amazon_used_price: md.amazon_used_price ? parseFloat(md.amazon_used_price) : null,
+        sales_rank: md.sales_rank ? parseInt(md.sales_rank) : null,
+        category: md.category,
+        is_amazon_in_stock: md.is_amazon_in_stock,
+        offers_count: md.offers_count ? parseInt(md.offers_count) : null,
+        confidence: md.keepa_confidence ? parseInt(md.keepa_confidence) : 0,
+        effective_market_price: empPrice,
+        effective_market_source: empSource,
+        pricing_confidence: empConf,
+        fetched_at: md.fetched_at,
       };
     } else if (isEnabled()) {
       // No cache — call Keepa API
@@ -120,6 +142,7 @@ router.post('/evaluate', authenticate, async (req, res) => {
   const {
     code, product_id, title, brand,
     in_store_price,
+    effective_market_price, effective_market_source, pricing_confidence,
     amazon_current_price, amazon_buy_box_price, amazon_90d_avg_price,
     sales_rank, confidence,
     ebay_avg_price, ebay_median_price, ebay_sold_count,
@@ -131,6 +154,9 @@ router.post('/evaluate', authenticate, async (req, res) => {
 
   const result = evaluate({
     in_store_price,
+    effective_market_price,
+    effective_market_source,
+    pricing_confidence,
     amazon_current_price,
     amazon_buy_box_price,
     amazon_90d_avg_price,

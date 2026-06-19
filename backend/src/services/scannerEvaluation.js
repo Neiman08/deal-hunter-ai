@@ -7,6 +7,10 @@
  */
 function evaluate({
   in_store_price,
+  // Effective price (pre-computed best available — takes priority)
+  effective_market_price,
+  effective_market_source,
+  pricing_confidence = 0,
   // Keepa / Amazon
   amazon_current_price,
   amazon_buy_box_price,
@@ -27,25 +31,27 @@ function evaluate({
     };
   }
 
-  const buyBox = parseFloat(amazon_buy_box_price) || 0;
-  const current = parseFloat(amazon_current_price) || 0;
-  const avg90 = parseFloat(amazon_90d_avg_price) || 0;
-  const ebayMedian = parseFloat(ebay_median_price) || 0;
-  const ebayAvg = parseFloat(ebay_avg_price) || 0;
+  const effectiveMarket = parseFloat(effective_market_price) || 0;
+  const buyBox    = parseFloat(amazon_buy_box_price)  || 0;
+  const current   = parseFloat(amazon_current_price)  || 0;
+  const avg90     = parseFloat(amazon_90d_avg_price)  || 0;
+  const ebayMedian= parseFloat(ebay_median_price)     || 0;
+  const ebayAvg   = parseFloat(ebay_avg_price)        || 0;
 
-  // Determine best resale price
+  // Determine best resale price — effective_market_price first, then explicit fields
   let resalePrice = 0;
   let resaleSource = 'none';
-  if (buyBox > 0) { resalePrice = buyBox; resaleSource = 'amazon_buy_box'; }
-  else if (current > 0) { resalePrice = current; resaleSource = 'amazon_current'; }
-  else if (ebayMedian > 0) { resalePrice = ebayMedian; resaleSource = 'ebay_median'; }
-  else if (avg90 > 0) { resalePrice = avg90; resaleSource = 'amazon_90d_avg'; }
-  else if (ebayAvg > 0) { resalePrice = ebayAvg; resaleSource = 'ebay_avg'; }
+  if (effectiveMarket > 0) { resalePrice = effectiveMarket; resaleSource = effective_market_source || 'keepa'; }
+  else if (buyBox > 0)     { resalePrice = buyBox;          resaleSource = 'amazon_buy_box'; }
+  else if (current > 0)    { resalePrice = current;         resaleSource = 'amazon_current'; }
+  else if (ebayMedian > 0) { resalePrice = ebayMedian;      resaleSource = 'ebay_median'; }
+  else if (avg90 > 0)      { resalePrice = avg90;           resaleSource = 'amazon_90d_avg'; }
+  else if (ebayAvg > 0)    { resalePrice = ebayAvg;         resaleSource = 'ebay_avg'; }
 
   if (resalePrice <= 0) {
     const hasEbay = ebayAvg > 0 || ebayMedian > 0;
     return {
-      error: 'No resale price available (no Amazon or eBay data)',
+      error: 'Not enough market pricing data',
       recommendation: 'SKIP',
       net_profit: 0, roi_percent: 0, opportunity_score: 0,
       resale_price: 0,

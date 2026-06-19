@@ -56,6 +56,15 @@ function ScoreDisplay({ score, label }) {
   );
 }
 
+const SOURCE_LABELS = {
+  buy_box: 'Buy Box',
+  amazon_current: 'Amazon current',
+  amazon_90d_avg: '90d avg',
+  amazon_180d_avg: '180d avg',
+  ebay_median: 'eBay median',
+  none: 'No data',
+};
+
 function KeepaPanel({ keepa }) {
   if (!keepa) return null;
 
@@ -79,6 +88,9 @@ function KeepaPanel({ keepa }) {
     ? Math.round((Date.now() - new Date(keepa.fetched_at).getTime()) / 3600000)
     : null;
 
+  const hasEffective = keepa.effective_market_price != null;
+  const sourceLabel = SOURCE_LABELS[keepa.effective_market_source] || keepa.effective_market_source;
+
   return (
     <div className="bg-dark-800/50 rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
@@ -93,14 +105,33 @@ function KeepaPanel({ keepa }) {
           </span>
         )}
       </div>
+
+      {/* Market Price — prominent when current/buybox are unavailable */}
+      {hasEffective && (
+        <div className="flex items-center justify-between bg-neon-green/10 border border-neon-green/20 rounded-lg px-3 py-2">
+          <div>
+            <p className="text-gray-400 text-xs">Market Price</p>
+            <p className="text-neon-green font-bold text-lg">{fmt(keepa.effective_market_price)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-gray-500 text-xs">Source</p>
+            <p className="text-neon-green text-xs font-semibold">{sourceLabel}</p>
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2 text-xs">
         <div>
           <p className="text-gray-500">Amazon current</p>
-          <p className="text-white font-semibold">{fmt(keepa.amazon_current_price)}</p>
+          <p className={keepa.amazon_current_price ? 'text-white font-semibold' : 'text-gray-600'}>
+            {keepa.amazon_current_price ? fmt(keepa.amazon_current_price) : 'Not available'}
+          </p>
         </div>
         <div>
           <p className="text-gray-500">Buy Box</p>
-          <p className="text-neon-green font-semibold">{fmt(keepa.amazon_buy_box_price)}</p>
+          <p className={keepa.amazon_buy_box_price ? 'text-neon-green font-semibold' : 'text-gray-600'}>
+            {keepa.amazon_buy_box_price ? fmt(keepa.amazon_buy_box_price) : 'Not available'}
+          </p>
         </div>
         <div>
           <p className="text-gray-500">90d avg</p>
@@ -286,6 +317,9 @@ export default function Scanner() {
       const r = await api.post('/scanner/evaluate', {
         code: query,
         in_store_price: sp,
+        effective_market_price: keepa?.effective_market_price ?? null,
+        effective_market_source: keepa?.effective_market_source ?? null,
+        pricing_confidence: keepa?.pricing_confidence ?? 0,
         amazon_current_price: keepa?.amazon_current_price ?? null,
         amazon_buy_box_price: keepa?.amazon_buy_box_price ?? null,
         amazon_90d_avg_price: keepa?.amazon_90d_avg_price ?? null,

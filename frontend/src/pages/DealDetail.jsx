@@ -152,15 +152,26 @@ export default function DealDetail() {
         {/* Actions */}
         <div className="flex gap-3 mt-4">
           {deal.store_slug === 'macys' ? (
-            // Always use search URL for Macy's — product_url in DB is missing ?ID= and returns 404
-            <a
-              href={`https://www.macys.com/shop/featured/${encodeURIComponent(deal.name)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-primary flex items-center gap-2 text-sm flex-1 justify-center"
-            >
-              <ExternalLink size={15} /> Search on Macy's
-            </a>
+            // Use direct /ID/ URL when available; otherwise fall back to search
+            deal.product_url?.includes('/ID/') ? (
+              <a
+                href={deal.product_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary flex items-center gap-2 text-sm flex-1 justify-center"
+              >
+                <ExternalLink size={15} /> View at Macy's
+              </a>
+            ) : (
+              <a
+                href={`https://www.macys.com/shop/featured/${encodeURIComponent(deal.name)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary flex items-center gap-2 text-sm flex-1 justify-center"
+              >
+                <ExternalLink size={15} /> Search on Macy's
+              </a>
+            )
           ) : deal.product_url ? (
             <a href={deal.product_url} target="_blank" rel="noopener noreferrer" className="btn-primary flex items-center gap-2 text-sm flex-1 justify-center">
               <ExternalLink size={15} /> View at {deal.store_name}

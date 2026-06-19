@@ -13,7 +13,7 @@ services:
     name: deal-hunter-ai
     env: node
     buildCommand: cd backend && npm ci
-    startCommand: cd backend && node src/db/add-missing-stores.js ; node src/db/add-effective-price-columns.js ; node src/db/seed-illinois-stores.js ; node src/index.js
+    startCommand: cd backend && node src/db/add-missing-stores.js ; node src/db/add-effective-price-columns.js ; node src/db/seed-illinois-stores.js ; node src/db/v5-phase1-migration.js ; node src/db/v5-fase1-community.js ; node src/index.js
     envVars:
       - key: NODE_ENV
         value: production

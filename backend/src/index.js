@@ -94,6 +94,7 @@ app.use('/api/markets', require('./routes/markets'));
 app.use('/api/collaborators', require('./routes/collaborators'));
 app.use('/api/feed', require('./routes/feed'));
 app.use('/api/scanner', require('./routes/scanner'));
+app.use('/api/community', require('./routes/community'));
 app.use('/api/ebay', require('./routes/ebay'));
 
 // ── Health & Status ───────────────────────────────────────────────────────────

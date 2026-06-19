@@ -2,7 +2,7 @@ import { useState, useRef, useCallback } from 'react';
 import {
   Scan, Search, TrendingUp, Package, AlertTriangle, History,
   Camera, X, ExternalLink, ChevronDown, CheckCircle, ShoppingCart,
-  BarChart2, Clock,
+  BarChart2, Clock, Upload,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import api from '../utils/api';
@@ -256,6 +256,8 @@ function EvalPanel({ evaluation, onSave, saving }) {
 
 const REAL_SKU_EXAMPLES = ['gs-344870', '6620073', '6510363'];
 
+const FEEDBACK_TAGS = ['Found in Store', 'Out of Stock', 'Price Mismatch', 'Wrong Product', 'Good Deal', 'Bad Deal'];
+
 export default function Scanner() {
   const [mode, setMode] = useState('upc');
   const [query, setQuery] = useState('');
@@ -272,6 +274,11 @@ export default function Scanner() {
   const [saving, setSaving] = useState(false);
   const [savedId, setSavedId] = useState(null);
 
+  // Submit as Deal
+  const [feedbackTag, setFeedbackTag] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitResult, setSubmitResult] = useState(null); // { id, points_pending, confirmations_needed, error }
+
   // History
   const [history, setHistory] = useState([]);
 
@@ -287,6 +294,9 @@ export default function Scanner() {
     setEvaluation(null);
     setSavedId(null);
     setShowAllDeals(false);
+    setFeedbackTag('');
+    setSubmitting(false);
+    setSubmitResult(null);
   };
 
   const doLookup = useCallback(async (code, lookupMode, opts = {}) => {
@@ -404,6 +414,44 @@ export default function Scanner() {
       // fail silently — don't disrupt UX
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function submitDeal() {
+    if (submitting || submitResult?.id) return;
+    setSubmitting(true);
+    try {
+      const k = lookupResult?.keepa;
+      const p = lookupResult?.product;
+      const r = await api.post('/scanner/submit-deal', {
+        upc:   p?.upc  || (mode === 'upc' ? query : null),
+        sku:   p?.sku  || (mode === 'sku' ? query : null),
+        title: p?.name || k?.title || query,
+        brand: p?.brand || k?.brand || null,
+        store_slug:              p?.store_slug || null,
+        found_price:             parseFloat(storePrice),
+        effective_market_price:  k?.effective_market_price ?? null,
+        effective_market_source: k?.effective_market_source ?? null,
+        net_profit:              evaluation?.net_profit ?? null,
+        roi_percent:             evaluation?.roi_percent ?? null,
+        opportunity_score:       evaluation?.opportunity_score ?? null,
+        recommendation:          evaluation?.recommendation ?? null,
+        keepa_confidence:        k?.confidence ?? null,
+        feedback_tag:            feedbackTag || null,
+      });
+      setSubmitResult({ id: r.data.id, points_pending: r.data.points_pending, confirmations_needed: r.data.confirmations_needed });
+    } catch (err) {
+      const msg = err.response?.data?.message || err.response?.data?.error || 'Failed to submit deal.';
+      const code = err.response?.data?.error;
+      if (code === 'photo_required') {
+        setSubmitResult({ error: 'photo_required', message: msg });
+      } else if (code === 'duplicate') {
+        setSubmitResult({ error: 'duplicate', message: msg });
+      } else {
+        setSubmitResult({ error: 'generic', message: msg });
+      }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -617,7 +665,59 @@ export default function Scanner() {
                 ) : null}
 
                 {evaluation && (
-                  <EvalPanel evaluation={evaluation} onSave={saveScan} saving={saving} />
+                  <>
+                    <EvalPanel evaluation={evaluation} onSave={saveScan} saving={saving} />
+
+                    {/* Submit as Community Deal — only for BUY or score ≥ 70 */}
+                    {(evaluation.recommendation === 'BUY' || (evaluation.opportunity_score || 0) >= 70) && (
+                      <div className="mt-1 p-3 rounded-xl border border-neon-blue/20 bg-neon-blue/5 space-y-3">
+                        <p className="text-neon-blue text-xs font-semibold uppercase tracking-wider">Submit as Community Deal</p>
+
+                        {/* Feedback tags */}
+                        <div>
+                          <p className="text-gray-400 text-xs mb-2">What did you find? (optional)</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {FEEDBACK_TAGS.map(tag => (
+                              <button
+                                key={tag}
+                                onClick={() => setFeedbackTag(t => t === tag ? '' : tag)}
+                                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                                  feedbackTag === tag
+                                    ? 'bg-neon-blue/20 text-neon-blue border-neon-blue/40'
+                                    : 'bg-dark-800 text-gray-400 border-dark-700 hover:border-gray-500'
+                                }`}
+                              >
+                                {tag}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {submitResult?.id ? (
+                          <div className="space-y-1">
+                            <p className="text-neon-green text-xs flex items-center gap-1.5">
+                              <CheckCircle size={12} /> Deal submitted — needs {submitResult.confirmations_needed} confirmations to go live.
+                            </p>
+                            <p className="text-gray-500 text-xs">
+                              +{submitResult.points_pending} pts will be awarded when verified.
+                            </p>
+                          </div>
+                        ) : submitResult?.error ? (
+                          <p className="text-yellow-400 text-xs flex items-center gap-1.5">
+                            <AlertTriangle size={12} /> {submitResult.message}
+                          </p>
+                        ) : (
+                          <button
+                            onClick={submitDeal}
+                            disabled={submitting}
+                            className="btn-primary w-full text-sm flex items-center justify-center gap-2 disabled:opacity-50"
+                          >
+                            <Upload size={14} /> {submitting ? 'Submitting…' : 'Submit to Community'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </>
                 )}
 
                 {savedId && (

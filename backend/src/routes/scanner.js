@@ -176,6 +176,156 @@ router.post('/evaluate', authenticate, async (req, res) => {
   });
 });
 
+// POST /api/scanner/submit-deal
+router.post('/submit-deal', authenticate, async (req, res) => {
+  try {
+    const {
+      upc, sku, title, brand,
+      store_slug, store_location_id,
+      found_price, photo_url,
+      effective_market_price, effective_market_source,
+      net_profit, roi_percent, opportunity_score, recommendation,
+      keepa_confidence, feedback_tag,
+    } = req.body;
+
+    if (!found_price) return res.status(400).json({ error: 'found_price required' });
+
+    const profit  = net_profit  != null ? parseFloat(net_profit)  : null;
+    const roi     = roi_percent != null ? parseFloat(roi_percent) : null;
+    const price   = parseFloat(found_price);
+
+    // ── Anti-fraud: photo required for high-value deals ───────────────────
+    if (!photo_url && ((profit != null && profit > 50) || (roi != null && roi > 100))) {
+      return res.status(422).json({
+        error: 'photo_required',
+        message: 'A photo is required for deals with profit > $50 or ROI > 100%.',
+      });
+    }
+
+    // ── Anti-fraud: duplicate check (same UPC + store + user within 6h) ───
+    if (upc && store_slug) {
+      const dupCheck = await query(`
+        SELECT id FROM submitted_deals sd
+        JOIN stores s ON sd.store_id = s.id
+        WHERE sd.user_id = $1
+          AND sd.upc = $2
+          AND s.slug = $3
+          AND sd.created_at > NOW() - INTERVAL '6 hours'
+          AND sd.status NOT IN ('rejected','expired','duplicate')
+        LIMIT 1
+      `, [req.user.id, upc, store_slug]);
+      if (dupCheck.rows[0]) {
+        return res.status(409).json({
+          error: 'duplicate',
+          message: 'You already submitted this product at this store in the last 6 hours.',
+          existing_id: dupCheck.rows[0].id,
+        });
+      }
+    }
+
+    const storeRes = store_slug
+      ? await query('SELECT id FROM stores WHERE slug = $1', [store_slug])
+      : { rows: [] };
+    const store_id = storeRes.rows[0]?.id || null;
+
+    // ── Auto-create collaborator profile if none ───────────────────────────
+    let cpRes = await query(
+      'SELECT id, points, trust_score, submissions_today, last_submission_date FROM collaborator_profiles WHERE user_id = $1',
+      [req.user.id]
+    );
+    if (!cpRes.rows[0]) {
+      cpRes = await query(
+        `INSERT INTO collaborator_profiles (user_id, display_name, level, points, trust_score)
+         VALUES ($1, $2, 'Rookie Hunter', 0, 50) RETURNING id, points, trust_score, submissions_today, last_submission_date`,
+        [req.user.id, req.user.name || (req.user.email || '').split('@')[0] || 'Hunter']
+      );
+    }
+    const cp = cpRes.rows[0];
+    const collaborator_id = cp.id;
+
+    // ── Anti-fraud: daily submission limit for new users (trust_score < 30) ─
+    const today = new Date().toISOString().slice(0, 10);
+    const isNewDay = !cp.last_submission_date || cp.last_submission_date.toISOString?.()?.slice(0, 10) !== today
+                     || String(cp.last_submission_date).slice(0, 10) !== today;
+    const dailyCount = isNewDay ? 0 : (cp.submissions_today || 0);
+
+    if ((cp.trust_score || 50) < 30 && dailyCount >= 2) {
+      return res.status(429).json({
+        error: 'rate_limited',
+        message: 'Your account is limited to 2 submissions per day until trust is established.',
+      });
+    }
+    if (dailyCount >= 20) {
+      return res.status(429).json({ error: 'rate_limited', message: 'Daily submission limit reached.' });
+    }
+
+    // ── trust_threshold based on submitter trust score ────────────────────
+    const trustScore  = cp.trust_score || 50;
+    const trustNeeded = trustScore >= 70 ? 2 : trustScore >= 40 ? 3 : 4;
+
+    // ── Points pending based on opportunity ──────────────────────────────
+    const score = opportunity_score ? parseInt(opportunity_score) : 0;
+    const pointsPending = score >= 90 ? 100 : score >= 70 ? 50 : 10;
+
+    const insertRes = await query(`
+      INSERT INTO submitted_deals (
+        user_id, collaborator_id, store_id, product_name, brand, upc, sku,
+        found_price, estimated_profit, roi_percent, opportunity_score, recommendation,
+        effective_market_price, effective_market_source, keepa_confidence,
+        store_location_id, feedback_tag, photo_url,
+        trust_threshold, points_pending, status
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'submitted')
+      RETURNING id, created_at
+    `, [
+      req.user.id, collaborator_id, store_id,
+      (title || 'Unknown Product').slice(0, 255), brand || null, upc || null, sku || null,
+      price,
+      profit,
+      roi,
+      score || null,
+      recommendation || null,
+      effective_market_price != null ? parseFloat(effective_market_price) : null,
+      effective_market_source || null,
+      keepa_confidence != null ? parseInt(keepa_confidence) : null,
+      store_location_id || null,
+      feedback_tag || null,
+      photo_url || null,
+      trustNeeded,
+      pointsPending,
+    ]);
+
+    const dealId = insertRes.rows[0].id;
+
+    // ── Record pending earning (no points awarded yet) ─────────────────────
+    await query(`
+      INSERT INTO contributor_earnings (user_id, submitted_deal_id, earning_type, points, status, description)
+      VALUES ($1, $2, 'deal_verified', $3, 'pending', 'Points pending until deal is verified')
+    `, [req.user.id, dealId, pointsPending]);
+
+    // ── Update daily counter ───────────────────────────────────────────────
+    await query(`
+      UPDATE collaborator_profiles
+      SET submissions_today = CASE WHEN last_submission_date = CURRENT_DATE THEN submissions_today + 1 ELSE 1 END,
+          last_submission_date = CURRENT_DATE,
+          updated_at = NOW()
+      WHERE id = $1
+    `, [collaborator_id]);
+
+    logger.info(`[Scanner] deal submitted id=${dealId} user=${req.user.id} pending_pts=${pointsPending}`);
+    res.json({
+      submitted: true,
+      id: dealId,
+      status: 'submitted',
+      points_pending: pointsPending,
+      confirmations_needed: trustNeeded,
+      message: `Deal submitted! ${pointsPending} points will be awarded once ${trustNeeded} users confirm it.`,
+    });
+  } catch (err) {
+    logger.error(`[Scanner] submit-deal error: ${err.message}`);
+    res.status(500).json({ error: 'Failed to submit deal', details: err.message });
+  }
+});
+
 // POST /api/scanner/history
 router.post('/history', authenticate, async (req, res) => {
   const {

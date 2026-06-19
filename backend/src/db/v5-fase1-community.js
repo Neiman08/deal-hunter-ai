@@ -50,6 +50,15 @@ async function migrate() {
   `);
   await query(`CREATE INDEX IF NOT EXISTS idx_sdc_deal ON submitted_deal_confirmations(submitted_deal_id)`);
   await query(`CREATE INDEX IF NOT EXISTS idx_sdc_user ON submitted_deal_confirmations(user_id)`);
+  // Ensure extended confirmation types are supported
+  await query(`ALTER TABLE submitted_deal_confirmations DROP CONSTRAINT IF EXISTS submitted_deal_confirmations_confirmation_type_check`);
+  await query(`
+    ALTER TABLE submitted_deal_confirmations ADD CONSTRAINT submitted_deal_confirmations_confirmation_type_check
+    CHECK (confirmation_type IN (
+      'price_confirmed','in_stock','out_of_stock','price_mismatch','not_found',
+      'wrong_product','expired','great_deal'
+    ))
+  `);
   console.log('[fase1] submitted_deal_confirmations table created');
 
   // ── 4. Trust score on collaborator_profiles ───────────────────────────────

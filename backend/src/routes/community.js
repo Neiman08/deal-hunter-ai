@@ -187,7 +187,7 @@ router.post('/deals/:id/confirm', authenticate, async (req, res) => {
   const dealId = req.params.id;
   const { confirmation_type, price_seen, notes } = req.body;
 
-  const validTypes = ['price_confirmed', 'in_stock', 'out_of_stock', 'price_mismatch', 'not_found'];
+  const validTypes = ['price_confirmed', 'in_stock', 'out_of_stock', 'price_mismatch', 'not_found', 'wrong_product', 'expired', 'great_deal'];
   if (!validTypes.includes(confirmation_type)) {
     return res.status(400).json({ error: 'Invalid confirmation_type', valid: validTypes });
   }
@@ -225,7 +225,7 @@ router.post('/deals/:id/confirm', authenticate, async (req, res) => {
     }
 
     // Positive = found/confirmed, negative = not found / mismatch
-    const isPositive = ['price_confirmed', 'in_stock'].includes(confirmation_type);
+    const isPositive = ['price_confirmed', 'in_stock', 'great_deal'].includes(confirmation_type);
     const isNegative = ['not_found', 'price_mismatch'].includes(confirmation_type);
 
     // Update counts and status

@@ -84,6 +84,7 @@ export default function Layout() {
         <div className="pt-2 pb-0.5 px-3">
           <p className="text-gray-500 text-[10px] uppercase tracking-wider font-semibold">Community</p>
         </div>
+        <NavItem item={{ to: '/community', icon: <Users size={16} />, label: 'Community' }} onClick={close} />
         <NavItem item={{ to: '/feed', icon: <Flame size={16} />, label: 'Deal Feed' }} onClick={close} />
         <NavItem item={{ to: '/collaborator', icon: <Star size={16} />, label: 'Collaborator' }} onClick={close} />
         <NavItem item={{ to: '/teams', icon: <Users size={16} />, label: 'Teams' }} onClick={close} />

@@ -140,6 +140,13 @@ app.listen(PORT, async () => {
   } catch (err) {
     logger.warn(`[startup] category migration warning: ${err.message}`);
   }
+  // Seed store locations for map (one-time, idempotent)
+  try {
+    const { seedStoreLocations } = require('./db/seed-store-locations');
+    await seedStoreLocations();
+  } catch (err) {
+    logger.warn(`[startup] store location seed warning: ${err.message}`);
+  }
   // Scan job runs only on the worker (deal-hunter-worker service).
   // Running it here caused OOM crashes on the web service.
   const { startWorkerMonitor } = require('./services/workerMonitor');

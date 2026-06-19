@@ -208,10 +208,21 @@ async function runOfficeDepotDiscovery(options = {}) {
   const storeId = storeRes.rows[0]?.id;
   if (!storeId) { logger.error(`[Discovery:${STORE_LABEL}] Store not found in DB`); return stats; }
 
-  // Fetch default category once
-  const catRes = await query('SELECT id, slug FROM categories ORDER BY name LIMIT 1');
-  const categoryId = catRes.rows[0]?.id || null;
-  const catSlug    = catRes.rows[0]?.slug || null;
+  // Pre-load all categories for smart assignment
+  const allCatsRes = await query('SELECT id, slug FROM categories');
+  const catMap = {};
+  for (const r of allCatsRes.rows) catMap[r.slug] = r.id;
+  const defaultCatId  = catMap['electronics'] || catMap['office'] || Object.values(catMap)[0];
+  const defaultCatSlug = 'electronics';
+
+  function detectOdCategory(name, url) {
+    const t = (name + ' ' + url).toLowerCase();
+    if (/chair|desk|table|shelv|cabinet|bookcase|stand|mat|storage|furniture/.test(t)) return ['home-decor', catMap['home-decor']];
+    if (/printer|toner|ink|shredder|laminator|paper|binder|staple|copier/.test(t)) return ['office', catMap['office']];
+    if (/coffee|keurig|espresso|refrigerator|microwave|toaster|blender/.test(t)) return ['appliances', catMap['appliances']];
+    if (/laptop|chromebook|computer|desktop|monitor|tablet|ipad|keyboard|mouse|webcam|router|headphone|speaker|hard.?drive|ssd|flash.?drive/.test(t)) return ['electronics', catMap['electronics']];
+    return [defaultCatSlug, defaultCatId];
+  }
 
   const { scrapeOfficeDepotProduct, warmSession } = require('../scrapers/officedepot');
 
@@ -255,6 +266,7 @@ async function runOfficeDepotDiscovery(options = {}) {
 
       if (!dbProduct) {
         const skuKey = scraped.sku || `od-${url.match(/\/a\/products\/(\d+)\//)?.[1] || Date.now()}`;
+        const [detectedCatSlug, detectedCatId] = detectOdCategory(scraped.name || '', url);
         const inserted = await query(`
           INSERT INTO products (name, brand, sku, upc, store_id, category_id, image_url, product_url, created_at, updated_at)
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
@@ -271,11 +283,11 @@ async function runOfficeDepotDiscovery(options = {}) {
           skuKey,
           scraped.upc || null,
           storeId,
-          categoryId,
+          detectedCatId,
           scraped.imageUrl || null,
           url,
         ]);
-        dbProduct = { ...inserted.rows[0], cat_slug: catSlug };
+        dbProduct = { ...inserted.rows[0], cat_slug: detectedCatSlug };
       }
 
       await saveProductData(dbProduct, scraped, STORE_SLUG);

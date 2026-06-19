@@ -133,6 +133,13 @@ app.listen(PORT, async () => {
   } catch (err) {
     logger.warn(`[startup] Keepa migration warning: ${err.message}`);
   }
+  // Re-categorize products + reactivate 14-day deals (one-time, idempotent)
+  try {
+    const { migrateCategoriesAndReactivate } = require('./db/migrate-categories');
+    await migrateCategoriesAndReactivate();
+  } catch (err) {
+    logger.warn(`[startup] category migration warning: ${err.message}`);
+  }
   // Scan job runs only on the worker (deal-hunter-worker service).
   // Running it here caused OOM crashes on the web service.
   const { startWorkerMonitor } = require('./services/workerMonitor');

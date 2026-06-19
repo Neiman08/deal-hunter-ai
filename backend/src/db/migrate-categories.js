@@ -21,11 +21,20 @@ async function migrateCategoriesAndReactivate() {
     )
   `);
 
+  // ── Schema fixes — always run (fast, idempotent ALTER TABLE IF NOT EXISTS) ─
+  await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS approved_deals_count INTEGER DEFAULT 0`);
+  await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS rejected_deals_count INTEGER DEFAULT 0`);
+  await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS pending_deals_count INTEGER DEFAULT 0`);
+  await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS trust_score INTEGER DEFAULT 50`);
+  await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS submissions_today INTEGER DEFAULT 0`);
+  await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS last_submission_date DATE`);
+  await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS level VARCHAR(30) DEFAULT 'Rookie Hunter'`);
+
   const already = await query(
     "SELECT 1 FROM db_migrations WHERE name='categories_v1_reactivate_14d'"
   );
   if (already.rows.length) {
-    logger.info('[migrate-categories] already applied — skipping');
+    logger.info('[migrate-categories] already applied — skipping data fixes');
     return;
   }
 

@@ -102,6 +102,23 @@ async function migrateCategoriesAndReactivate() {
   );
 
   logger.info('[migrate-categories] ✅ done');
+
+  // ── 5. Extended reactivation: 30-day window (second pass, separate migration) ─
+  const alreadyV2 = await query(
+    "SELECT 1 FROM db_migrations WHERE name='categories_v2_reactivate_30d'"
+  );
+  if (!alreadyV2.rows.length) {
+    const result2 = await query(`
+      UPDATE deals SET is_active = true
+      WHERE is_active = false
+        AND discount_percent >= 20
+        AND last_seen_at >= NOW() - INTERVAL '30 days'
+    `);
+    logger.info(`[migrate-categories] v2: reactivated ${result2.rowCount} additional deals within 30-day window`);
+    await query(
+      "INSERT INTO db_migrations (name) VALUES ('categories_v2_reactivate_30d') ON CONFLICT DO NOTHING"
+    );
+  }
 }
 
 module.exports = { migrateCategoriesAndReactivate };

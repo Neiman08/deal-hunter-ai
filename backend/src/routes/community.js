@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
+const { trackConfirmDeal } = require('../services/businessActions');
 const logger = require('../utils/logger');
 
 // ── Points for deal lifecycle ─────────────────────────────────────────────────
@@ -244,11 +245,12 @@ router.post('/deals/:id/confirm', authenticate, async (req, res) => {
 
     const updated = updateRes.rows[0];
 
-    // Award confirmer 5 points
+    // Award confirmer 5 points (existing system) + 3 XP via Business layer (fire-and-forget)
     let cpRes = await query('SELECT id FROM collaborator_profiles WHERE user_id=$1', [req.user.id]);
     if (cpRes.rows[0]) {
       await awardPoints(cpRes.rows[0].id, req.user.id, dealId, 'confirmation', POINTS.confirmation, 'Confirmed a community deal');
     }
+    trackConfirmDeal(req.user.id, dealId).catch(() => {});
 
     // Auto-promote to verified if enough positive confirmations
     const threshold = updated.trust_threshold || 2;

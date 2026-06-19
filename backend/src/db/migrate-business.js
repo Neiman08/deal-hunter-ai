@@ -77,7 +77,33 @@ async function migrateBusinessPhaseA() {
     `, [m.slug, m.title, m.description, m.type, m.action, m.target, m.xp]);
   }
 
-  logger.info('[migrate-business] Phase A complete ✓');
+  // ── hunter_transactions (Phase B) ─────────────────────────────────────────
+  await query(`
+    CREATE TABLE IF NOT EXISTS hunter_transactions (
+      id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id        UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      type           VARCHAR(40) NOT NULL,
+      source         VARCHAR(60),
+      xp_delta       INTEGER NOT NULL DEFAULT 0,
+      points_delta   INTEGER NOT NULL DEFAULT 0,
+      amount_delta   NUMERIC(10,2) NOT NULL DEFAULT 0,
+      status         VARCHAR(20) NOT NULL DEFAULT 'approved'
+        CHECK (status IN ('pending','approved','rejected','paid','redeemed')),
+      reference_type VARCHAR(40),
+      reference_id   VARCHAR(200),
+      description    TEXT,
+      metadata       JSONB,
+      created_at     TIMESTAMPTZ DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_htx_user    ON hunter_transactions(user_id, created_at DESC)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_htx_type    ON hunter_transactions(type)`);
+  await query(`CREATE INDEX IF NOT EXISTS idx_htx_status  ON hunter_transactions(status)`);
+
+  // ── contributor_wallets: ensure points_pending exists ─────────────────────
+  await query(`ALTER TABLE contributor_wallets ADD COLUMN IF NOT EXISTS points_pending INTEGER DEFAULT 0`);
+
+  logger.info('[migrate-business] Phase A+B complete ✓');
 }
 
 module.exports = { migrateBusinessPhaseA };

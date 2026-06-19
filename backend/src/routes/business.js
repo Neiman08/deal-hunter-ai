@@ -112,11 +112,11 @@ router.get('/home', async (req, res) => {
       [uid]
     );
 
-    // Recent earnings
-    const earningsRes = await query(
-      `SELECT earning_type, points, credit_amount, status, created_at
-       FROM contributor_earnings WHERE user_id=$1
-       ORDER BY created_at DESC LIMIT 10`,
+    // Recent transactions (Phase B)
+    const txRes = await query(
+      `SELECT type, xp_delta, points_delta, amount_delta, status, reference_type, description, created_at
+       FROM hunter_transactions WHERE user_id=$1
+       ORDER BY created_at DESC LIMIT 15`,
       [uid]
     );
 
@@ -166,7 +166,7 @@ router.get('/home', async (req, res) => {
       team,
       rank,
       missions: missionsRes.rows,
-      recent_earnings: earningsRes.rows,
+      recent_transactions: txRes.rows,
       badges: badgesRes.rows,
     });
   } catch (err) {
@@ -249,6 +249,71 @@ router.post('/missions/:slug/progress', async (req, res) => {
       target:      mission.target,
       completed:   justCompleted,
       xp_awarded,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/business/wallet ──────────────────────────────────────────────────
+router.get('/wallet', async (req, res) => {
+  try {
+    const uid = req.user.id;
+
+    // Auto-create wallet if missing
+    await query(`INSERT INTO contributor_wallets (user_id) VALUES ($1) ON CONFLICT DO NOTHING`, [uid]);
+
+    const walletRes = await query('SELECT * FROM contributor_wallets WHERE user_id=$1', [uid]);
+    const wallet    = walletRes.rows[0] || {};
+
+    const profileRes = await query(
+      `SELECT points, xp_this_month, trust_score FROM collaborator_profiles WHERE user_id=$1`,
+      [uid]
+    );
+    const profile = profileRes.rows[0] || {};
+
+    const pts   = profile.points || 0;
+    const level = getBusinessLevel(pts);
+    const progress = level.next
+      ? Math.min(100, Math.round(((pts - level.min) / (level.next - level.min)) * 100))
+      : 100;
+
+    // Pending earnings from contributor_earnings
+    const pendingEarningsRes = await query(`
+      SELECT COALESCE(SUM(credit_amount),0) AS pending_money,
+             COALESCE(SUM(points),0)        AS pending_points
+      FROM contributor_earnings WHERE user_id=$1 AND status='pending'
+    `, [uid]);
+    const pe = pendingEarningsRes.rows[0] || {};
+
+    // Recent transactions
+    const txRes = await query(`
+      SELECT type, xp_delta, points_delta, amount_delta, status, reference_type, description, created_at
+      FROM hunter_transactions WHERE user_id=$1
+      ORDER BY created_at DESC LIMIT 25
+    `, [uid]);
+
+    res.json({
+      points: {
+        available: wallet.points_available  || 0,
+        pending:   wallet.points_pending    || 0,
+        lifetime:  wallet.lifetime_points   || 0,
+      },
+      xp: {
+        total:           pts,
+        this_month:      profile.xp_this_month || 0,
+        next_level_at:   level.next,
+        next_level_name: level.next ? LEVELS.find(l => l.min === level.next)?.name : null,
+        progress_percent: progress,
+        level:            level.name,
+        tier:             level.tier,
+      },
+      money: {
+        available: parseFloat(wallet.credit_balance || 0).toFixed(2),
+        pending:   parseFloat(pe.pending_money || 0).toFixed(2),
+        lifetime:  '0.00', // future: sum of paid withdrawals
+      },
+      transactions: txRes.rows,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });

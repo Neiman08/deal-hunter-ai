@@ -4,6 +4,7 @@ import {
   Briefcase, TrendingUp, Star, Shield, Wallet, Users,
   Zap, Gift, Target, CheckCircle, Clock, Award, Plus,
   ChevronRight, Copy, Check, AlertTriangle, BarChart2,
+  Scan, Upload, ThumbsUp, Flame, Activity,
 } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
@@ -21,6 +22,16 @@ const MISSION_TYPE_COLOR = {
   weekly:    { label: 'Weekly',    color: '#60A5FA' },
   monthly:   { label: 'Monthly',   color: '#C084FC' },
   permanent: { label: 'All Time',  color: '#FBBF24' },
+};
+
+const TX_TYPE_META = {
+  scan_product:      { icon: Scan,     color: '#4ADE80', label: 'Scan' },
+  submit_deal:       { icon: Upload,   color: '#60A5FA', label: 'Deal Submitted' },
+  confirm_deal:      { icon: ThumbsUp, color: '#C084FC', label: 'Confirmed Deal' },
+  deal_verified:     { icon: CheckCircle, color: '#4ADE80', label: 'Deal Verified' },
+  mission_completed: { icon: Target,   color: '#FBBF24', label: 'Mission Complete' },
+  referral_active:   { icon: Gift,     color: '#F97316', label: 'Referral Active' },
+  reward_redeemed:   { icon: Star,     color: '#F43F5E', label: 'Reward Redeemed' },
 };
 
 // ── Small reusable components ──────────────────────────────────────────────────
@@ -122,7 +133,7 @@ export default function BusinessHome() {
 
   if (!data) return null;
 
-  const { profile, wallet, referrals, team, rank, missions, badges } = data;
+  const { profile, wallet, referrals, team, rank, missions, badges, recent_transactions: txs = [] } = data;
   const lvlCfg   = LEVEL_CONFIG[profile.level] || LEVEL_CONFIG['Hunter'];
   const dailyMissions   = missions.filter(m => m.type === 'daily');
   const weeklyMissions  = missions.filter(m => m.type === 'weekly');
@@ -404,20 +415,94 @@ export default function BusinessHome() {
         </div>
       </div>
 
-      {/* ── Wallet link ──────────────────────────────────────────────────────── */}
-      <Link to="/community"
-        className="flex items-center justify-between p-4 rounded-2xl bg-dark-800/60 border border-dark-700 hover:border-neon-green/30 transition-colors group">
-        <div className="flex items-center gap-3">
-          <Wallet size={18} className="text-neon-green" />
-          <div>
-            <p className="text-white font-semibold text-sm">Wallet & Rewards</p>
-            <p className="text-gray-500 text-xs">
-              {wallet.lifetime_points.toLocaleString()} lifetime points · ${parseFloat(wallet.credit_balance).toFixed(2)} credit
-            </p>
-          </div>
+      {/* ── Wallet expanded ─────────────────────────────────────────────────── */}
+      <div className="rounded-2xl border border-dark-700 bg-dark-800/40 overflow-hidden">
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-dark-700">
+          <Wallet size={14} className="text-neon-green" />
+          <h2 className="text-white font-bold text-sm">Wallet</h2>
+          <Link to="/community" className="ml-auto text-neon-blue text-xs hover:underline">
+            Redeem →
+          </Link>
         </div>
-        <ChevronRight size={14} className="text-gray-600 group-hover:text-neon-green" />
-      </Link>
+        <div className="grid grid-cols-3 divide-x divide-dark-700">
+          {[
+            { label: 'Points Available', value: wallet.points_available?.toLocaleString() || '0',    color: '#FBBF24' },
+            { label: 'Points Pending',   value: wallet.points_pending?.toLocaleString() || '0',     color: '#94A3B8' },
+            { label: 'Credit Balance',   value: `$${parseFloat(wallet.credit_balance || 0).toFixed(2)}`, color: '#4ADE80' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="p-3 text-center">
+              <p className="text-gray-500 text-[10px] uppercase tracking-wide mb-0.5">{label}</p>
+              <p className="font-black text-lg leading-none" style={{ color }}>{value}</p>
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-2 divide-x divide-dark-700 border-t border-dark-700">
+          {[
+            { label: 'XP This Month', value: (profile.xp_this_month || 0).toLocaleString() + ' XP', color: '#60A5FA' },
+            { label: 'Lifetime XP',   value: (wallet.lifetime_points || profile.points || 0).toLocaleString() + ' XP', color: '#C084FC' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="p-3 text-center">
+              <p className="text-gray-500 text-[10px] uppercase tracking-wide mb-0.5">{label}</p>
+              <p className="font-bold text-sm" style={{ color }}>{value}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Recent Activity ──────────────────────────────────────────────────── */}
+      <div>
+        <h2 className="text-white font-bold flex items-center gap-2 mb-3">
+          <Activity size={15} className="text-neon-blue" /> Recent Activity
+        </h2>
+        {txs.length === 0 ? (
+          <div className="rounded-xl border border-dark-700 bg-dark-800/40 p-6 text-center">
+            <Flame size={22} className="mx-auto text-gray-600 mb-2" />
+            <p className="text-gray-500 text-sm">No activity yet.</p>
+            <p className="text-gray-600 text-xs mt-1">Scan products or submit deals to earn XP.</p>
+          </div>
+        ) : (
+          <div className="space-y-1.5">
+            {txs.slice(0, 10).map((tx, i) => {
+              const meta = TX_TYPE_META[tx.type] || { icon: Zap, color: '#94A3B8', label: tx.type };
+              const Icon = meta.icon;
+              const xpStr    = tx.xp_delta    > 0 ? `+${tx.xp_delta} XP`  : null;
+              const ptsStr   = tx.points_delta > 0 ? `+${tx.points_delta} pts` : null;
+              const amtStr   = parseFloat(tx.amount_delta || 0) > 0
+                ? `+$${parseFloat(tx.amount_delta).toFixed(2)}` : null;
+              const gainStr  = [xpStr, ptsStr, amtStr].filter(Boolean).join(' · ') || null;
+              const isPending = tx.status === 'pending';
+              return (
+                <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-dark-800/40 border border-dark-700">
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
+                    style={{ background: `${meta.color}15` }}>
+                    <Icon size={14} style={{ color: meta.color }} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-xs font-semibold truncate">
+                      {tx.description || meta.label}
+                    </p>
+                    <p className="text-gray-500 text-[10px]">
+                      {new Date(tx.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                    {gainStr && (
+                      <span className="text-xs font-bold" style={{ color: isPending ? '#94A3B8' : meta.color }}>
+                        {gainStr}
+                      </span>
+                    )}
+                    {isPending && (
+                      <span className="text-[9px] text-gray-500 bg-dark-700 px-1.5 py-0.5 rounded-full">
+                        pending
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
     </div>
   );

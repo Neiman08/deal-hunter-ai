@@ -4,6 +4,7 @@ const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { lookupByCode, getCachedMarketData, isEnabled } = require('../services/external/keepaService');
 const { evaluate } = require('../services/scannerEvaluation');
+const { trackScan, trackSubmitDeal } = require('../services/businessActions');
 const logger = require('../utils/logger');
 
 // GET /api/scanner/lookup/:code
@@ -99,6 +100,9 @@ router.get('/lookup/:code', authenticate, async (req, res) => {
     } else {
       keepaResult = { configured: false, error: 'Keepa API not configured' };
     }
+
+    // Business XP tracking — fire-and-forget, never blocks the response
+    trackScan(req.user.id, code).catch(() => {});
 
     res.json({
       code,
@@ -310,6 +314,9 @@ router.post('/submit-deal', authenticate, async (req, res) => {
           updated_at = NOW()
       WHERE id = $1
     `, [collaborator_id]);
+
+    // Business mission tracking — fire-and-forget
+    trackSubmitDeal(req.user.id, dealId, roi).catch(() => {});
 
     logger.info(`[Scanner] deal submitted id=${dealId} user=${req.user.id} pending_pts=${pointsPending}`);
     res.json({

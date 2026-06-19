@@ -146,39 +146,45 @@ async function runOfficeDepotDiscovery(options = {}) {
 
   // Per-cycle seed: changes every 30 min → different shuffle each cycle
   const cycleSeed = Math.floor(Date.now() / (30 * 60 * 1000));
-  // Rotate sitemap file: cycle through all 4
-  const sitemapIdx = cycleSeed % SITEMAPS.length;
-  const sitemapUrl = SITEMAPS[sitemapIdx];
+  // Process ALL sitemaps each cycle — fetch all 4 in parallel for maximum coverage
+  const sitemapResults = await Promise.allSettled(SITEMAPS.map(url => fetchText(url)));
+  let allSitemapUrls = [];
+  for (let i = 0; i < sitemapResults.length; i++) {
+    if (sitemapResults[i].status === 'fulfilled') {
+      const urls = sitemapResults[i].value.match(/https:\/\/www\.officedepot\.com\/a\/products\/[^<\s"]+/g) || [];
+      allSitemapUrls = allSitemapUrls.concat(urls);
+      stats.pages_visited++;
+      logger.info(`[Discovery:${STORE_LABEL}] Sitemap ${i}: ${urls.length} URLs`);
+    } else {
+      logger.warn(`[Discovery:${STORE_LABEL}] Sitemap ${i} fetch failed: ${sitemapResults[i].reason?.message}`);
+    }
+  }
 
-  logger.info(`[Discovery:${STORE_LABEL}] Cycle #${cycleSeed} | Sitemap ${sitemapIdx}: ${sitemapUrl}`);
-
-  let rawXml;
-  try {
-    rawXml = await fetchText(sitemapUrl);
-    stats.pages_visited = 1;
-  } catch (err) {
-    logger.error(`[Discovery:${STORE_LABEL}] Sitemap fetch failed: ${err.message}`);
+  if (!stats.pages_visited) {
+    logger.error(`[Discovery:${STORE_LABEL}] All sitemaps failed`);
     return stats;
   }
 
-  const allUrls = rawXml.match(/https:\/\/www\.officedepot\.com\/a\/products\/[^<\s"]+/g) || [];
-  logger.info(`[Discovery:${STORE_LABEL}] Sitemap has ${allUrls.length} total URLs`);
+  const allUrls = allSitemapUrls;
+  logger.info(`[Discovery:${STORE_LABEL}] Total sitemap URLs across all files: ${allUrls.length}`);
 
   // Filter to physical merchandise
   const candidates = allUrls
     .map(u => u.split('?')[0].replace(/\/$/, '') + '/')
     .filter(isPhysicalProduct);
+  // Deduplicate
+  const uniqueCandidates = [...new Set(candidates)];
 
-  logger.info(`[Discovery:${STORE_LABEL}] ${candidates.length} physical merchandise candidates`);
-  stats.urls_discovered = candidates.length;
+  logger.info(`[Discovery:${STORE_LABEL}] ${uniqueCandidates.length} physical merchandise candidates (deduped)`);
+  stats.urls_discovered = uniqueCandidates.length;
 
-  if (!candidates.length) {
+  if (!uniqueCandidates.length) {
     logger.warn(`[Discovery:${STORE_LABEL}] No candidates found`);
     return stats;
   }
 
   // Shuffle with per-cycle seed — different order every 30 min
-  const shuffled = cycleShuffled(candidates, cycleSeed);
+  const shuffled = cycleShuffled(uniqueCandidates, cycleSeed);
 
   // Filter out URLs already in DB (skip if already saved as an ON-SALE product)
   // Products without sale prices were NEVER saved → they remain "new" here

@@ -65,7 +65,7 @@ async function cleanupDeals() {
   // Rule: keep any deal with discount >= 20% and seen within 7 days.
   const c2 = await query(`
     UPDATE deals SET is_active=false
-    WHERE last_seen_at < NOW() - INTERVAL '7 days'
+    WHERE last_seen_at < NOW() - INTERVAL '14 days'
        OR (
          is_error_price = false
          AND discount_percent < 20
@@ -108,7 +108,7 @@ async function cleanupDeals() {
     )
     AND p.product_url NOT LIKE '%searchpage.jsp%'
     AND d.deal_price < 10000
-    AND d.last_seen_at >= NOW() - INTERVAL '7 days'
+    AND d.last_seen_at >= NOW() - INTERVAL '14 days'
     AND NOT (
       s.slug='best-buy' AND d.regular_price > d.deal_price * 3
       AND (LOWER(p.name) LIKE '%refurbished%' OR LOWER(p.name) LIKE '%renewed%'
@@ -853,34 +853,32 @@ async function main() {
       } catch (e) { console.error('  ❌ Target error:', e.message); }
     }
 
-    // Tier 1 direct stores — Office Depot runs early (sitemap-based, fast to discover)
-    cycleStats['office-depot'] = await runEngine(engines, 'office-depot', { maxTotal: 150, maxPerPage: 30, delayMs: 1000 }, 'Office Depot');
-    cycleStats['lowes']        = await runEngine(engines, 'lowes',        { maxTotal: 150, maxPerPage: 30, delayMs: 2500 }, "Lowe's");
-    cycleStats['home-depot']   = await runEngine(engines, 'home-depot',   { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, 'Home Depot');
-    cycleStats['gamestop']     = await runEngine(engines, 'gamestop',     { maxTotal: 200, maxPerPage: 30, delayMs: 2000 }, 'GameStop');
-    cycleStats['staples']      = await runEngine(engines, 'staples',      { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, 'Staples');
+    // Tier 1 direct stores — Office Depot runs first (HTTP sitemap, most reliable)
+    // Now processes ALL 4 sitemaps per cycle for maximum product coverage
+    cycleStats['office-depot'] = await runEngine(engines, 'office-depot', { maxTotal: 500, maxPerPage: 50, delayMs: 800  }, 'Office Depot');
+    cycleStats['lowes']        = await runEngine(engines, 'lowes',        { maxTotal: 200, maxPerPage: 30, delayMs: 2500 }, "Lowe's");
+    cycleStats['home-depot']   = await runEngine(engines, 'home-depot',   { maxTotal: 200, maxPerPage: 30, delayMs: 2000 }, 'Home Depot');
+    cycleStats['gamestop']     = await runEngine(engines, 'gamestop',     { maxTotal: 400, maxPerPage: 40, delayMs: 1500 }, 'GameStop');
+    cycleStats['staples']      = await runEngine(engines, 'staples',      { maxTotal: 200, maxPerPage: 30, delayMs: 2000 }, 'Staples');
 
-    // ── Tier 2: Residential proxy stores ─────────────────────────────────────
-    // Max 1-2 Akamai attempts (controlled by proxyManager)
+    // ── Tier 2: Direct stores (no proxy needed) ───────────────────────────────
 
-    cycleStats['nordstrom-rack'] = await runEngine(engines, 'nordstrom-rack', { maxTotal: 120, maxPerPage: 25, delayMs: 2500 }, 'Nordstrom Rack');
+    cycleStats['nordstrom-rack'] = await runEngine(engines, 'nordstrom-rack', { maxTotal: 200, maxPerPage: 30, delayMs: 2500 }, 'Nordstrom Rack');
     // Macy's uses SPA interception (no proxy) — maxPerPage not applicable
-    cycleStats['macys']          = await runEngine(engines, 'macys',          { maxTotal: 120, delayMs: 800 }, "Macy's");
+    cycleStats['macys']          = await runEngine(engines, 'macys',          { maxTotal: 200, delayMs: 800  }, "Macy's");
+    // Costco direct — no proxy, products publicly accessible
+    cycleStats['costco']         = await runEngine(engines, 'costco',         { maxTotal: 200, maxPerPage: 30, delayMs: 2000 }, 'Costco');
 
-    // ── Tier 3: Akamai-protected (limited attempts) ───────────────────────────
-    // proxyManager.shouldSkipStore() gates these if too many failures occurred
+    // ── Tier 3: Akamai-protected (limited attempts without proxy) ─────────────
     // maxConsecutiveEmpty=2 inside each engine gives up after 2 blocked pages
 
-    cycleStats['kohls']      = await runEngine(engines, 'kohls',      { maxTotal: 100, maxPerPage: 25, delayMs: 3000 }, "Kohl's");
-    cycleStats['tj-maxx']    = await runEngine(engines, 'tj-maxx',    { maxTotal: 100, maxPerPage: 25, delayMs: 3000 }, 'TJ Maxx');
-    cycleStats['marshalls']  = await runEngine(engines, 'marshalls',  { maxTotal: 100, maxPerPage: 25, delayMs: 3000 }, 'Marshalls');
-    cycleStats['burlington'] = await runEngine(engines, 'burlington', { maxTotal: 100, maxPerPage: 25, delayMs: 3000 }, 'Burlington');
+    cycleStats['kohls']      = await runEngine(engines, 'kohls',      { maxTotal: 150, maxPerPage: 25, delayMs: 3000 }, "Kohl's");
+    cycleStats['tj-maxx']    = await runEngine(engines, 'tj-maxx',    { maxTotal: 150, maxPerPage: 25, delayMs: 3000 }, 'TJ Maxx');
+    cycleStats['marshalls']  = await runEngine(engines, 'marshalls',  { maxTotal: 150, maxPerPage: 25, delayMs: 3000 }, 'Marshalls');
+    cycleStats['burlington'] = await runEngine(engines, 'burlington', { maxTotal: 150, maxPerPage: 25, delayMs: 3000 }, 'Burlington');
 
-    // Optional: Costco (direct, lower priority)
-    cycleStats['costco']   = await runEngine(engines, 'costco',   { maxTotal: 100, maxPerPage: 25, delayMs: 2500 }, 'Costco');
-
-    // Walmart — residential proxy, Akamai may block
-    cycleStats['walmart']  = await runEngine(engines, 'walmart',  { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, 'Walmart');
+    // Walmart — Akamai may block without proxy
+    cycleStats['walmart']  = await runEngine(engines, 'walmart',  { maxTotal: 200, maxPerPage: 30, delayMs: 2000 }, 'Walmart');
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
     await cleanupDeals().catch(e => console.error('Cleanup error:', e.message));

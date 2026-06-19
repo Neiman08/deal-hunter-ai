@@ -515,11 +515,64 @@ export default function Scanner() {
         </div>
       )}
 
-      {/* Error */}
+      {/* Error / Not Found */}
       {error && !loading && (
-        <div className="py-4 px-5 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
-          <AlertTriangle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
-          <p className="text-red-400 text-sm">{error}</p>
+        <div className="space-y-3">
+          <div className="py-4 px-5 bg-red-500/10 border border-red-500/20 rounded-xl flex items-start gap-3">
+            <AlertTriangle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
+            <p className="text-red-400 text-sm">{error}</p>
+          </div>
+          {/* "Not found" prompt: offer manual community submission */}
+          {(error.includes('not found') || error.includes('No deals')) && (
+            <div className="card space-y-3 border-neon-blue/20">
+              <p className="text-white font-semibold text-sm">📸 Found it in store?</p>
+              <p className="text-gray-400 text-xs">You can submit this product to the Deal Hunter community so other resellers can verify it.</p>
+              <div className="flex flex-col gap-2">
+                <input
+                  placeholder="Product name (e.g. Sony WH-1000XM5 Headphones)"
+                  className="bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-blue/50"
+                  id="notfound-product-name"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    placeholder="Store (e.g. Target)"
+                    className="bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-blue/50"
+                    id="notfound-store"
+                  />
+                  <input
+                    placeholder="Price found ($)"
+                    type="number"
+                    step="0.01"
+                    className="bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-blue/50"
+                    id="notfound-price"
+                  />
+                </div>
+                <button
+                  onClick={async () => {
+                    const name  = document.getElementById('notfound-product-name')?.value?.trim();
+                    const store = document.getElementById('notfound-store')?.value?.trim();
+                    const price = parseFloat(document.getElementById('notfound-price')?.value);
+                    if (!name || !store || !price) { alert('Enter product name, store, and price.'); return; }
+                    try {
+                      const r = await api.post('/scanner/submit-deal', {
+                        upc: query || `manual-${Date.now()}`,
+                        store_name: store,
+                        found_price: price,
+                        product_name: name,
+                        feedback_tag: 'Found in Store',
+                      });
+                      alert(`✅ Submitted! Needs ${r.data.confirmations_needed} confirmations to go live. +${r.data.points_pending} pts pending.`);
+                    } catch (err) {
+                      alert(`Error: ${err.response?.data?.error || 'Submission failed'}`);
+                    }
+                  }}
+                  className="btn-primary text-sm py-2.5 flex items-center justify-center gap-2"
+                >
+                  <Upload size={14} /> Submit to Community
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

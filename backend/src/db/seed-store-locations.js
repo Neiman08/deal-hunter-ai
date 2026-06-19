@@ -76,8 +76,8 @@ async function seedStoreLocations() {
   await query(`ALTER TABLE store_locations ADD COLUMN IF NOT EXISTS source VARCHAR(30) DEFAULT 'manual'`);
   await query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_store_locs_lat_lng_unique ON store_locations (latitude, longitude)`);
 
-  // Check if already seeded
-  const check = await query("SELECT 1 FROM db_migrations WHERE name='store_locations_v1' LIMIT 1");
+  // Check if already seeded (v2 — v1 may have run with 0 inserts due to missing index)
+  const check = await query("SELECT 1 FROM db_migrations WHERE name='store_locations_v2' LIMIT 1");
   if (check.rows.length) {
     logger.info('[seed-locations] already seeded — skipping');
     return;
@@ -104,7 +104,7 @@ async function seedStoreLocations() {
     }
   }
 
-  await query("INSERT INTO db_migrations (name) VALUES ('store_locations_v1') ON CONFLICT DO NOTHING");
+  await query("INSERT INTO db_migrations (name) VALUES ('store_locations_v2') ON CONFLICT DO NOTHING");
   logger.info(`[seed-locations] ✅ seeded ${inserted} store locations`);
 }
 

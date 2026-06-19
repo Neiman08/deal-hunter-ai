@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Star, Award, CheckCircle, Clock, XCircle, Users, ChevronRight, Zap, Plus } from 'lucide-react';
+import { Star, Award, CheckCircle, Clock, XCircle, Users, ChevronRight, Zap, Plus, Wallet, Shield, AlertCircle } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -72,10 +72,12 @@ function StatCard({ label, value, icon, color = '#4ADE80', sub }) {
 export default function CollaboratorDashboard() {
   const { user } = useAuth();
   const [profile, setProfile] = useState(null);
+  const [wallet, setWallet] = useState(null);
   const [loading, setLoading] = useState(true);
   const [creatingProfile, setCreatingProfile] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [recentSubmissions, setRecentSubmissions] = useState([]);
+  const [pendingDeals, setPendingDeals] = useState([]);
 
   useEffect(() => { loadProfile(); }, []);
 
@@ -86,6 +88,8 @@ export default function CollaboratorDashboard() {
       if (r.data.profile) {
         setProfile(r.data.profile);
         loadSubmissions();
+        loadWallet();
+        loadPendingDeals();
       }
     } catch {} finally {
       setLoading(false);
@@ -94,9 +98,35 @@ export default function CollaboratorDashboard() {
 
   async function loadSubmissions() {
     try {
-      const r = await api.get('/collaborators/submissions?limit=5');
-      setRecentSubmissions(r.data.submissions || []);
+      const r = await api.get('/community/my-deals');
+      setRecentSubmissions((r.data.deals || []).slice(0, 5));
+    } catch {
+      const r2 = await api.get('/collaborators/submissions?limit=5').catch(() => ({ data: { submissions: [] } }));
+      setRecentSubmissions(r2.data.submissions || []);
+    }
+  }
+
+  async function loadWallet() {
+    try {
+      const r = await api.get('/community/wallet');
+      setWallet(r.data.wallet);
     } catch {}
+  }
+
+  async function loadPendingDeals() {
+    try {
+      const r = await api.get('/community/deals?status=submitted,pending_confirmation&limit=3');
+      setPendingDeals(r.data.deals || []);
+    } catch {}
+  }
+
+  async function confirm(dealId, type) {
+    try {
+      await api.post(`/community/deals/${dealId}/confirm`, { confirmation_type: type });
+      loadPendingDeals();
+    } catch (err) {
+      console.warn('Confirm failed:', err.response?.data?.error);
+    }
   }
 
   async function createProfile() {
@@ -161,11 +191,18 @@ export default function CollaboratorDashboard() {
   const level = profile.level || 'Rookie Hunter';
   const points = profile.points || 0;
   const repScore = parseFloat(profile.reputation_score || 100).toFixed(0);
+  const trustScore = profile.trust_score != null ? profile.trust_score : 50;
   const totalSubmissions = (profile.approved_deals_count || 0) + (profile.pending_deals_count || 0) + (profile.rejected_deals_count || 0);
   const commissionEst = parseFloat(profile.total_commission_estimated || 0).toFixed(2);
 
-  const STATUS_COLOR = { approved: '#4ADE80', pending: '#FACC15', rejected: '#F87171', duplicate: '#94A3B8' };
-  const STATUS_LABEL = { approved: 'Approved', pending: 'Pending', rejected: 'Rejected', duplicate: 'Duplicate' };
+  const STATUS_COLOR = {
+    approved: '#4ADE80', pending: '#FACC15', rejected: '#F87171', duplicate: '#94A3B8',
+    submitted: '#00D4FF', pending_confirmation: '#FACC15', verified: '#4ADE80', official: '#8B5CF6',
+  };
+  const STATUS_LABEL = {
+    approved: 'Approved', pending: 'Pending', rejected: 'Rejected', duplicate: 'Duplicate',
+    submitted: 'Submitted', pending_confirmation: 'Needs Confirmation', verified: 'Verified', official: 'Official',
+  };
 
   return (
     <div className="p-4 lg:p-6 space-y-5 max-w-2xl mx-auto">
@@ -185,16 +222,84 @@ export default function CollaboratorDashboard() {
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Approved" value={profile.approved_deals_count || 0}
+        <StatCard label="Verified Deals" value={profile.approved_deals_count || 0}
           icon={<CheckCircle size={18} style={{ color: '#4ADE80' }} />} color="#4ADE80" />
         <StatCard label="Pending" value={profile.pending_deals_count || 0}
           icon={<Clock size={18} style={{ color: '#FACC15' }} />} color="#FACC15" />
-        <StatCard label="Rejected" value={profile.rejected_deals_count || 0}
-          icon={<XCircle size={18} style={{ color: '#F87171' }} />} color="#F87171" />
+        <StatCard label="Trust Score" value={`${trustScore}`}
+          icon={<Shield size={18} style={{ color: '#8B5CF6' }} />} color="#8B5CF6"
+          sub={trustScore >= 70 ? 'High trust' : trustScore >= 40 ? 'Building trust' : 'Low trust'} />
         <StatCard label="Reputation" value={`${repScore}%`}
-          icon={<Star size={18} style={{ color: '#8B5CF6' }} />} color="#8B5CF6"
+          icon={<Star size={18} style={{ color: '#F59E0B' }} />} color="#F59E0B"
           sub={totalSubmissions ? `${totalSubmissions} total` : ''} />
       </div>
+
+      {/* Wallet */}
+      {wallet && (
+        <div className="card p-4 space-y-2">
+          <div className="flex items-center gap-2 mb-1">
+            <Wallet size={16} className="text-neon-green" />
+            <p className="text-white font-semibold text-sm">Points Wallet</p>
+          </div>
+          <div className="grid grid-cols-3 gap-3 text-center">
+            <div>
+              <p className="text-xl font-black text-neon-green">{wallet.points_available || 0}</p>
+              <p className="text-xs text-gray-500">Available</p>
+            </div>
+            <div>
+              <p className="text-xl font-black text-yellow-400">{wallet.points_pending || 0}</p>
+              <p className="text-xs text-gray-500">Pending</p>
+            </div>
+            <div>
+              <p className="text-xl font-black text-neon-blue">{wallet.lifetime_points || 0}</p>
+              <p className="text-xs text-gray-500">Lifetime</p>
+            </div>
+          </div>
+          {(wallet.credit_balance > 0) && (
+            <p className="text-xs text-neon-green text-center">+ ${parseFloat(wallet.credit_balance).toFixed(2)} credit balance</p>
+          )}
+          <p className="text-xs text-gray-600 text-center">Points become available after your deals are verified</p>
+        </div>
+      )}
+
+      {/* Deals needing confirmation */}
+      {pendingDeals.length > 0 && (
+        <div className="card">
+          <div className="flex items-center gap-2 mb-3">
+            <AlertCircle size={16} className="text-neon-blue" />
+            <p className="text-white font-semibold text-sm">Help Confirm Community Deals</p>
+            <span className="text-xs text-gray-500 ml-auto">+5 pts each</span>
+          </div>
+          <div className="space-y-3">
+            {pendingDeals.map(d => (
+              <div key={d.id} className="bg-dark-800/50 rounded-xl p-3 space-y-2">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <p className="text-white text-sm font-medium truncate">{d.product_name}</p>
+                    <p className="text-gray-400 text-xs">{d.store_name} · ${parseFloat(d.found_price).toFixed(2)} · {d.confirmation_count}/{d.trust_threshold} confirmations</p>
+                  </div>
+                  {d.opportunity_score && (
+                    <span className="text-xs font-bold text-neon-green flex-shrink-0">Score {d.opportunity_score}</span>
+                  )}
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {[
+                    { type: 'price_confirmed', label: '✅ Price OK',    cls: 'text-neon-green border-neon-green/30 hover:bg-neon-green/10' },
+                    { type: 'in_stock',        label: '📦 In Stock',    cls: 'text-neon-blue  border-neon-blue/30  hover:bg-neon-blue/10' },
+                    { type: 'out_of_stock',    label: '❌ Out of Stock', cls: 'text-red-400    border-red-400/30    hover:bg-red-400/10' },
+                    { type: 'price_mismatch',  label: '⚠️ Wrong Price', cls: 'text-yellow-400 border-yellow-400/30 hover:bg-yellow-400/10' },
+                  ].map(btn => (
+                    <button key={btn.type} onClick={() => confirm(d.id, btn.type)}
+                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${btn.cls}`}>
+                      {btn.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Earnings estimate */}
       {parseFloat(commissionEst) > 0 && (

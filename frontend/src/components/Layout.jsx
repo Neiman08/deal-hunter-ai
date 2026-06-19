@@ -3,7 +3,8 @@ import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Search, Map, Scan, Bell, Brain,
   Shield, Tag, Menu, LogOut, Zap, Eye, Crown,
-  Crosshair, BarChart3, Gift, Flame, Star, Users
+  Crosshair, BarChart3, Gift, Flame, Star, Users, Briefcase,
+  Target, Wallet,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
@@ -20,7 +21,6 @@ const NAV_TOOLS = [
   { to: '/watchlist', icon: <Eye size={16} />, label: 'Watchlist' },
   { to: '/recommendations', icon: <Brain size={16} />, label: 'AI Recs' },
   { to: '/analytics', icon: <BarChart3 size={16} />, label: 'Analytics' },
-  { to: '/referrals', icon: <Gift size={16} />, label: 'Refer & Earn' },
 ];
 
 const PLAN_STYLE = {
@@ -81,13 +81,25 @@ export default function Layout() {
         </div>
         {NAV_TOOLS.map(item => <NavItem key={item.to} item={item} onClick={close} />)}
 
+        {/* ── Deal Hunter Business ───────────────────────────────────── */}
+        <div className="pt-2 pb-0.5 px-3">
+          <p className="text-[10px] uppercase tracking-wider font-bold"
+            style={{ color: '#4ADE80', opacity: 0.7 }}>
+            ⚡ Business
+          </p>
+        </div>
+        <NavItem item={{ to: '/business', icon: <Briefcase size={16} />, label: 'Business Home' }} onClick={close} />
+        <NavItem item={{ to: '/referrals', icon: <Gift size={16} />, label: 'Refer & Earn' }} onClick={close} />
+        <NavItem item={{ to: '/teams', icon: <Users size={16} />, label: 'Teams' }} onClick={close} />
+        <NavItem item={{ to: '/collaborator/leaderboard', icon: <Target size={16} />, label: 'Ranking' }} onClick={close} />
+
+        {/* ── Community ────────────────────────────────────────────────── */}
         <div className="pt-2 pb-0.5 px-3">
           <p className="text-gray-500 text-[10px] uppercase tracking-wider font-semibold">Community</p>
         </div>
         <NavItem item={{ to: '/community', icon: <Users size={16} />, label: 'Community' }} onClick={close} />
         <NavItem item={{ to: '/feed', icon: <Flame size={16} />, label: 'Deal Feed' }} onClick={close} />
         <NavItem item={{ to: '/collaborator', icon: <Star size={16} />, label: 'Collaborator' }} onClick={close} />
-        <NavItem item={{ to: '/teams', icon: <Users size={16} />, label: 'Teams' }} onClick={close} />
 
         <div className="pt-2 border-t border-dark-700 mt-1 space-y-0.5">
           <NavItem item={{ to: '/pricing', icon: <Tag size={16} />, label: 'Pricing' }} onClick={close} />

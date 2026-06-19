@@ -96,6 +96,7 @@ app.use('/api/feed', require('./routes/feed'));
 app.use('/api/scanner', require('./routes/scanner'));
 app.use('/api/community', require('./routes/community'));
 app.use('/api/ebay', require('./routes/ebay'));
+app.use('/api/business', require('./routes/business'));
 
 // ── Health & Status ───────────────────────────────────────────────────────────
 app.get('/api/health', async (req, res) => {
@@ -146,6 +147,13 @@ app.listen(PORT, async () => {
     await seedStoreLocations();
   } catch (err) {
     logger.warn(`[startup] store location seed warning: ${err.message}`);
+  }
+  // Deal Hunter Business — Phase A migration (missions, badges, extra columns)
+  try {
+    const { migrateBusinessPhaseA } = require('./db/migrate-business');
+    await migrateBusinessPhaseA();
+  } catch (err) {
+    logger.warn(`[startup] business migration warning: ${err.message}`);
   }
   // Scan job runs only on the worker (deal-hunter-worker service).
   // Running it here caused OOM crashes on the web service.

@@ -1,0 +1,424 @@
+import { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  Briefcase, TrendingUp, Star, Shield, Wallet, Users,
+  Zap, Gift, Target, CheckCircle, Clock, Award, Plus,
+  ChevronRight, Copy, Check, AlertTriangle, BarChart2,
+} from 'lucide-react';
+import api from '../utils/api';
+import { useAuth } from '../context/AuthContext';
+
+// ── Level config ───────────────────────────────────────────────────────────────
+const LEVEL_CONFIG = {
+  'Hunter':            { color: '#4ADE80', bg: 'rgba(74,222,128,0.1)',  icon: '🎯', tier: 1 },
+  'Líder':             { color: '#60A5FA', bg: 'rgba(96,165,250,0.1)',  icon: '⚡', tier: 2 },
+  'Director Regional': { color: '#C084FC', bg: 'rgba(192,132,252,0.1)', icon: '🌎', tier: 3 },
+  'Director Nacional': { color: '#FBBF24', bg: 'rgba(251,191,36,0.1)',  icon: '👑', tier: 4 },
+};
+
+const MISSION_TYPE_COLOR = {
+  daily:     { label: 'Daily',     color: '#4ADE80' },
+  weekly:    { label: 'Weekly',    color: '#60A5FA' },
+  monthly:   { label: 'Monthly',   color: '#C084FC' },
+  permanent: { label: 'All Time',  color: '#FBBF24' },
+};
+
+// ── Small reusable components ──────────────────────────────────────────────────
+
+function StatTile({ label, value, sub, icon, color = '#4ADE80' }) {
+  return (
+    <div className="bg-dark-800/60 rounded-2xl p-4 flex flex-col gap-1 border border-dark-700">
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-gray-400 text-xs">{label}</span>
+        <span style={{ color }} className="opacity-70">{icon}</span>
+      </div>
+      <span className="text-white font-black text-xl leading-none">{value}</span>
+      {sub && <span className="text-gray-500 text-xs">{sub}</span>}
+    </div>
+  );
+}
+
+function MissionCard({ m }) {
+  const pct  = m.target > 0 ? Math.min(100, Math.round((m.progress / m.target) * 100)) : 0;
+  const meta = MISSION_TYPE_COLOR[m.type] || MISSION_TYPE_COLOR.daily;
+
+  return (
+    <div className={`rounded-xl p-3 border ${m.completed ? 'border-neon-green/20 bg-neon-green/5' : 'border-dark-700 bg-dark-800/40'}`}>
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full"
+              style={{ background: `${meta.color}18`, color: meta.color }}>
+              {meta.label}
+            </span>
+            {m.completed && (
+              <span className="text-neon-green text-[10px] flex items-center gap-0.5">
+                <CheckCircle size={10} /> Done
+              </span>
+            )}
+          </div>
+          <p className="text-white text-sm font-semibold truncate">{m.title}</p>
+          <p className="text-gray-500 text-xs">{m.description}</p>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <p className="text-neon-green text-xs font-bold">+{m.xp_reward} XP</p>
+          <p className="text-gray-500 text-xs">{m.progress}/{m.target}</p>
+        </div>
+      </div>
+      <div className="h-1.5 rounded-full bg-dark-700">
+        <div
+          className="h-full rounded-full transition-all"
+          style={{ width: `${pct}%`, background: m.completed ? '#4ADE80' : meta.color }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ── Main Component ─────────────────────────────────────────────────────────────
+
+export default function BusinessHome() {
+  const { user } = useAuth();
+  const navigate  = useNavigate();
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState('');
+  const [copied, setCopied]   = useState(false);
+
+  useEffect(() => {
+    api.get('/business/home')
+      .then(r => setData(r.data))
+      .catch(err => {
+        if (err.response?.status === 401) navigate('/login');
+        else setError('Failed to load Business dashboard.');
+      })
+      .finally(() => setLoading(false));
+  }, [navigate]);
+
+  function copyRef() {
+    if (!data?.referrals?.referral_link) return;
+    navigator.clipboard.writeText(data.referrals.referral_link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="w-8 h-8 border-2 border-neon-green border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-6 text-center">
+        <AlertTriangle size={28} className="mx-auto text-yellow-400 mb-2" />
+        <p className="text-gray-400 text-sm">{error}</p>
+        <button onClick={() => window.location.reload()} className="btn-primary mt-3 text-sm px-5">Retry</button>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { profile, wallet, referrals, team, rank, missions, badges } = data;
+  const lvlCfg   = LEVEL_CONFIG[profile.level] || LEVEL_CONFIG['Hunter'];
+  const dailyMissions   = missions.filter(m => m.type === 'daily');
+  const weeklyMissions  = missions.filter(m => m.type === 'weekly');
+  const monthlyMissions = missions.filter(m => m.type === 'monthly');
+  const permMissions    = missions.filter(m => m.type === 'permanent');
+
+  return (
+    <div className="p-4 lg:p-6 space-y-5 max-w-2xl mx-auto">
+
+      {/* ── Header ─────────────────────────────────────────────────────────── */}
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <Briefcase size={20} className="text-neon-green" />
+            <h1 className="text-xl font-black text-white">Deal Hunter Business</h1>
+          </div>
+          <p className="text-gray-400 text-sm mt-0.5">
+            Welcome back, <span className="text-white font-semibold">{profile.display_name || user?.name}</span>
+          </p>
+        </div>
+        <Link to="/collaborator/submit"
+          className="btn-primary flex items-center gap-1.5 text-sm px-4 py-2">
+          <Plus size={14} /> Report Deal
+        </Link>
+      </div>
+
+      {/* ── Level + XP card ─────────────────────────────────────────────────── */}
+      <div className="rounded-2xl p-5 border"
+        style={{ background: lvlCfg.bg, borderColor: `${lvlCfg.color}30` }}>
+        <div className="flex items-center gap-4 mb-4">
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl flex-shrink-0"
+            style={{ background: `${lvlCfg.color}15`, border: `2px solid ${lvlCfg.color}30` }}>
+            {lvlCfg.icon}
+          </div>
+          <div className="flex-1">
+            <p className="text-xs uppercase tracking-widest font-bold mb-0.5" style={{ color: lvlCfg.color }}>
+              Nivel {profile.tier} — {profile.level}
+            </p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-3xl font-black text-white">{profile.points.toLocaleString()}</span>
+              <span className="text-gray-400 text-sm">XP</span>
+            </div>
+            {profile.next_level_at && (
+              <p className="text-xs mt-0.5" style={{ color: `${lvlCfg.color}99` }}>
+                {(profile.next_level_at - profile.points).toLocaleString()} XP to {profile.next_level_name}
+              </p>
+            )}
+          </div>
+          <div className="text-right flex-shrink-0">
+            <p className="text-gray-500 text-xs">Global Rank</p>
+            <p className="text-white font-black text-xl">#{rank}</p>
+          </div>
+        </div>
+
+        {/* XP Progress bar */}
+        {profile.next_level_at && (
+          <div>
+            <div className="flex justify-between text-xs mb-1.5" style={{ color: `${lvlCfg.color}80` }}>
+              <span>{profile.level}</span>
+              <span>{profile.progress}% · {profile.next_level_name}</span>
+            </div>
+            <div className="h-2.5 rounded-full bg-dark-900/60">
+              <div className="h-full rounded-full transition-all"
+                style={{ width: `${profile.progress}%`, background: lvlCfg.color }} />
+            </div>
+          </div>
+        )}
+
+        {/* Trust Score inline */}
+        <div className="flex items-center gap-2 mt-3">
+          <Shield size={12} style={{ color: lvlCfg.color }} />
+          <span className="text-xs" style={{ color: `${lvlCfg.color}99` }}>
+            Trust Score: <span className="font-bold text-white">{profile.trust_score}</span>/100
+          </span>
+        </div>
+      </div>
+
+      {/* ── Stats grid ──────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatTile
+          label="Available Points"
+          value={wallet.points_available.toLocaleString()}
+          sub="redeemable"
+          icon={<Star size={14} />}
+          color="#FBBF24"
+        />
+        <StatTile
+          label="Credit Balance"
+          value={`$${parseFloat(wallet.credit_balance).toFixed(2)}`}
+          sub="wallet"
+          icon={<Wallet size={14} />}
+          color="#4ADE80"
+        />
+        <StatTile
+          label="Deals Verified"
+          value={profile.approved_deals}
+          sub="approved"
+          icon={<CheckCircle size={14} />}
+          color="#60A5FA"
+        />
+        <StatTile
+          label="Referrals"
+          value={referrals.conversions}
+          sub={`${referrals.total_signups} signups`}
+          icon={<Gift size={14} />}
+          color="#C084FC"
+        />
+      </div>
+
+      {/* ── Quick actions ────────────────────────────────────────────────────── */}
+      <div className="grid grid-cols-2 gap-3">
+        <Link to="/referrals"
+          className="flex items-center gap-3 p-4 rounded-2xl bg-dark-800/60 border border-dark-700 hover:border-neon-green/30 transition-colors group">
+          <div className="w-10 h-10 rounded-xl bg-neon-green/10 flex items-center justify-center flex-shrink-0">
+            <Gift size={18} className="text-neon-green" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white text-sm font-semibold">Invite People</p>
+            <p className="text-gray-500 text-xs truncate">
+              {referrals.code ? `Code: ${referrals.code}` : 'Get your code →'}
+            </p>
+          </div>
+          <ChevronRight size={14} className="text-gray-600 group-hover:text-neon-green transition-colors" />
+        </Link>
+
+        <Link to="/teams"
+          className="flex items-center gap-3 p-4 rounded-2xl bg-dark-800/60 border border-dark-700 hover:border-neon-blue/30 transition-colors group">
+          <div className="w-10 h-10 rounded-xl bg-neon-blue/10 flex items-center justify-center flex-shrink-0">
+            <Users size={18} className="text-neon-blue" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white text-sm font-semibold">
+              {team ? team.name : 'Join a Team'}
+            </p>
+            <p className="text-gray-500 text-xs">
+              {team ? `${team.member_count || '?'} members` : 'Find your squad →'}
+            </p>
+          </div>
+          <ChevronRight size={14} className="text-gray-600 group-hover:text-neon-blue transition-colors" />
+        </Link>
+
+        <Link to="/community"
+          className="flex items-center gap-3 p-4 rounded-2xl bg-dark-800/60 border border-dark-700 hover:border-yellow-400/30 transition-colors group">
+          <div className="w-10 h-10 rounded-xl bg-yellow-400/10 flex items-center justify-center flex-shrink-0">
+            <Zap size={18} className="text-yellow-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white text-sm font-semibold">Community</p>
+            <p className="text-gray-500 text-xs">Deal feed & confirmations</p>
+          </div>
+          <ChevronRight size={14} className="text-gray-600 group-hover:text-yellow-400 transition-colors" />
+        </Link>
+
+        <Link to="/collaborator/leaderboard"
+          className="flex items-center gap-3 p-4 rounded-2xl bg-dark-800/60 border border-dark-700 hover:border-purple-400/30 transition-colors group">
+          <div className="w-10 h-10 rounded-xl bg-purple-400/10 flex items-center justify-center flex-shrink-0">
+            <Award size={18} className="text-purple-400" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white text-sm font-semibold">Leaderboard</p>
+            <p className="text-gray-500 text-xs">You're #{rank} nationwide</p>
+          </div>
+          <ChevronRight size={14} className="text-gray-600 group-hover:text-purple-400 transition-colors" />
+        </Link>
+      </div>
+
+      {/* ── Referral link ────────────────────────────────────────────────────── */}
+      {referrals.referral_link && (
+        <div className="rounded-2xl p-4 border border-purple-400/20 bg-purple-400/5">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-purple-300 text-sm font-semibold flex items-center gap-2">
+              <Gift size={14} /> Your Referral Link
+            </p>
+            <button onClick={copyRef}
+              className="flex items-center gap-1.5 text-xs text-purple-300 hover:text-white transition-colors">
+              {copied ? <Check size={12} /> : <Copy size={12} />}
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          </div>
+          <p className="text-gray-400 text-xs font-mono truncate bg-dark-800/60 px-3 py-2 rounded-xl">
+            {referrals.referral_link}
+          </p>
+        </div>
+      )}
+
+      {/* ── Missions ────────────────────────────────────────────────────────── */}
+      <div className="space-y-4">
+        <h2 className="text-white font-bold flex items-center gap-2">
+          <Target size={16} className="text-neon-green" /> Active Missions
+        </h2>
+
+        {dailyMissions.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+              <Clock size={10} /> Daily
+            </p>
+            {dailyMissions.map(m => <MissionCard key={m.id} m={m} />)}
+          </div>
+        )}
+
+        {weeklyMissions.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+              <BarChart2 size={10} /> Weekly
+            </p>
+            {weeklyMissions.map(m => <MissionCard key={m.id} m={m} />)}
+          </div>
+        )}
+
+        {monthlyMissions.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+              <TrendingUp size={10} /> Monthly
+            </p>
+            {monthlyMissions.map(m => <MissionCard key={m.id} m={m} />)}
+          </div>
+        )}
+
+        {permMissions.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500 uppercase tracking-wider flex items-center gap-1.5">
+              <Star size={10} /> All Time
+            </p>
+            {permMissions.map(m => <MissionCard key={m.id} m={m} />)}
+          </div>
+        )}
+      </div>
+
+      {/* ── Badges ──────────────────────────────────────────────────────────── */}
+      {badges?.length > 0 && (
+        <div>
+          <h2 className="text-white font-bold flex items-center gap-2 mb-3">
+            <Award size={16} className="text-yellow-400" /> Badges Earned
+          </h2>
+          <div className="flex flex-wrap gap-2">
+            {badges.map(b => (
+              <div key={b.badge_slug}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-yellow-400/10 border border-yellow-400/20">
+                <Star size={11} className="text-yellow-400" />
+                <span className="text-yellow-300 text-xs font-semibold">{b.badge_name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Level roadmap ────────────────────────────────────────────────────── */}
+      <div className="rounded-2xl p-4 border border-dark-700 bg-dark-800/40">
+        <h2 className="text-white font-bold text-sm mb-4 flex items-center gap-2">
+          <TrendingUp size={14} className="text-neon-green" /> Level Roadmap
+        </h2>
+        <div className="space-y-3">
+          {[
+            { name: 'Hunter',            tier: 1, min: 0,     icon: '🎯', color: '#4ADE80', desc: 'Scan, post, earn XP, join community' },
+            { name: 'Líder',             tier: 2, min: 1000,  icon: '⚡', color: '#60A5FA', desc: 'Create team, access advanced Coach AI, earn team bonuses' },
+            { name: 'Director Regional', tier: 3, min: 5000,  icon: '🌎', color: '#C084FC', desc: 'Manage multiple teams, regional panel, exclusive events' },
+            { name: 'Director Nacional', tier: 4, min: 20000, icon: '👑', color: '#FBBF24', desc: 'Executive panel, national metrics, official campaigns' },
+          ].map(lvl => {
+            const isCurrentOrBelow = profile.points >= lvl.min;
+            const isCurrent = profile.level === lvl.name;
+            return (
+              <div key={lvl.tier}
+                className={`flex items-center gap-3 p-3 rounded-xl transition-colors ${isCurrent ? 'border' : ''}`}
+                style={isCurrent ? { borderColor: `${lvl.color}30`, background: `${lvl.color}08` } : {}}>
+                <span className="text-xl flex-shrink-0">{lvl.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="font-bold text-sm" style={{ color: isCurrentOrBelow ? lvl.color : '#4B5563' }}>
+                    Nivel {lvl.tier} — {lvl.name}
+                    {isCurrent && <span className="ml-2 text-[10px] font-normal opacity-70">← You are here</span>}
+                  </p>
+                  <p className="text-xs text-gray-500">{lvl.desc}</p>
+                </div>
+                <span className="text-xs font-mono flex-shrink-0" style={{ color: isCurrentOrBelow ? lvl.color : '#374151' }}>
+                  {lvl.min.toLocaleString()} XP
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Wallet link ──────────────────────────────────────────────────────── */}
+      <Link to="/community"
+        className="flex items-center justify-between p-4 rounded-2xl bg-dark-800/60 border border-dark-700 hover:border-neon-green/30 transition-colors group">
+        <div className="flex items-center gap-3">
+          <Wallet size={18} className="text-neon-green" />
+          <div>
+            <p className="text-white font-semibold text-sm">Wallet & Rewards</p>
+            <p className="text-gray-500 text-xs">
+              {wallet.lifetime_points.toLocaleString()} lifetime points · ${parseFloat(wallet.credit_balance).toFixed(2)} credit
+            </p>
+          </div>
+        </div>
+        <ChevronRight size={14} className="text-gray-600 group-hover:text-neon-green" />
+      </Link>
+
+    </div>
+  );
+}

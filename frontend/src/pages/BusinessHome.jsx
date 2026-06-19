@@ -4,7 +4,7 @@ import {
   Briefcase, TrendingUp, Star, Shield, Wallet, Users,
   Zap, Gift, Target, CheckCircle, Clock, Award, Plus,
   ChevronRight, Copy, Check, AlertTriangle, BarChart2,
-  Scan, Upload, ThumbsUp, Flame, Activity, GraduationCap, Bot,
+  Scan, Upload, ThumbsUp, Flame, Activity, GraduationCap, Bot, Trophy, MapPin,
 } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
@@ -95,8 +95,9 @@ export default function BusinessHome() {
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState('');
   const [copied, setCopied]     = useState(false);
-  const [univData, setUnivData] = useState(null);
+  const [univData, setUnivData]   = useState(null);
   const [coachData, setCoachData] = useState(null);
+  const [hofData, setHofData]     = useState(null);
 
   useEffect(() => {
     api.get('/business/home')
@@ -113,6 +114,9 @@ export default function BusinessHome() {
       .catch(() => {});
     api.get('/business/coach/suggestions')
       .then(r => setCoachData(r.data))
+      .catch(() => {});
+    api.get('/business/hall-of-fame')
+      .then(r => setHofData(r.data))
       .catch(() => {});
   }, [navigate]);
 
@@ -328,6 +332,81 @@ export default function BusinessHome() {
           </p>
         </div>
       )}
+
+      {/* ── Hall of Fame card ───────────────────────────────────────────────── */}
+      {(() => {
+        const topHunter = hofData?.top_hunters?.[0];
+        const topTeam   = hofData?.top_teams?.[0];
+        const topCity   = hofData?.top_cities?.[0];
+        const myRank    = hofData?.my_rank;
+        return (
+          <div className="rounded-2xl border border-dark-700 bg-dark-800/40 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 py-3 border-b border-dark-700">
+              <Trophy size={14} className="text-yellow-400" />
+              <h2 className="text-white font-bold text-sm">Hall of Fame</h2>
+              {myRank && (
+                <span className="text-gray-400 text-xs">— You're #{myRank}</span>
+              )}
+              <Link to="/business/hall-of-fame" className="ml-auto text-neon-blue text-xs hover:underline">
+                View All →
+              </Link>
+            </div>
+            <div className="divide-y divide-dark-700">
+              {topHunter && (
+                <div className="flex items-center gap-3 px-4 py-2.5">
+                  <span className="text-base flex-shrink-0">🥇</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wide">Top Hunter</p>
+                    <p className="text-white text-xs font-semibold truncate">{topHunter.name || 'Hunter'}</p>
+                  </div>
+                  <span className="text-neon-green text-xs font-bold flex-shrink-0">
+                    {(topHunter.xp || 0).toLocaleString()} XP
+                  </span>
+                </div>
+              )}
+              {topTeam && (
+                <div className="flex items-center gap-3 px-4 py-2.5">
+                  <Users size={14} className="text-neon-blue flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wide">Top Team</p>
+                    <p className="text-white text-xs font-semibold truncate">{topTeam.name}</p>
+                  </div>
+                  <span className="text-neon-blue text-xs font-bold flex-shrink-0">
+                    {parseInt(topTeam.total_xp || 0).toLocaleString()} XP
+                  </span>
+                </div>
+              )}
+              {topCity && (
+                <div className="flex items-center gap-3 px-4 py-2.5">
+                  <MapPin size={14} className="text-purple-400 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wide">Top City</p>
+                    <p className="text-white text-xs font-semibold">
+                      {topCity.city}{topCity.state ? `, ${topCity.state}` : ''}
+                    </p>
+                  </div>
+                  <span className="text-purple-400 text-xs font-bold flex-shrink-0">
+                    {topCity.verified_deals || 0} deals
+                  </span>
+                </div>
+              )}
+              {!topHunter && !topTeam && !topCity && (
+                <div className="px-4 py-4 text-center">
+                  <Trophy size={20} className="mx-auto text-gray-600 mb-1" />
+                  <p className="text-gray-500 text-xs">Rankings loading…</p>
+                </div>
+              )}
+            </div>
+            <div className="px-4 py-3 border-t border-dark-700">
+              <Link to="/business/hall-of-fame"
+                className="w-full flex items-center justify-center gap-2 py-2 rounded-xl text-sm font-semibold"
+                style={{ background: '#FBBF2410', color: '#FBBF24', border: '1px solid #FBBF2425' }}>
+                <Trophy size={13} /> View Hall of Fame
+              </Link>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── University Progress card ─────────────────────────────────────────── */}
       {(() => {

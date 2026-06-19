@@ -24,7 +24,7 @@ function getLevel(xp) {
 
 // ── Load user context for coach ────────────────────────────────────────────────
 async function loadUserContext(uid) {
-  const [profileRes, walletRes, missionsRes, univRes] = await Promise.all([
+  const [profileRes, walletRes, missionsRes, univRes, rankRes] = await Promise.all([
     query(`SELECT points, xp_this_month, trust_score, scan_count, approved_deals_count, pending_deals_count FROM collaborator_profiles WHERE user_id=$1`, [uid]),
     query(`SELECT points_available, points_pending, lifetime_points, credit_balance FROM contributor_wallets WHERE user_id=$1`, [uid]),
     query(`
@@ -40,6 +40,11 @@ async function loadUserContext(uid) {
           (m.type='permanent' AND mp.period = '2000-01-01')
         )
       WHERE m.is_active = true
+    `, [uid]),
+    query(`
+      SELECT COUNT(*)+1 AS rank FROM collaborator_profiles
+      WHERE points > COALESCE((SELECT points FROM collaborator_profiles WHERE user_id=$1), 0)
+        AND is_active = true
     `, [uid]),
     query(`
       SELECT
@@ -58,6 +63,7 @@ async function loadUserContext(uid) {
   const profile  = profileRes.rows[0]  || {};
   const wallet   = walletRes.rows[0]   || {};
   const missions = missionsRes.rows     || [];
+  const globalRank = parseInt(rankRes.rows[0]?.rank || 0);
   const univ     = univRes.rows[0]      || {};
 
   const xp = parseInt(profile.points || 0);
@@ -84,6 +90,7 @@ async function loadUserContext(uid) {
       credit_balance:   parseFloat(wallet.credit_balance || 0),
     },
     missions,
+    rank: globalRank,
     courses: {
       in_progress:  Math.max(0, parseInt(univ.courses_touched || 0) - parseInt(univ.courses_completed || 0)),
       completed:    parseInt(univ.courses_completed || 0),
@@ -237,6 +244,20 @@ function generateAnswer(message, ctx) {
 
   if (msg.includes('scan') || msg.includes('barcode') || msg.includes('scanner') || msg.includes('upc')) {
     return `The Scanner is your most powerful tool. Here's how to get the most from it:\n\n1. **Scan any product barcode** (UPC or SKU) to see Amazon price history\n2. **Enter your found price** to calculate exact profit and ROI\n3. **Look for 🟢 Live Prices** — these are the most reliable\n4. **Check sales rank** — under 100,000 in most categories means it sells regularly\n5. **Submit promising finds** directly from the scan result screen\n\nYou've done **${ctx.profile.scan_count}** scans so far. Each unique scan (with 5-min debounce) earns +1 XP.`;
+  }
+
+  if (msg.includes('top 10') || msg.includes('hall of fame') || msg.includes('leaderboard') || msg.includes('ranking') || msg.includes('rank higher') || msg.includes('mi rango') || msg.includes('my rank') || msg.includes('current rank')) {
+    const rank = ctx.rank || '?';
+    const xpFor10 = ctx.nextLevel ? ctx.xpToNext : 0;
+    return `Your current global rank is **#${rank}**.\n\nTo climb the Hall of Fame:\n\n1. **Complete daily missions every day** — up to 55 XP/day compounds fast\n2. **Finish University courses** — 10 courses × avg 80 XP = 800 XP in a weekend\n3. **Submit high-ROI deals** — weekly mission rewards +200 XP for deals ≥ 50% ROI\n4. **Confirm community deals** — +3 XP each, adds up quickly\n5. **Refer active users** — monthly mission gives +200 XP per 2 conversions\n\nConsistency beats sprints. The top 10 all have 1,000+ XP. ${ctx.nextLevel ? `You need ${ctx.xpToNext} more XP to reach ${ctx.nextLevel.name} — that alone would move your rank significantly.` : 'Keep maintaining your position at the top!'}\n\nVisit the **Hall of Fame** from the Business nav to see the full leaderboard.`;
+  }
+
+  if (msg.includes('team rank') || msg.includes('team higher') || msg.includes('equipo rank') || msg.includes('my team')) {
+    return `To rank your team higher in the Hall of Fame:\n\n1. **Recruit active Hunters** — team XP is the sum of all member XP\n2. **Set weekly team goals** — share them in your team group chat\n3. **Coordinate store visits** — different members covering different stores = more deals\n4. **Help teammates complete missions** — when they earn XP, your team score rises\n5. **Encourage University course completion** — each cert adds to member XP\n\nTeams are ranked by total XP. With 5 active members each doing daily missions, you could earn 275+ XP per week as a team.\n\nCheck the **Teams** section to see your current team ranking.`;
+  }
+
+  if (msg.includes('city') || msg.includes('ciudad') || msg.includes('most active') || msg.includes('which city')) {
+    return `City activity in Deal Hunter AI is measured by deal submissions and verifications. Cities with more active Hunters naturally produce more deals.\n\nTo make your city rank higher:\n1. **Recruit Hunters in your city** — use your referral link locally\n2. **Submit deals from local stores** — the city field on each deal counts toward city rankings\n3. **Confirm deals in your area** — verification activity also counts\n\nCheck the **Hall of Fame → Cities** tab to see which cities are most active right now and where your city stands.`;
   }
 
   if (msg.includes('wallet') || msg.includes('points') || msg.includes('cash') || msg.includes('redeem') || msg.includes('dinero')) {

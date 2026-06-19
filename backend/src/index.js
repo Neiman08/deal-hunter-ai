@@ -98,6 +98,7 @@ app.use('/api/community', require('./routes/community'));
 app.use('/api/ebay', require('./routes/ebay'));
 app.use('/api/business', require('./routes/business'));
 app.use('/api/business/coach', require('./routes/aiCoach'));
+app.use('/api/business/hall-of-fame', require('./routes/hallOfFame'));
 app.use('/api/university', require('./routes/university'));
 
 // ── Health & Status ───────────────────────────────────────────────────────────
@@ -163,6 +164,13 @@ app.listen(PORT, async () => {
     await migrateUniversity();
   } catch (err) {
     logger.warn(`[startup] university migration warning: ${err.message}`);
+  }
+  // Hall of Fame — Phase D migration (adds city/state to collaborator_profiles + indexes)
+  try {
+    const { migrateHallOfFame } = require('./db/migrate-hall-of-fame');
+    await migrateHallOfFame();
+  } catch (err) {
+    logger.warn(`[startup] hall-of-fame migration warning: ${err.message}`);
   }
   // Scan job runs only on the worker (deal-hunter-worker service).
   // Running it here caused OOM crashes on the web service.

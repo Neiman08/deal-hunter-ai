@@ -27,6 +27,7 @@ import Community from './pages/Community';
 import BusinessHome from './pages/BusinessHome';
 import University from './pages/University';
 import AICoach from './pages/AICoach';
+import HallOfFame from './pages/HallOfFame';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -75,6 +76,7 @@ export default function App() {
             <Route path="business" element={<BusinessHome />} />
             <Route path="business/university" element={<University />} />
             <Route path="business/coach" element={<AICoach />} />
+            <Route path="business/hall-of-fame" element={<HallOfFame />} />
             <Route path="admin/submitted-deals" element={<AdminRoute><AdminSubmittedDeals /></AdminRoute>} />
           </Route>
         </Routes>

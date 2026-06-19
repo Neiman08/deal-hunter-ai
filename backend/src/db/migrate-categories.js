@@ -22,6 +22,7 @@ async function migrateCategoriesAndReactivate() {
   `);
 
   // ── Schema fixes — always run (fast, idempotent ALTER TABLE IF NOT EXISTS) ─
+  // collaborator_profiles missing columns
   await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS approved_deals_count INTEGER DEFAULT 0`);
   await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS rejected_deals_count INTEGER DEFAULT 0`);
   await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS pending_deals_count INTEGER DEFAULT 0`);
@@ -29,6 +30,51 @@ async function migrateCategoriesAndReactivate() {
   await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS submissions_today INTEGER DEFAULT 0`);
   await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS last_submission_date DATE`);
   await query(`ALTER TABLE collaborator_profiles ADD COLUMN IF NOT EXISTS level VARCHAR(30) DEFAULT 'Rookie Hunter'`);
+
+  // submitted_deals missing columns (added by scanner/community routes but not in base migration)
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS roi_percent DECIMAL(8,2)`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS opportunity_score INTEGER`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS recommendation VARCHAR(20)`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS effective_market_price DECIMAL(10,2)`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS effective_market_source VARCHAR(30)`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS keepa_confidence INTEGER`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS store_location_id UUID REFERENCES store_locations(id) ON DELETE SET NULL`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS feedback_tag VARCHAR(50)`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS photo_url TEXT`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS confirmation_count INTEGER DEFAULT 0`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS negative_count INTEGER DEFAULT 0`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS trust_threshold INTEGER DEFAULT 2`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS points_awarded BOOLEAN DEFAULT false`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS points_pending INTEGER DEFAULT 0`);
+
+  // submitted_deals status constraint update (allow all community statuses)
+  await query(`ALTER TABLE submitted_deals DROP CONSTRAINT IF EXISTS submitted_deals_status_check`);
+  await query(`ALTER TABLE submitted_deals ADD CONSTRAINT submitted_deals_status_check
+    CHECK (status IN ('pending','submitted','pending_confirmation','verified','official','rejected','expired','duplicate','approved'))`);
+
+  // submitted_deal_confirmations table + constraint
+  await query(`CREATE TABLE IF NOT EXISTS submitted_deal_confirmations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    submitted_deal_id UUID NOT NULL REFERENCES submitted_deals(id) ON DELETE CASCADE,
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    confirmation_type VARCHAR(30) NOT NULL DEFAULT 'price_confirmed',
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
+  await query(`ALTER TABLE submitted_deal_confirmations DROP CONSTRAINT IF EXISTS submitted_deal_confirmations_confirmation_type_check`);
+  await query(`ALTER TABLE submitted_deal_confirmations ADD CONSTRAINT submitted_deal_confirmations_confirmation_type_check
+    CHECK (confirmation_type IN ('price_confirmed','in_stock','out_of_stock','price_mismatch','not_found','wrong_product','expired','great_deal'))`);
+
+  // contributor_earnings table
+  await query(`CREATE TABLE IF NOT EXISTS contributor_earnings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    submitted_deal_id UUID REFERENCES submitted_deals(id) ON DELETE SET NULL,
+    earning_type VARCHAR(30) NOT NULL,
+    points INTEGER NOT NULL DEFAULT 0,
+    status VARCHAR(20) DEFAULT 'pending',
+    description TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )`);
 
   const already = await query(
     "SELECT 1 FROM db_migrations WHERE name='categories_v1_reactivate_14d'"

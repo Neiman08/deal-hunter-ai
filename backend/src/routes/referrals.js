@@ -1,9 +1,3 @@
-/**
- * Referral System
- * - Unique referral codes per user
- * - Track signups, conversions
- * - Reward structure: 1 month Pro for referrer on paid conversion
- */
 const express = require('express');
 const router = express.Router();
 const { query } = require('../config/database');
@@ -14,6 +8,47 @@ function generateCode(name) {
   const base = (name || 'user').split(' ')[0].toUpperCase().replace(/[^A-Z]/g, '').slice(0, 6);
   const rand = crypto.randomBytes(3).toString('hex').toUpperCase();
   return `${base}${rand}`;
+}
+
+// Reward tiers — cumulative (total paid conversions)
+const REFERRAL_TIERS = [
+  { threshold: 1,  type: 'pro_7_days',    label: '7 days Pro free',   reward: { kind: 'days', value: 7 } },
+  { threshold: 3,  type: 'pro_1_month',   label: '1 month Pro free',  reward: { kind: 'months', value: 1 } },
+  { threshold: 5,  type: 'credit_10',     label: '$10 account credit',reward: { kind: 'credit', value: 10 } },
+  { threshold: 10, type: 'credit_25',     label: '$25 account credit',reward: { kind: 'credit', value: 25 } },
+  { threshold: 25, type: 'pro_lifetime',  label: 'Lifetime Pro',      reward: { kind: 'lifetime', value: 0 } },
+];
+
+async function applyTierReward(userId, tier) {
+  const { reward } = tier;
+  if (reward.kind === 'days') {
+    await query(`
+      UPDATE users
+      SET plan = CASE WHEN plan = 'free' THEN 'pro' ELSE plan END,
+          plan_expires_at = COALESCE(plan_expires_at, NOW()) + ($1 || ' days')::INTERVAL
+      WHERE id = $2
+    `, [reward.value, userId]);
+  } else if (reward.kind === 'months') {
+    await query(`
+      UPDATE users
+      SET plan = CASE WHEN plan = 'free' THEN 'pro' ELSE plan END,
+          plan_expires_at = COALESCE(plan_expires_at, NOW()) + ($1 || ' months')::INTERVAL
+      WHERE id = $2
+    `, [reward.value, userId]);
+  } else if (reward.kind === 'credit') {
+    await query(`
+      INSERT INTO contributor_wallets (user_id, credit_balance)
+      VALUES ($1, $2)
+      ON CONFLICT (user_id) DO UPDATE SET credit_balance = contributor_wallets.credit_balance + $2, updated_at = NOW()
+    `, [userId, reward.value]);
+  } else if (reward.kind === 'lifetime') {
+    await query(`UPDATE users SET plan = 'pro', plan_expires_at = '2099-12-31' WHERE id = $1`, [userId]);
+  }
+  // Log in contributor_rewards
+  await query(`
+    INSERT INTO contributor_rewards (user_id, reward_type, points_cost, value_description, status, redeemed_at)
+    VALUES ($1, $2, 0, $3, 'active', NOW())
+  `, [userId, tier.type, tier.label]);
 }
 
 // GET /referrals — my referral dashboard
@@ -48,15 +83,24 @@ router.get('/', authenticate, async (req, res) => {
       ORDER BY re.created_at DESC LIMIT 20
     `, [req.user.id]);
 
+    const conversions = parseInt(stats.rows[0]?.conversions || 0);
+    const tiersStatus = REFERRAL_TIERS.map(t => ({
+      threshold:    t.threshold,
+      type:         t.type,
+      label:        t.label,
+      reached:      conversions >= t.threshold,
+      remaining:    Math.max(0, t.threshold - conversions),
+    }));
+
     res.json({
-      code: ref.rows[0].code,
+      code:          ref.rows[0].code,
       referral_link: `${process.env.FRONTEND_URL || 'https://dealhunter.ai'}/signup?ref=${ref.rows[0].code}`,
-      stats: stats.rows[0],
-      recent: recent.rows,
+      stats:         stats.rows[0],
+      recent:        recent.rows,
+      tiers:         tiersStatus,
       rewards: {
-        per_signup: '0',
-        per_conversion: '1 month Pro free',
-        description: 'Get 1 free month of Pro for every user who upgrades to a paid plan.',
+        per_conversion: '7 days → 1 month → $10 → $25 → Lifetime Pro',
+        description: 'Earn bigger rewards as you refer more users.',
       },
     });
   } catch (err) {
@@ -103,17 +147,40 @@ router.post('/convert', async (req, res) => {
       RETURNING referrer_id
     `, [user_id]);
 
-    if (event.rows[0]) {
-      // Extend referrer's plan by 1 month
-      await query(`
-        UPDATE users
-        SET plan = CASE WHEN plan = 'free' THEN 'pro' ELSE plan END,
-            plan_expires_at = COALESCE(plan_expires_at, NOW()) + INTERVAL '1 month'
-        WHERE id = $1
-      `, [event.rows[0].referrer_id]);
+    if (!event.rows[0]) return res.json({ converted: false });
+    const referrerId = event.rows[0].referrer_id;
+
+    // Count total conversions for this referrer
+    const countRes = await query(`
+      SELECT COUNT(*) as total, r.last_tier_awarded
+      FROM referral_events re
+      JOIN referrals r ON r.user_id = re.referrer_id
+      WHERE re.referrer_id = $1 AND re.converted_to_paid = true
+      GROUP BY r.last_tier_awarded
+    `, [referrerId]);
+
+    const totalConversions = parseInt(countRes.rows[0]?.total || 1);
+    const lastTier = parseInt(countRes.rows[0]?.last_tier_awarded || 0);
+
+    // Award all newly unlocked tiers
+    const newTiers = REFERRAL_TIERS.filter(
+      t => t.threshold <= totalConversions && t.threshold > lastTier
+    );
+
+    for (const tier of newTiers) {
+      await applyTierReward(referrerId, tier);
     }
 
-    res.json({ converted: !!event.rows[0] });
+    if (newTiers.length > 0) {
+      const highestUnlocked = Math.max(...newTiers.map(t => t.threshold));
+      await query(`UPDATE referrals SET last_tier_awarded = $1 WHERE user_id = $2`, [highestUnlocked, referrerId]);
+    }
+
+    res.json({
+      converted:    true,
+      total_conversions: totalConversions,
+      tiers_unlocked: newTiers.map(t => t.label),
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

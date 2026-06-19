@@ -114,32 +114,41 @@ export default function Referrals() {
       <div className="card">
         <h3 className="text-white font-semibold mb-3">Reward Tiers</h3>
         <div className="space-y-2">
-          {[
-            { threshold: 1,  reward: '7 days Pro free',    icon: '🎁', color: 'text-gray-300',    bg: 'bg-dark-800',          border: 'border-dark-700' },
-            { threshold: 3,  reward: '1 month Pro free',   icon: '⭐', color: 'text-neon-green',  bg: 'bg-neon-green/5',      border: 'border-neon-green/20' },
-            { threshold: 5,  reward: '$10 account credit', icon: '💵', color: 'text-neon-blue',   bg: 'bg-neon-blue/5',       border: 'border-neon-blue/20' },
-            { threshold: 10, reward: '$25 account credit', icon: '💰', color: 'text-yellow-400',  bg: 'bg-yellow-400/5',      border: 'border-yellow-400/20' },
-            { threshold: 25, reward: 'Lifetime Pro',       icon: '👑', color: 'text-purple-400',  bg: 'bg-purple-400/5',      border: 'border-purple-400/20' },
-          ].map(tier => {
-            const conversions = data?.stats?.conversions || 0;
-            const reached = conversions >= tier.threshold;
-            return (
-              <div key={tier.threshold} className={`flex items-center gap-3 p-3 rounded-xl border ${tier.bg} ${tier.border} ${!reached ? 'opacity-60' : ''}`}>
-                <span className="text-xl w-7 text-center">{tier.icon}</span>
-                <div className="flex-1">
-                  <p className={`text-sm font-semibold ${tier.color}`}>{tier.reward}</p>
-                  <p className="text-gray-400 text-xs">{tier.threshold} paid referral{tier.threshold > 1 ? 's' : ''}</p>
+          {(() => {
+            const tierMeta = [
+              { icon: '🎁', color: 'text-gray-300',   bg: 'bg-dark-800',       border: 'border-dark-700' },
+              { icon: '⭐', color: 'text-neon-green', bg: 'bg-neon-green/5',   border: 'border-neon-green/20' },
+              { icon: '💵', color: 'text-neon-blue',  bg: 'bg-neon-blue/5',    border: 'border-neon-blue/20' },
+              { icon: '💰', color: 'text-yellow-400', bg: 'bg-yellow-400/5',   border: 'border-yellow-400/20' },
+              { icon: '👑', color: 'text-purple-400', bg: 'bg-purple-400/5',   border: 'border-purple-400/20' },
+            ];
+            const tiers = data?.tiers || [
+              { threshold: 1,  label: '7 days Pro free',    reached: false, remaining: 1 },
+              { threshold: 3,  label: '1 month Pro free',   reached: false, remaining: 3 },
+              { threshold: 5,  label: '$10 account credit', reached: false, remaining: 5 },
+              { threshold: 10, label: '$25 account credit', reached: false, remaining: 10 },
+              { threshold: 25, label: 'Lifetime Pro',       reached: false, remaining: 25 },
+            ];
+            return tiers.map((tier, i) => {
+              const m = tierMeta[i] || tierMeta[tierMeta.length - 1];
+              return (
+                <div key={tier.threshold} className={`flex items-center gap-3 p-3 rounded-xl border ${m.bg} ${m.border} ${!tier.reached ? 'opacity-60' : ''}`}>
+                  <span className="text-xl w-7 text-center">{m.icon}</span>
+                  <div className="flex-1">
+                    <p className={`text-sm font-semibold ${m.color}`}>{tier.label}</p>
+                    <p className="text-gray-400 text-xs">{tier.threshold} paid referral{tier.threshold > 1 ? 's' : ''}</p>
+                  </div>
+                  {tier.reached ? (
+                    <span className="text-neon-green text-xs font-bold">Earned ✓</span>
+                  ) : (
+                    <span className="text-gray-500 text-xs">{tier.remaining} more</span>
+                  )}
                 </div>
-                {reached ? (
-                  <span className="text-neon-green text-xs font-bold">Earned ✓</span>
-                ) : (
-                  <span className="text-gray-500 text-xs">{Math.max(0, tier.threshold - conversions)} more</span>
-                )}
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
-        <p className="text-gray-500 text-xs mt-3">Rewards are applied automatically within 24 hours of a successful conversion.</p>
+        <p className="text-gray-500 text-xs mt-3">Rewards applied automatically within 24 hours of conversion.</p>
       </div>
 
       {/* Recent referrals */}

@@ -57,12 +57,28 @@ function ScoreDisplay({ score, label }) {
 }
 
 const SOURCE_LABELS = {
-  buy_box: 'Buy Box',
-  amazon_current: 'Amazon current',
-  amazon_90d_avg: '90d avg',
-  amazon_180d_avg: '180d avg',
-  ebay_median: 'eBay median',
-  none: 'No data',
+  buy_box:         'Amazon Buy Box',
+  amazon_current:  'Amazon Current Price',
+  amazon_90d_avg:  'Amazon 90-Day Average',
+  amazon_180d_avg: 'Amazon 180-Day Average',
+  ebay_median:     'eBay Median',
+  ebay_avg:        'eBay Average',
+  none:            null,
+};
+
+// 'live' | 'estimated' | 'ebay' | null
+function priceType(src) {
+  if (!src || src === 'none') return null;
+  if (src === 'buy_box' || src === 'amazon_current') return 'live';
+  if (src === 'amazon_90d_avg' || src === 'amazon_180d_avg') return 'estimated';
+  if (src.startsWith('ebay')) return 'ebay';
+  return null;
+}
+
+const PRICE_TYPE_META = {
+  live:      { dot: '🟢', label: 'Live Price',     color: 'text-neon-green',  bg: 'bg-neon-green/10  border-neon-green/25' },
+  estimated: { dot: '🟡', label: 'Estimated Price', color: 'text-yellow-400',  bg: 'bg-yellow-400/10  border-yellow-400/25' },
+  ebay:      { dot: '🔵', label: 'eBay Estimate',   color: 'text-neon-blue',   bg: 'bg-neon-blue/10   border-neon-blue/25'  },
 };
 
 function KeepaPanel({ keepa }) {
@@ -89,10 +105,20 @@ function KeepaPanel({ keepa }) {
     : null;
 
   const hasEffective = keepa.effective_market_price != null;
-  const sourceLabel = SOURCE_LABELS[keepa.effective_market_source] || keepa.effective_market_source;
+  const src        = keepa.effective_market_source;
+  const sourceLabel = SOURCE_LABELS[src] || src;
+  const type       = priceType(src);
+  const typeMeta   = type ? PRICE_TYPE_META[type] : null;
+
+  // Only show live price fields when they have data OR when effective is live
+  const showCurrent = keepa.amazon_current_price != null;
+  const showBuyBox  = keepa.amazon_buy_box_price  != null;
+  // When both live prices are absent but we have avg data, skip the "Not available" noise
+  const showLiveRows = showCurrent || showBuyBox || !hasEffective;
 
   return (
     <div className="bg-dark-800/50 rounded-xl p-4 space-y-3">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <CheckCircle size={14} className="text-neon-green" />
@@ -106,49 +132,73 @@ function KeepaPanel({ keepa }) {
         )}
       </div>
 
-      {/* Market Price — prominent when current/buybox are unavailable */}
-      {hasEffective && (
-        <div className="flex items-center justify-between bg-neon-green/10 border border-neon-green/20 rounded-lg px-3 py-2">
-          <div>
-            <p className="text-gray-400 text-xs">Market Price</p>
-            <p className="text-neon-green font-bold text-lg">{fmt(keepa.effective_market_price)}</p>
+      {/* Market Price block */}
+      {hasEffective ? (
+        <div className={`rounded-xl border px-3 py-2.5 ${typeMeta?.bg ?? 'bg-dark-700/60 border-dark-600'}`}>
+          <div className="flex items-start justify-between">
+            <div>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                {typeMeta && <span className="text-xs">{typeMeta.dot}</span>}
+                <p className="text-gray-400 text-xs">
+                  {typeMeta ? typeMeta.label : 'Market Price'}
+                </p>
+              </div>
+              <p className={`font-bold text-xl leading-none ${typeMeta?.color ?? 'text-white'}`}>
+                {fmt(keepa.effective_market_price)}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-gray-500 text-xs">Source</p>
+              <p className={`text-xs font-semibold ${typeMeta?.color ?? 'text-gray-300'}`}>
+                {sourceLabel}
+              </p>
+            </div>
           </div>
-          <div className="text-right">
-            <p className="text-gray-500 text-xs">Source</p>
-            <p className="text-neon-green text-xs font-semibold">{sourceLabel}</p>
-          </div>
+        </div>
+      ) : (
+        <div className="bg-dark-700/40 border border-dark-600 rounded-xl px-3 py-2 text-xs text-gray-500">
+          No resale price data available
         </div>
       )}
 
+      {/* Price detail grid — only rows that have data */}
       <div className="grid grid-cols-2 gap-2 text-xs">
-        <div>
-          <p className="text-gray-500">Amazon current</p>
-          <p className={keepa.amazon_current_price ? 'text-white font-semibold' : 'text-gray-600'}>
-            {keepa.amazon_current_price ? fmt(keepa.amazon_current_price) : 'Not available'}
-          </p>
-        </div>
-        <div>
-          <p className="text-gray-500">Buy Box</p>
-          <p className={keepa.amazon_buy_box_price ? 'text-neon-green font-semibold' : 'text-gray-600'}>
-            {keepa.amazon_buy_box_price ? fmt(keepa.amazon_buy_box_price) : 'Not available'}
-          </p>
-        </div>
-        <div>
-          <p className="text-gray-500">90d avg</p>
-          <p className="text-white">{fmt(keepa.amazon_90d_avg_price)}</p>
-        </div>
-        <div>
-          <p className="text-gray-500">180d avg</p>
-          <p className="text-white">{fmt(keepa.amazon_180d_avg_price)}</p>
-        </div>
-        {keepa.sales_rank && (
+        {showLiveRows && (
+          <>
+            <div>
+              <p className="text-gray-500">Amazon current</p>
+              <p className={showCurrent ? 'text-white font-semibold' : 'text-gray-600'}>
+                {showCurrent ? fmt(keepa.amazon_current_price) : 'Not available'}
+              </p>
+            </div>
+            <div>
+              <p className="text-gray-500">Buy Box</p>
+              <p className={showBuyBox ? 'text-neon-green font-semibold' : 'text-gray-600'}>
+                {showBuyBox ? fmt(keepa.amazon_buy_box_price) : 'Not available'}
+              </p>
+            </div>
+          </>
+        )}
+        {keepa.amazon_90d_avg_price != null && (
+          <div>
+            <p className="text-gray-500">90d avg</p>
+            <p className="text-white">{fmt(keepa.amazon_90d_avg_price)}</p>
+          </div>
+        )}
+        {keepa.amazon_180d_avg_price != null && (
+          <div>
+            <p className="text-gray-500">180d avg</p>
+            <p className="text-white">{fmt(keepa.amazon_180d_avg_price)}</p>
+          </div>
+        )}
+        {keepa.sales_rank != null && (
           <div>
             <p className="text-gray-500">Sales rank</p>
             <p className="text-white">#{keepa.sales_rank.toLocaleString()}</p>
           </div>
         )}
         <div>
-          <p className="text-gray-500">Confidence</p>
+          <p className="text-gray-500">Keepa confidence</p>
           <p className="text-white">{keepa.confidence ?? 0}%</p>
         </div>
       </div>
@@ -521,36 +571,63 @@ export default function Scanner() {
           )}
 
           {/* In-store price → profit calculation */}
-          {(keepa?.found || deals.length > 0) && (
-            <div className="card space-y-3">
-              <p className="text-white font-semibold text-sm flex items-center gap-2">
-                <ShoppingCart size={15} className="text-neon-green" /> What's the in-store price?
-              </p>
-              <div className="flex gap-3">
-                <div className="flex-1 relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
-                  <input ref={storePriceRef} type="number" min="0.01" step="0.01"
-                    value={storePrice} onChange={e => { setStorePrice(e.target.value); setEvaluation(null); setSavedId(null); }}
-                    placeholder="0.00"
-                    className="w-full bg-dark-800 border border-dark-700 text-white rounded-xl pl-7 pr-4 py-2.5 text-sm focus:outline-none focus:border-neon-green/50" />
-                </div>
-                <button onClick={calculateProfit} disabled={evaluating || !storePrice}
-                  className="btn-primary px-5 text-sm disabled:opacity-50 flex items-center gap-2">
-                  <TrendingUp size={14} /> {evaluating ? 'Calculating…' : 'Calculate Profit'}
-                </button>
-              </div>
+          {(keepa?.found || deals.length > 0) && (() => {
+            const sp = parseFloat(storePrice);
+            const storePriceValid = sp > 0;
+            const empSrc = keepa?.effective_market_source;
+            const empType = priceType(empSrc);
+            const empMeta = empType ? PRICE_TYPE_META[empType] : null;
+            const empLabel = SOURCE_LABELS[empSrc] || empSrc;
+            const hasEmp = keepa?.effective_market_price != null;
 
-              {evaluation && (
-                <EvalPanel evaluation={evaluation} onSave={saveScan} saving={saving} />
-              )}
-
-              {savedId && (
-                <p className="text-neon-green text-xs flex items-center gap-1">
-                  <CheckCircle size={12} /> Scan saved to history
+            return (
+              <div className="card space-y-3">
+                <p className="text-white font-semibold text-sm flex items-center gap-2">
+                  <ShoppingCart size={15} className="text-neon-green" /> What's the in-store price?
                 </p>
-              )}
-            </div>
-          )}
+
+                <div className="flex gap-3">
+                  <div className="flex-1 relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                    <input ref={storePriceRef} type="number" min="0.01" step="0.01"
+                      value={storePrice} onChange={e => { setStorePrice(e.target.value); setEvaluation(null); setSavedId(null); }}
+                      placeholder="0.00"
+                      className="w-full bg-dark-800 border border-dark-700 text-white rounded-xl pl-7 pr-4 py-2.5 text-sm focus:outline-none focus:border-neon-green/50" />
+                  </div>
+                  <button onClick={calculateProfit} disabled={evaluating || !storePriceValid}
+                    className="btn-primary px-5 text-sm disabled:opacity-50 flex items-center gap-2">
+                    <TrendingUp size={14} /> {evaluating ? 'Calculating…' : 'Calculate Profit'}
+                  </button>
+                </div>
+
+                {/* Context line: what price will be used, or prompt to enter store price */}
+                {!storePriceValid ? (
+                  <p className="text-gray-500 text-xs flex items-center gap-1.5">
+                    <AlertTriangle size={11} className="text-gray-600" />
+                    Enter the in-store purchase price to calculate profit.
+                  </p>
+                ) : hasEmp ? (
+                  <p className="text-xs text-gray-500 flex items-center gap-1.5">
+                    {empMeta && <span>{empMeta.dot}</span>}
+                    ROI calculated using <span className={`font-semibold ${empMeta?.color ?? 'text-gray-300'}`}>
+                      {fmt(keepa.effective_market_price)}
+                    </span>
+                    &nbsp;·&nbsp;{empLabel}
+                  </p>
+                ) : null}
+
+                {evaluation && (
+                  <EvalPanel evaluation={evaluation} onSave={saveScan} saving={saving} />
+                )}
+
+                {savedId && (
+                  <p className="text-neon-green text-xs flex items-center gap-1">
+                    <CheckCircle size={12} /> Scan saved to history
+                  </p>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Not found state */}
           {!lookupResult.found_internal && !keepa?.found && (

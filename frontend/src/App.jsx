@@ -28,6 +28,9 @@ import BusinessHome from './pages/BusinessHome';
 import University from './pages/University';
 import AICoach from './pages/AICoach';
 import HallOfFame from './pages/HallOfFame';
+import Notifications from './pages/Notifications';
+import TeamCRM from './pages/TeamCRM';
+import BusinessStats from './pages/BusinessStats';
 
 function PrivateRoute({ children }) {
   const { user, loading } = useAuth();
@@ -77,6 +80,9 @@ export default function App() {
             <Route path="business/university" element={<University />} />
             <Route path="business/coach" element={<AICoach />} />
             <Route path="business/hall-of-fame" element={<HallOfFame />} />
+            <Route path="business/notifications" element={<Notifications />} />
+            <Route path="business/crm" element={<TeamCRM />} />
+            <Route path="business/stats" element={<BusinessStats />} />
             <Route path="admin/submitted-deals" element={<AdminRoute><AdminSubmittedDeals /></AdminRoute>} />
           </Route>
         </Routes>

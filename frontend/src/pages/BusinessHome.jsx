@@ -4,7 +4,7 @@ import {
   Briefcase, TrendingUp, Star, Shield, Wallet, Users,
   Zap, Gift, Target, CheckCircle, Clock, Award, Plus,
   ChevronRight, Copy, Check, AlertTriangle, BarChart2,
-  Scan, Upload, ThumbsUp, Flame, Activity, GraduationCap, Bot, Trophy, MapPin,
+  Scan, Upload, ThumbsUp, Flame, Activity, GraduationCap, Bot, Trophy, MapPin, Bell,
 } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
@@ -98,6 +98,7 @@ export default function BusinessHome() {
   const [univData, setUnivData]   = useState(null);
   const [coachData, setCoachData] = useState(null);
   const [hofData, setHofData]     = useState(null);
+  const [notifData, setNotifData] = useState(null);
 
   useEffect(() => {
     api.get('/business/home')
@@ -108,16 +109,11 @@ export default function BusinessHome() {
       })
       .finally(() => setLoading(false));
 
-    // Load University + Coach data in background (non-blocking)
-    api.get('/university/courses')
-      .then(r => setUnivData(r.data))
-      .catch(() => {});
-    api.get('/business/coach/suggestions')
-      .then(r => setCoachData(r.data))
-      .catch(() => {});
-    api.get('/business/hall-of-fame')
-      .then(r => setHofData(r.data))
-      .catch(() => {});
+    // Load background data (non-blocking)
+    api.get('/university/courses').then(r => setUnivData(r.data)).catch(() => {});
+    api.get('/business/coach/suggestions').then(r => setCoachData(r.data)).catch(() => {});
+    api.get('/business/hall-of-fame').then(r => setHofData(r.data)).catch(() => {});
+    api.get('/business/notifications?limit=5').then(r => setNotifData(r.data)).catch(() => {});
   }, [navigate]);
 
   function copyRef() {
@@ -168,10 +164,20 @@ export default function BusinessHome() {
             Welcome back, <span className="text-white font-semibold">{profile.display_name || user?.name}</span>
           </p>
         </div>
-        <Link to="/collaborator/submit"
-          className="btn-primary flex items-center gap-1.5 text-sm px-4 py-2">
-          <Plus size={14} /> Report Deal
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link to="/business/notifications" className="relative p-2 rounded-xl border border-dark-700 text-gray-400 hover:text-white hover:border-dark-600 transition-colors">
+            <Bell size={16} />
+            {(notifData?.unread_count || 0) > 0 && (
+              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-black flex items-center justify-center">
+                {Math.min(9, notifData.unread_count)}
+              </span>
+            )}
+          </Link>
+          <Link to="/collaborator/submit"
+            className="btn-primary flex items-center gap-1.5 text-sm px-4 py-2">
+            <Plus size={14} /> Report Deal
+          </Link>
+        </div>
       </div>
 
       {/* ── Level + XP card ─────────────────────────────────────────────────── */}
@@ -216,14 +222,51 @@ export default function BusinessHome() {
           </div>
         )}
 
-        {/* Trust Score inline */}
-        <div className="flex items-center gap-2 mt-3">
-          <Shield size={12} style={{ color: lvlCfg.color }} />
-          <span className="text-xs" style={{ color: `${lvlCfg.color}99` }}>
-            Trust Score: <span className="font-bold text-white">{profile.trust_score}</span>/100
-          </span>
+        {/* Trust Score + Level inline */}
+        <div className="flex items-center gap-3 mt-3">
+          <div className="flex items-center gap-1.5">
+            <Shield size={12} style={{ color: lvlCfg.color }} />
+            <span className="text-xs" style={{ color: `${lvlCfg.color}99` }}>
+              Trust: <span className="font-bold text-white">{profile.trust_score}</span>/100
+            </span>
+          </div>
+          {profile.trust_level && (
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+              style={{
+                background: profile.trust_level === 'Excelente' ? '#4ADE8018' : profile.trust_level === 'Bueno' ? '#60A5FA18' : profile.trust_level === 'En observación' ? '#FBBF2418' : profile.trust_level === 'Suspendido' ? '#F43F5E18' : '#9CA3AF18',
+                color: profile.trust_level === 'Excelente' ? '#4ADE80' : profile.trust_level === 'Bueno' ? '#60A5FA' : profile.trust_level === 'En observación' ? '#FBBF24' : profile.trust_level === 'Suspendido' ? '#F43F5E' : '#9CA3AF',
+              }}>
+              {profile.trust_level}
+            </span>
+          )}
         </div>
       </div>
+
+      {/* ── Leadership quick links (tier-based) ─────────────────────────── */}
+      {profile.tier >= 2 && (
+        <div className="grid grid-cols-2 gap-3">
+          <Link to="/business/crm"
+            className="flex items-center gap-3 p-3 rounded-xl border border-dark-700 bg-dark-800/40 hover:border-neon-green/30 hover:bg-dark-700/30 transition-all">
+            <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center flex-shrink-0">
+              <Users size={14} className="text-blue-400" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-white text-xs font-semibold">Team CRM</p>
+              <p className="text-gray-500 text-[10px]">Manage your members</p>
+            </div>
+          </Link>
+          <Link to="/business/stats"
+            className="flex items-center gap-3 p-3 rounded-xl border border-dark-700 bg-dark-800/40 hover:border-neon-green/30 hover:bg-dark-700/30 transition-all">
+            <div className="w-8 h-8 rounded-lg bg-neon-green/15 flex items-center justify-center flex-shrink-0">
+              <BarChart2 size={14} className="text-neon-green" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-white text-xs font-semibold">Business Stats</p>
+              <p className="text-gray-500 text-[10px]">Production metrics</p>
+            </div>
+          </Link>
+        </div>
+      )}
 
       {/* ── Stats grid ──────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">

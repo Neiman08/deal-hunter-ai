@@ -3,6 +3,8 @@ const router  = express.Router();
 const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { trackConfirmDeal } = require('../services/businessActions');
+const { notify } = require('../services/hunterNotifications');
+const { recalcTrust } = require('../services/trustService');
 const logger = require('../utils/logger');
 
 // ── Points for deal lifecycle ─────────────────────────────────────────────────
@@ -95,14 +97,25 @@ async function promoteToVerified(dealId) {
     `, [deal.collaborator_id, dealId]);
   }
 
-  // Improve submitter trust score
+  // Improve submitter trust score + verified_reports counter
   await query(`
     UPDATE collaborator_profiles
     SET trust_score = LEAST(100, trust_score + 5),
         approved_deals_count = approved_deals_count + 1,
+        verified_reports = COALESCE(verified_reports, 0) + 1,
+        xp_this_month = xp_this_month + $2,
         updated_at = NOW()
     WHERE user_id = $1
-  `, [deal.user_id]);
+  `, [deal.user_id, pts]);
+
+  // Notify submitter
+  notify(deal.user_id, 'deal_verified', '¡Deal verificado! 🎉',
+    `Tu deal fue verificado por la comunidad. +${pts} puntos acreditados.`,
+    { deal_id: dealId, points: pts }
+  ).catch(() => {});
+
+  // Recalculate trust asynchronously
+  recalcTrust(deal.user_id).catch(() => {});
 
   logger.info(`[Community] deal ${dealId} promoted to verified, awarded ${pts} pts`);
 }

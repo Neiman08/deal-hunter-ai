@@ -348,6 +348,14 @@ router.post('/submit-deal', authenticate, async (req, res) => {
       WHERE id = $1
     `, [collaborator_id]);
 
+    // Update IP + GPS in collaborator_profiles (fraud tracking)
+    const submitterIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || null;
+    query(`
+      UPDATE collaborator_profiles
+      SET last_ip = $1, last_gps_lat = $2, last_gps_lng = $3, updated_at = NOW()
+      WHERE user_id = $4
+    `, [submitterIp, lat, lng, req.user.id]).catch(() => {});
+
     // Business mission tracking — fire-and-forget
     trackSubmitDeal(req.user.id, dealId, roi).catch(() => {});
 

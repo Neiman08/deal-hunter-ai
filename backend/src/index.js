@@ -172,6 +172,13 @@ app.listen(PORT, async () => {
   } catch (err) {
     logger.warn(`[startup] hall-of-fame migration warning: ${err.message}`);
   }
+  // Phase E — Anti-Fraud, Wallet Pro, Payouts, Notifications
+  try {
+    const { migratePhaseE } = require('./db/migrate-phase-e');
+    await migratePhaseE();
+  } catch (err) {
+    logger.warn(`[startup] phase-e migration warning: ${err.message}`);
+  }
   // Scan job runs only on the worker (deal-hunter-worker service).
   // Running it here caused OOM crashes on the web service.
   const { startWorkerMonitor } = require('./services/workerMonitor');

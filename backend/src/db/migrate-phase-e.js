@@ -28,6 +28,22 @@ async function migratePhaseE() {
     WHERE verified_reports = 0 OR trust_level = 'Normal'
   `);
 
+  // ── contributor_wallets: ensure table exists (may not exist on fresh DBs) ──
+  await query(`
+    CREATE TABLE IF NOT EXISTS contributor_wallets (
+      id                UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+      user_id           UUID UNIQUE NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      points_pending    INTEGER DEFAULT 0,
+      points_available  INTEGER DEFAULT 0,
+      points_redeemed   INTEGER DEFAULT 0,
+      credit_balance    NUMERIC(10,2) DEFAULT 0.00,
+      lifetime_points   INTEGER DEFAULT 0,
+      created_at        TIMESTAMP DEFAULT NOW(),
+      updated_at        TIMESTAMP DEFAULT NOW()
+    )
+  `);
+  await query(`CREATE INDEX IF NOT EXISTS idx_wallets_user ON contributor_wallets(user_id)`);
+
   // ── contributor_wallets: professional columns ─────────────────────────────
   await query(`ALTER TABLE contributor_wallets ADD COLUMN IF NOT EXISTS available_balance DECIMAL(10,2) DEFAULT 0`);
   await query(`ALTER TABLE contributor_wallets ADD COLUMN IF NOT EXISTS pending_balance   DECIMAL(10,2) DEFAULT 0`);

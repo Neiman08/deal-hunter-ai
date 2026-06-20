@@ -11,7 +11,7 @@
  *  3. DOM selectors
  */
 
-const { withPage }      = require('../browserEngine');
+const { withIspPage }   = require('../browserEngine');
 const {
   withRetry, respectDomainDelay, makeProduct,
   extractPrice, extractFromPageJSON, calcDiscount, saveProductData,
@@ -49,7 +49,7 @@ async function scrapeHomeDepotProduct(skuOrUrl, storeId = DEFAULT_STORE_ID) {
   logger.info(`[HomeDepot] Scraping ${url} (storeId: ${storeId})`);
   await respectDomainDelay(DOMAIN);
 
-  return withRetry(async () => withPage(url, async (page) => {
+  return withRetry(async () => withIspPage(url, async (page) => {
 
     // Wait for price or main content
     try {

@@ -15,7 +15,7 @@ const https            = require('https');
 const http             = require('http');
 const { filterNewUrls, sleep, runStoreDiscovery } = require('./baseRetailerDiscovery');
 const { buildHttpProxyAgent } = require('../../utils/proxyUtils');
-const { newContext, newBestBuyContext } = require('../browserEngine');
+const { newIspContext } = require('../browserEngine');
 const { shouldSkipStore }    = require('../proxyManager');
 const { writeStoreRun }      = require('../../utils/storeRunStats');
 const logger  = require('../../utils/logger');
@@ -146,7 +146,7 @@ async function runLowesPlaywrightFallback(options = {}) {
     storeSlug:           STORE_SLUG,
     storeLabel:          STORE_LABEL,
     pages:               PLAYWRIGHT_PAGES,
-    getContext:          () => process.env.PROXY_ENABLED === 'true' ? newContext() : newBestBuyContext(),
+    getContext:          () => newIspContext(),
     linkFilter,
     cleanUrl,
     maxPerPage:          options.maxPerPage || 30,
@@ -191,12 +191,19 @@ async function runLowesDiscovery(options = {}) {
 
   let rawXml;
   try {
-    rawXml = await fetchText(sitemapUrl);
+    // Try direct HTTP first (no proxy) — Lowe's sitemaps are Googlebot-accessible
+    rawXml = await fetchText(sitemapUrl, 0, null);
     stats.pages_visited = 1;
-  } catch (err) {
-    logger.error(`[Discovery:${STORE_LABEL}] Sitemap fetch failed: ${err.message}`);
-    // Playwright fallback on 403 or any block
-    return runLowesPlaywrightFallback(options);
+    logger.info(`[Discovery:${STORE_LABEL}] Sitemap fetched via direct HTTP`);
+  } catch (directErr) {
+    logger.warn(`[Discovery:${STORE_LABEL}] Direct HTTP failed (${directErr.message}) — trying proxy`);
+    try {
+      rawXml = await fetchText(sitemapUrl);
+      stats.pages_visited = 1;
+    } catch (proxyErr) {
+      logger.error(`[Discovery:${STORE_LABEL}] Sitemap fetch failed: ${proxyErr.message}`);
+      return runLowesPlaywrightFallback(options);
+    }
   }
 
   const allUrls    = rawXml.match(/https:\/\/www\.lowes\.com\/pd\/[^<\s"]+/g) || [];

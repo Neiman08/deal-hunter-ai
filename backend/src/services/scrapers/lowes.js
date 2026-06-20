@@ -10,7 +10,7 @@
  *  3. DOM selectors
  */
 
-const { withPage }      = require('../browserEngine');
+const { withIspPage }   = require('../browserEngine');
 const {
   withRetry, respectDomainDelay, makeProduct,
   extractPrice, extractFromPageJSON, calcDiscount, saveProductData,
@@ -45,7 +45,7 @@ async function scrapeLowesProduct(url) {
   logger.info(`[Lowes] Scraping ${url}`);
   await respectDomainDelay(DOMAIN);
 
-  return withRetry(async () => withPage(url, async (page) => {
+  return withRetry(async () => withIspPage(url, async (page) => {
 
     try {
       await page.waitForSelector('[class*="PrimaryPrice"], [data-selector="price-section"]', { timeout: 15000 });

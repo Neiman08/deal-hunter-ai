@@ -303,6 +303,26 @@ async function withPage(url, fn, options = {}) {
   }
 }
 
+/**
+ * Like withPage() but uses the ISP proxy browser (newIspContext).
+ * Use for stores where the main residential proxy is unavailable/broken:
+ * Lowe's, Home Depot, Walmart — ISP IPs bypass Akamai just like residential.
+ */
+async function withIspPage(url, fn, options = {}) {
+  const waitUntil = options.waitUntil || 'domcontentloaded';
+  let ctx, page;
+  try {
+    ctx = await newIspContext();
+    page = await ctx.newPage();
+    await page.goto(url, { waitUntil, timeout: parseInt(process.env.PAGE_TIMEOUT_MS) || 30000 });
+    const result = await fn(page);
+    return result;
+  } finally {
+    if (page)  await page.close().catch(() => {});
+    if (ctx)   await ctx.close().catch(() => {});
+  }
+}
+
 /** Graceful shutdown */
 async function closeBrowser() {
   if (browserInstance) {
@@ -336,7 +356,7 @@ async function restartBrowserPool() {
 process.on('SIGINT',  () => closeBrowser());
 process.on('SIGTERM', () => closeBrowser());
 
-module.exports = { getBrowser, newContext, openPage, withPage, closeBrowser, restartBrowserPool, newBestBuyContext, newBestBuyDiscoveryContext, newMacysContext, newIspContext };
+module.exports = { getBrowser, newContext, openPage, withPage, withIspPage, closeBrowser, restartBrowserPool, newBestBuyContext, newBestBuyDiscoveryContext, newMacysContext, newIspContext };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Best Buy specific context — ISP proxy + Patchright

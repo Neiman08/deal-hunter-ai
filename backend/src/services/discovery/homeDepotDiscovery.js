@@ -13,7 +13,7 @@
  */
 
 const https = require('https');
-const { newContext, newBestBuyContext } = require('../browserEngine');
+const { newIspContext } = require('../browserEngine');
 const { buildHttpProxyAgent } = require('../../utils/proxyUtils');
 const { filterNewUrls, sleep, runStoreDiscovery } = require('./baseRetailerDiscovery');
 const { shouldSkipStore } = require('../proxyManager');
@@ -88,28 +88,27 @@ function seededShuffle(arr, seed) {
   return out;
 }
 
-// Fetch HD sitemap via BrightData residential proxy (proper CONNECT tunnel)
-function fetchSitemapViaProxy(url) {
+// Fetch HD sitemap — tries direct HTTP first, falls back to proxy
+function fetchSitemapHttp(url, agent = null) {
   return new Promise((resolve, reject) => {
-    const agent = buildHttpProxyAgent('HomeDepot');
-    if (!agent) return reject(new Error('Proxy not configured (PROXY_ENABLED or credentials missing)'));
-
-    const req = https.get(url, {
-      agent,
+    const reqOpts = {
       timeout: 30000,
       headers: {
         'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
         'Accept':     'text/html,application/xml,*/*',
         'Accept-Encoding': 'identity',
       },
-    }, res => {
-      if (res.statusCode === 403 || res.statusCode === 429) {
+    };
+    if (agent) reqOpts.agent = agent;
+
+    const req = https.get(url, reqOpts, res => {
+      if ([403, 429, 407].includes(res.statusCode)) {
         res.resume();
-        return reject(new Error(`HTTP ${res.statusCode} Akamai block`));
+        return reject(new Error(`HTTP ${res.statusCode} blocked`));
       }
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
         res.resume();
-        return fetchSitemapViaProxy(res.headers.location).then(resolve).catch(reject);
+        return fetchSitemapHttp(res.headers.location, agent).then(resolve).catch(reject);
       }
       if (res.statusCode !== 200) {
         res.resume();
@@ -126,6 +125,25 @@ function fetchSitemapViaProxy(url) {
   });
 }
 
+async function fetchSitemapWithFallback(url) {
+  // Try direct HTTP first (Googlebot UA)
+  try {
+    const xml = await fetchSitemapHttp(url, null);
+    logger.info(`[Discovery:${STORE_LABEL}] Sitemap fetched via direct HTTP`);
+    return xml;
+  } catch (directErr) {
+    logger.warn(`[Discovery:${STORE_LABEL}] Direct HTTP failed (${directErr.message}) — trying proxy`);
+  }
+
+  // Try via proxy
+  const agent = buildHttpProxyAgent('HomeDepot');
+  if (!agent) throw new Error('Proxy not configured and direct HTTP blocked');
+
+  const xml = await fetchSitemapHttp(url, agent);
+  logger.info(`[Discovery:${STORE_LABEL}] Sitemap fetched via proxy`);
+  return xml;
+}
+
 // Strategy A: sitemap-based URL collection
 async function discoverViaSitemap(hour, day, maxTotal) {
   const sitemapIdx = hour % SITEMAP_COUNT;
@@ -135,7 +153,7 @@ async function discoverViaSitemap(hour, day, maxTotal) {
 
   let rawXml;
   try {
-    rawXml = await fetchSitemapViaProxy(sitemapUrl);
+    rawXml = await fetchSitemapWithFallback(sitemapUrl);
   } catch (err) {
     logger.warn(`[Discovery:${STORE_LABEL}] Sitemap blocked: ${err.message} — switching to Strategy B`);
     return null;
@@ -168,7 +186,7 @@ async function discoverViaPlaywright(options) {
     storeSlug:  STORE_SLUG,
     storeLabel: STORE_LABEL,
     pages:      DISCOVERY_PAGES,
-    getContext: () => process.env.PROXY_ENABLED === 'true' ? newContext() : newBestBuyContext(),
+    getContext: () => newIspContext(),
     linkFilter,
     cleanUrl,
     maxPerPage: options.maxPerPage || 30,

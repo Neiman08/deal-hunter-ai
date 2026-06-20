@@ -10,7 +10,7 @@
  *  3. DOM price selectors — fallback
  */
 
-const { withPage }          = require('../browserEngine');
+const { withIspPage }       = require('../browserEngine');
 const {
   withRetry, respectDomainDelay, makeProduct,
   extractPrice, extractFromPageJSON, calcDiscount, saveProductData,
@@ -40,7 +40,7 @@ async function scrapeWalmartProduct(url) {
   logger.info(`[Walmart] Scraping ${url}`);
   await respectDomainDelay(DOMAIN);
 
-  return withRetry(async () => withPage(url, async (page) => {
+  return withRetry(async () => withIspPage(url, async (page) => {
 
     try {
       await page.waitForSelector('[data-automation-id="product-price"], [itemprop="price"]', { timeout: 12000 });

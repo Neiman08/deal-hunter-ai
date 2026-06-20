@@ -202,7 +202,19 @@ async function runLowesDiscovery(options = {}) {
       stats.pages_visited = 1;
     } catch (proxyErr) {
       logger.error(`[Discovery:${STORE_LABEL}] Sitemap fetch failed: ${proxyErr.message}`);
-      return runLowesPlaywrightFallback(options);
+      let fbResult;
+      try {
+        fbResult = await runLowesPlaywrightFallback(options);
+      } catch (fbErr) {
+        logger.error(`[Discovery:${STORE_LABEL}] Playwright fallback also failed: ${fbErr.message}`);
+        fbResult = {
+          store: STORE_SLUG, pages_visited: 0, urls_discovered: 0,
+          urls_new: 0, saved: 0, errors: 1, blocked: true,
+          blockType: 'playwright_fallback_failed', last_error: fbErr.message,
+        };
+      }
+      await writeStoreRun(STORE_SLUG, startedAt, fbResult);
+      return fbResult;
     }
   }
 

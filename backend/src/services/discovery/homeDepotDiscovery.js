@@ -210,6 +210,7 @@ async function runHomeDepotDiscovery(options = {}) {
     logger.warn(`[Discovery:${STORE_LABEL}] Skipping — too many recent failures`);
     stats.blocked = true;
     stats.blockType = 'skipped_due_to_failures';
+    await writeStoreRun(STORE_SLUG, startedAt, stats);
     return stats;
   }
 
@@ -228,7 +229,16 @@ async function runHomeDepotDiscovery(options = {}) {
     logger.warn(`[Discovery:${STORE_LABEL}] Sitemap blocked — trying Strategy B (Playwright listing pages)`);
     stats.blocked   = true;
     stats.blockType = 'sitemap_blocked_using_playwright';
-    const playwrightStats = await discoverViaPlaywright({ ...options, maxTotal, delayMs });
+    let playwrightStats;
+    try {
+      playwrightStats = await discoverViaPlaywright({ ...options, maxTotal, delayMs });
+    } catch (pwErr) {
+      logger.error(`[Discovery:${STORE_LABEL}] Playwright fallback failed: ${pwErr.message}`);
+      playwrightStats = {
+        pages_visited: 0, urls_discovered: 0, urls_new: 0, saved: 0,
+        errors: 1, blocked: true, blockType: 'playwright_failed', last_error: pwErr.message,
+      };
+    }
     await writeStoreRun(STORE_SLUG, startedAt, { ...stats, ...playwrightStats, blocked: true });
     return { ...stats, ...playwrightStats };
   }

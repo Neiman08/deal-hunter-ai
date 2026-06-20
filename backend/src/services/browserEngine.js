@@ -414,6 +414,7 @@ async function getBestBuyBrowser() {
     logger.info(`[Browser:BB] Ready | engine=${engine} | proxy=${proxyConfig ? 'ISP' : 'none'}`);
     return bbBrowserInstance;
   })();
+  bbLaunchPromise.catch(() => { bbLaunchPromise = null; });
 
   return bbLaunchPromise;
 }
@@ -441,6 +442,7 @@ async function getBestBuyDiscoveryBrowser() {
     logger.info(`[Browser:BB-Discovery] Ready | engine=${engine} | proxy=${proxyConfig ? 'ISP' : 'none'}`);
     return bbDiscoveryBrowserInstance;
   })();
+  bbDiscoveryLaunchPromise.catch(() => { bbDiscoveryLaunchPromise = null; });
 
   return bbDiscoveryLaunchPromise;
 }
@@ -495,6 +497,7 @@ async function getMacysBrowser() {
     logger.info('[Browser:Macys] Ready');
     return macysBrowserInstance;
   })();
+  macysLaunchPromise.catch(() => { macysLaunchPromise = null; });
 
   return macysLaunchPromise;
 }
@@ -585,7 +588,9 @@ async function getIspBrowser() {
 
   ispLaunchPromise = (async () => {
     const isLinux     = process.platform === 'linux';
-    const proxyConfig = buildIspProxyConfig();
+    // Use buildBbIspProxyConfig (no ISP_PROXY_ENABLED flag required) so Walmart/HD/Lowe's
+    // always get the ISP proxy when credentials are available — same as BB/Kohl's/etc.
+    const proxyConfig = buildBbIspProxyConfig();
     const headless    = isLinux ? true : process.env.PLAYWRIGHT_HEADLESS !== 'false';
 
     const args = [
@@ -609,6 +614,7 @@ async function getIspBrowser() {
     logger.info('[Browser:ISP] Ready');
     return ispBrowserInstance;
   })();
+  ispLaunchPromise.catch(() => { ispLaunchPromise = null; });
 
   return ispLaunchPromise;
 }

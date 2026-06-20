@@ -319,10 +319,10 @@ async function runStoreDiscovery(config) {
 
     logger.info(`\n[Discovery:${storeLabel}] ── ${p.label}`);
 
-    const ctx  = await getContext();
-    const page = await ctx.newPage();
-
+    let ctx, page;
     try {
+      ctx  = await getContext();
+      page = await ctx.newPage();
       const nav = await safeGoto(page, p.url, { waitUntil });
 
       if (!nav.ok) {
@@ -385,9 +385,10 @@ async function runStoreDiscovery(config) {
     } catch (err) {
       logger.error(`[Discovery:${storeLabel}]   Error: ${err.message}`);
       consecutiveEmpty++;
+      stats.errors++;
     } finally {
-      await page.close().catch(() => {});
-      await ctx.close().catch(() => {});
+      if (page) await page.close().catch(() => {});
+      if (ctx)  await ctx.close().catch(() => {});
     }
 
     stats.pages_visited++;

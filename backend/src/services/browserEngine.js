@@ -184,6 +184,9 @@ async function getBrowser() {
     return browserInstance;
   })();
 
+  // Reset cached promise on failure so next call retries instead of returning same rejection
+  launchPromise.catch(() => { launchPromise = null; });
+
   return launchPromise;
 }
 

@@ -243,6 +243,7 @@ async function runHomeDepotDiscovery(options = {}) {
 
   if (!toProcess.length) {
     logger.info(`[Discovery:${STORE_LABEL}] All sampled URLs already in DB`);
+    await writeStoreRun(STORE_SLUG, startedAt, stats);
     return stats;
   }
 

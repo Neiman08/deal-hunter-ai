@@ -10,6 +10,7 @@
 const { runStoreDiscovery }    = require('./baseRetailerDiscovery');
 const { newIspContext }        = require('../browserEngine');
 const { shouldSkipStore }      = require('../proxyManager');
+const { writeStoreRun }        = require('../../utils/storeRunStats');
 const logger = require('../../utils/logger');
 
 const STORE_SLUG  = 'walmart';
@@ -25,13 +26,17 @@ const DISCOVERY_PAGES = [
 ];
 
 async function runWalmartDiscovery(options = {}) {
+  const startedAt = Date.now();
+
   if (shouldSkipStore(STORE_SLUG)) {
     logger.warn(`[Discovery:${STORE_LABEL}] Skipping — too many recent failures`);
-    return {
+    const stats = {
       store: STORE_SLUG, pages_visited: 0, urls_discovered: 0,
       urls_new: 0, saved: 0, errors: 0, blocked: true,
       blockType: 'skipped_due_to_failures',
     };
+    await writeStoreRun(STORE_SLUG, startedAt, stats);
+    return stats;
   }
 
   function linkFilter(href) {
@@ -42,8 +47,9 @@ async function runWalmartDiscovery(options = {}) {
     return base.split('?')[0].split('#')[0];
   }
 
+  let result;
   try {
-    const result = await runStoreDiscovery({
+    result = await runStoreDiscovery({
       storeSlug:           STORE_SLUG,
       storeLabel:          STORE_LABEL,
       pages:               DISCOVERY_PAGES,
@@ -55,15 +61,17 @@ async function runWalmartDiscovery(options = {}) {
       delayMs:             options.delayMs    || 2000,
       maxConsecutiveEmpty: 2,
     });
-    return result;
   } catch (err) {
     logger.error(`[Discovery:${STORE_LABEL}] Fatal: ${err.message}`);
-    return {
+    result = {
       store: STORE_SLUG, pages_visited: 0, urls_discovered: 0,
       urls_new: 0, saved: 0, errors: 1, blocked: true,
       blockType: 'fatal_error',
     };
   }
+
+  await writeStoreRun(STORE_SLUG, startedAt, result);
+  return result;
 }
 
 module.exports = { runWalmartDiscovery, runDiscovery: runWalmartDiscovery };

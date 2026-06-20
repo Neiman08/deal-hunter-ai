@@ -94,7 +94,7 @@ router.get('/', authenticate, async (req, res) => {
 
     res.json({
       code:          ref.rows[0].code,
-      referral_link: `${process.env.FRONTEND_URL || 'https://dealhunter.ai'}/signup?ref=${ref.rows[0].code}`,
+      referral_link: `${process.env.FRONTEND_URL || 'https://deal-hunter-ai-frontend.onrender.com'}/signup?ref=${ref.rows[0].code}`,
       stats:         stats.rows[0],
       recent:        recent.rows,
       tiers:         tiersStatus,

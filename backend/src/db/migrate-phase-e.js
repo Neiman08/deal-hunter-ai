@@ -59,6 +59,10 @@ async function migratePhaseE() {
     WHERE available_balance = 0 AND credit_balance > 0
   `);
 
+  // ── contributor_earnings: ensure credit_amount column exists ─────────────
+  // Production DB was created with a different schema version missing this col
+  await query(`ALTER TABLE contributor_earnings ADD COLUMN IF NOT EXISTS credit_amount NUMERIC(10,2) DEFAULT 0`);
+
   // ── payout_requests ───────────────────────────────────────────────────────
   await query(`
     CREATE TABLE IF NOT EXISTS payout_requests (

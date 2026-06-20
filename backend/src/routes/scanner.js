@@ -190,6 +190,7 @@ router.post('/submit-deal', authenticate, async (req, res) => {
       effective_market_price, effective_market_source,
       net_profit, roi_percent, opportunity_score, recommendation,
       keepa_confidence, feedback_tag,
+      latitude, longitude, city, state,
     } = req.body;
 
     if (!found_price) return res.status(400).json({ error: 'found_price required' });
@@ -231,6 +232,33 @@ router.post('/submit-deal', authenticate, async (req, res) => {
       ? await query('SELECT id FROM stores WHERE slug = $1', [store_slug])
       : { rows: [] };
     const store_id = storeRes.rows[0]?.id || null;
+
+    // ── Resolve city/state from store_location or nearest store ───────────
+    let resolvedCity  = city  ? String(city).trim()  : null;
+    let resolvedState = state ? String(state).trim() : null;
+    const lat = latitude  != null ? parseFloat(latitude)  : null;
+    const lng = longitude != null ? parseFloat(longitude) : null;
+
+    if (store_location_id && (!resolvedCity || !resolvedState)) {
+      const slRes = await query('SELECT city, state FROM store_locations WHERE id = $1', [store_location_id]);
+      if (slRes.rows[0]) {
+        resolvedCity  = resolvedCity  || slRes.rows[0].city;
+        resolvedState = resolvedState || slRes.rows[0].state;
+      }
+    }
+    if (!resolvedCity && store_slug && lat != null && lng != null) {
+      const nearestRes = await query(`
+        SELECT sl.city, sl.state
+        FROM store_locations sl
+        JOIN stores s ON s.id = sl.store_id AND s.slug = $1
+        ORDER BY (sl.latitude - $2)^2 + (sl.longitude - $3)^2
+        LIMIT 1
+      `, [store_slug, lat, lng]);
+      if (nearestRes.rows[0]) {
+        resolvedCity  = nearestRes.rows[0].city;
+        resolvedState = nearestRes.rows[0].state;
+      }
+    }
 
     // ── Auto-create collaborator profile if none ───────────────────────────
     let cpRes = await query(
@@ -277,8 +305,9 @@ router.post('/submit-deal', authenticate, async (req, res) => {
         found_price, estimated_profit, roi_percent, opportunity_score, recommendation,
         effective_market_price, effective_market_source, keepa_confidence,
         store_location_id, feedback_tag, photo_url,
+        city, state, latitude, longitude,
         trust_threshold, points_pending, status
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,'submitted')
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,'submitted')
       RETURNING id, created_at
     `, [
       req.user.id, collaborator_id, store_id,
@@ -294,6 +323,10 @@ router.post('/submit-deal', authenticate, async (req, res) => {
       store_location_id || null,
       feedback_tag || null,
       photo_url || null,
+      resolvedCity,
+      resolvedState,
+      lat,
+      lng,
       trustNeeded,
       pointsPending,
     ]);

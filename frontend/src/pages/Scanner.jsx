@@ -422,6 +422,17 @@ export default function Scanner() {
     }
   }
 
+  function getGeoLocation() {
+    return new Promise(resolve => {
+      if (!navigator.geolocation) return resolve(null);
+      navigator.geolocation.getCurrentPosition(
+        pos => resolve({ latitude: pos.coords.latitude, longitude: pos.coords.longitude }),
+        () => resolve(null),
+        { timeout: 5000, maximumAge: 60000 },
+      );
+    });
+  }
+
   async function submitDeal() {
     if (submitting || submitResult?.id) return;
     setSubmitting(true);
@@ -429,6 +440,7 @@ export default function Scanner() {
       const k = lookupResult?.keepa;
       const p = lookupResult?.product;
       const { price: empPrice, source: empSrc } = deriveEffectivePrice(k);
+      const geo = await getGeoLocation();
       const r = await api.post('/scanner/submit-deal', {
         upc:   p?.upc  || (mode === 'upc' ? query : null),
         sku:   p?.sku  || (mode === 'sku' ? query : null),
@@ -444,6 +456,7 @@ export default function Scanner() {
         recommendation:          evaluation?.recommendation ?? null,
         keepa_confidence:        k?.confidence ?? null,
         feedback_tag:            feedbackTag || null,
+        ...(geo || {}),
       });
       setSubmitResult({ id: r.data.id, points_pending: r.data.points_pending, confirmations_needed: r.data.confirmations_needed });
     } catch (err) {
@@ -567,12 +580,14 @@ export default function Scanner() {
                     const price = parseFloat(document.getElementById('notfound-price')?.value);
                     if (!name || !store || !price) { alert('Enter product name, store, and price.'); return; }
                     try {
+                      const geo = await getGeoLocation();
                       const r = await api.post('/scanner/submit-deal', {
                         upc: query || `manual-${Date.now()}`,
                         store_slug: store.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
                         found_price: price,
                         title: name,
                         feedback_tag: 'Found in Store',
+                        ...(geo || {}),
                       });
                       alert(`✅ Submitted! Needs ${r.data.confirmations_needed} confirmations to go live. +${r.data.points_pending} pts pending.`);
                     } catch (err) {

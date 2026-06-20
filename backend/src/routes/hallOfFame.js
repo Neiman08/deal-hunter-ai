@@ -137,30 +137,33 @@ router.get('/', async (req, res) => {
           LIMIT 10
         `),
 
-        // Top 10 cities (from submitted_deals — where deals are actually found)
+        // Top 10 cities (from submitted_deals — fallback to store_locations city if sd.city is null)
         query(`
           SELECT
-            sd.city,
-            sd.state,
+            COALESCE(sd.city, sl.city)   AS city,
+            COALESCE(sd.state, sl.state) AS state,
             COUNT(DISTINCT sd.user_id) AS hunters_count,
             COUNT(*)                   AS submitted_deals,
             COUNT(*) FILTER (WHERE sd.status IN ('verified','approved')) AS verified_deals,
             ROUND(AVG(sd.roi_percent)::numeric, 1) AS avg_roi
           FROM submitted_deals sd
-          WHERE sd.city IS NOT NULL AND sd.city != ''
+          LEFT JOIN store_locations sl ON sl.id = sd.store_location_id
+          WHERE (sd.city IS NOT NULL OR sl.city IS NOT NULL)
+            AND COALESCE(sd.city, sl.city) != ''
             AND sd.status NOT IN ('rejected','expired','duplicate')
-          GROUP BY sd.city, sd.state
+          GROUP BY COALESCE(sd.city, sl.city), COALESCE(sd.state, sl.state)
           ORDER BY verified_deals DESC, submitted_deals DESC
           LIMIT 10
         `),
 
-        // Top 10 deals by ROI
+        // Top 10 deals by ROI/score (include even without roi_percent)
         query(`
           SELECT
             sd.id AS deal_id,
-            sd.product_name AS title,
+            LEFT(sd.product_name, 80) AS title,
             s.name AS store,
-            sd.city, sd.state,
+            COALESCE(sd.city, sl.city)   AS city,
+            COALESCE(sd.state, sl.state) AS state,
             COALESCE(cp.display_name, u.name, split_part(u.email,'@',1)) AS author,
             sd.found_price AS in_store_price,
             sd.effective_market_price AS market_price,
@@ -172,11 +175,11 @@ router.get('/', async (req, res) => {
             sd.created_at
           FROM submitted_deals sd
           LEFT JOIN stores s ON s.id = sd.store_id
+          LEFT JOIN store_locations sl ON sl.id = sd.store_location_id
           LEFT JOIN users u ON u.id = sd.user_id
           LEFT JOIN collaborator_profiles cp ON cp.user_id = sd.user_id
           WHERE sd.status IN ('submitted','pending_confirmation','verified','approved')
-            AND sd.roi_percent IS NOT NULL
-          ORDER BY sd.roi_percent DESC NULLS LAST, sd.opportunity_score DESC NULLS LAST
+          ORDER BY sd.roi_percent DESC NULLS LAST, sd.opportunity_score DESC NULLS LAST, sd.created_at DESC
           LIMIT 10
         `),
 
@@ -326,22 +329,24 @@ router.get('/cities', async (req, res) => {
   try {
     const state = req.query.state ? String(req.query.state).slice(0, 10) : null;
     const p = [];
-    const stateWhere = state ? `AND LOWER(sd.state) = LOWER($${p.push(state)})` : '';
+    const stateWhere = state ? `AND LOWER(COALESCE(sd.state, sl.state)) = LOWER($${p.push(state)})` : '';
 
     const result = await query(`
       SELECT
-        sd.city,
-        sd.state,
+        COALESCE(sd.city, sl.city)   AS city,
+        COALESCE(sd.state, sl.state) AS state,
         COUNT(DISTINCT sd.user_id) AS hunters_count,
         COUNT(*)                   AS submitted_deals,
         COUNT(*) FILTER (WHERE sd.status IN ('verified','approved')) AS verified_deals,
         ROUND(AVG(sd.roi_percent)::numeric, 1) AS avg_roi,
         ROUND(AVG(sd.estimated_profit)::numeric, 2) AS avg_profit
       FROM submitted_deals sd
-      WHERE sd.city IS NOT NULL AND sd.city != ''
+      LEFT JOIN store_locations sl ON sl.id = sd.store_location_id
+      WHERE (sd.city IS NOT NULL OR sl.city IS NOT NULL)
+        AND COALESCE(sd.city, sl.city) != ''
         AND sd.status NOT IN ('rejected','expired','duplicate')
         ${stateWhere}
-      GROUP BY sd.city, sd.state
+      GROUP BY COALESCE(sd.city, sl.city), COALESCE(sd.state, sl.state)
       ORDER BY verified_deals DESC, submitted_deals DESC
       LIMIT 50
     `, p);
@@ -365,8 +370,8 @@ router.get('/deals', async (req, res) => {
     if (period === 'week')  periodWhere = `AND sd.created_at >= date_trunc('week', NOW())`;
     if (period === 'month') periodWhere = `AND sd.created_at >= date_trunc('month', NOW())`;
 
-    const cityWhere  = city  ? `AND LOWER(sd.city)  = LOWER($${p.push(city)})` : '';
-    const stateWhere = state ? `AND LOWER(sd.state) = LOWER($${p.push(state)})` : '';
+    const cityWhere  = city  ? `AND LOWER(COALESCE(sd.city,  sl.city))  = LOWER($${p.push(city)})` : '';
+    const stateWhere = state ? `AND LOWER(COALESCE(sd.state, sl.state)) = LOWER($${p.push(state)})` : '';
     p.push(50);
 
     const result = await query(`
@@ -374,7 +379,8 @@ router.get('/deals', async (req, res) => {
         sd.id AS deal_id,
         LEFT(sd.product_name, 80) AS title,
         s.name AS store,
-        sd.city, sd.state,
+        COALESCE(sd.city, sl.city)   AS city,
+        COALESCE(sd.state, sl.state) AS state,
         COALESCE(cp.display_name, u.name, split_part(u.email,'@',1)) AS author,
         sd.found_price AS in_store_price,
         sd.effective_market_price AS market_price,
@@ -386,12 +392,12 @@ router.get('/deals', async (req, res) => {
         sd.created_at
       FROM submitted_deals sd
       LEFT JOIN stores s ON s.id = sd.store_id
+      LEFT JOIN store_locations sl ON sl.id = sd.store_location_id
       LEFT JOIN users u ON u.id = sd.user_id
       LEFT JOIN collaborator_profiles cp ON cp.user_id = sd.user_id
       WHERE sd.status IN ('submitted','pending_confirmation','verified','approved')
-        AND sd.roi_percent IS NOT NULL
         ${periodWhere} ${cityWhere} ${stateWhere}
-      ORDER BY sd.roi_percent DESC NULLS LAST, sd.opportunity_score DESC NULLS LAST
+      ORDER BY sd.roi_percent DESC NULLS LAST, sd.opportunity_score DESC NULLS LAST, sd.created_at DESC
       LIMIT $${p.length}
     `, p);
 

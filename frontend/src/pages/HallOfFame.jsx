@@ -169,7 +169,9 @@ function CityRow({ c }) {
 
 // ── Deal row ──────────────────────────────────────────────────────────────────
 function DealRow({ d }) {
-  const roi = parseFloat(d.roi || 0);
+  const roi = d.roi != null ? parseFloat(d.roi) : null;
+  const score = d.score != null ? parseInt(d.score) : null;
+  const location = [d.city, d.state].filter(Boolean).join(', ') || 'Unknown location';
   return (
     <div className="flex items-center gap-3 p-3 rounded-xl border border-dark-700 bg-dark-800/40">
       <div className="w-8 text-center flex-shrink-0">
@@ -182,18 +184,20 @@ function DealRow({ d }) {
         <p className="text-white text-sm font-semibold truncate">{d.title || 'Unknown product'}</p>
         <div className="flex items-center gap-2 mt-0.5 text-[10px] text-gray-500">
           {d.store && <span>{d.store}</span>}
-          {(d.city || d.state) && (
-            <span className="flex items-center gap-0.5">
-              <MapPin size={8} /> {[d.city, d.state].filter(Boolean).join(', ')}
-            </span>
-          )}
+          <span className="flex items-center gap-0.5">
+            <MapPin size={8} /> {location}
+          </span>
           {d.author && <span>by {d.author}</span>}
         </div>
       </div>
       <div className="flex-shrink-0 text-right">
-        <p className="font-black text-sm" style={{ color: roi >= 100 ? '#4ADE80' : roi >= 50 ? '#60A5FA' : '#FBBF24' }}>
-          {roi.toFixed(0)}% ROI
-        </p>
+        {roi != null ? (
+          <p className="font-black text-sm" style={{ color: roi >= 100 ? '#4ADE80' : roi >= 50 ? '#60A5FA' : '#FBBF24' }}>
+            {roi.toFixed(0)}% ROI
+          </p>
+        ) : score != null ? (
+          <p className="font-black text-sm text-neon-blue">Score {score}</p>
+        ) : null}
         {d.profit != null && (
           <p className="text-gray-500 text-[10px]">~${parseFloat(d.profit).toFixed(0)} profit</p>
         )}

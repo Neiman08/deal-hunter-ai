@@ -24,8 +24,8 @@ function getLevel(xp) {
 
 // ── Load user context for coach ────────────────────────────────────────────────
 async function loadUserContext(uid) {
-  const [profileRes, walletRes, missionsRes, univRes, rankRes] = await Promise.all([
-    query(`SELECT points, xp_this_month, trust_score, scan_count, approved_deals_count, pending_deals_count FROM collaborator_profiles WHERE user_id=$1`, [uid]),
+  const [profileRes, walletRes, missionsRes, rankRes, univRes, refRes] = await Promise.all([
+    query(`SELECT points, xp_this_month, trust_score, scan_count, approved_deals_count, pending_deals_count, team_id FROM collaborator_profiles WHERE user_id=$1`, [uid]),
     query(`SELECT points_available, points_pending, lifetime_points, credit_balance FROM contributor_wallets WHERE user_id=$1`, [uid]),
     query(`
       SELECT m.slug, m.title, m.type, m.action, m.target, m.xp_reward,
@@ -58,6 +58,12 @@ async function loadUserContext(uid) {
       LEFT JOIN university_certificates uc ON uc.user_id=$1
       WHERE up.user_id=$1
     `, [uid]),
+    query(`
+      SELECT
+        COUNT(*) AS total_signups,
+        COUNT(*) FILTER (WHERE converted_to_paid) AS conversions
+      FROM referral_events WHERE referrer_id=$1
+    `, [uid]),
   ]);
 
   const profile  = profileRes.rows[0]  || {};
@@ -65,6 +71,23 @@ async function loadUserContext(uid) {
   const missions = missionsRes.rows     || [];
   const globalRank = parseInt(rankRes.rows[0]?.rank || 0);
   const univ     = univRes.rows[0]      || {};
+  const ref      = refRes.rows[0]       || {};
+
+  // Team data (only if user belongs to one)
+  let team = null;
+  if (profile.team_id) {
+    const teamRes = await query(`
+      SELECT t.name, t.city, COUNT(tm.id) FILTER (WHERE tm.is_active) AS member_count,
+             COALESCE(SUM(cp.points), 0) AS total_xp,
+             RANK() OVER (ORDER BY SUM(cp.points) DESC) AS team_rank
+      FROM teams t
+      LEFT JOIN team_members tm ON tm.team_id = t.id
+      LEFT JOIN collaborator_profiles cp ON cp.user_id = tm.user_id AND tm.is_active = true
+      WHERE t.id = $1
+      GROUP BY t.id, t.name, t.city
+    `, [profile.team_id]).catch(() => ({ rows: [] }));
+    team = teamRes.rows[0] || null;
+  }
 
   const xp = parseInt(profile.points || 0);
   const level = getLevel(xp);
@@ -96,6 +119,11 @@ async function loadUserContext(uid) {
       completed:    parseInt(univ.courses_completed || 0),
       certificates: parseInt(univ.certificates || 0),
     },
+    referrals: {
+      total_signups: parseInt(ref.total_signups || 0),
+      conversions:   parseInt(ref.conversions   || 0),
+    },
+    team,
   };
 }
 
@@ -196,6 +224,36 @@ function generateSuggestions(ctx) {
     });
   }
 
+  // 8. Team: push user to join or grow team
+  if (!ctx.team) {
+    suggs.push({
+      type: 'team',
+      priority: 5,
+      title: 'Join or create a team',
+      message: 'Teams multiply your reach. Members coordinate store visits, share finds, and climb the Hall of Fame together.',
+      action_url: '/teams',
+    });
+  } else if (ctx.team && parseInt(ctx.team.member_count || 0) < 3) {
+    suggs.push({
+      type: 'team',
+      priority: 4,
+      title: `Grow your team "${ctx.team.name}"`,
+      message: `Your team has ${ctx.team.member_count} member(s). Recruit more Hunters via your referral link to boost your team's XP and ranking.`,
+      action_url: '/referrals',
+    });
+  }
+
+  // 9. Referral nudge if no conversions yet
+  if (ctx.referrals.total_signups === 0) {
+    suggs.push({
+      type: 'referral',
+      priority: 5,
+      title: 'Invite your first friend',
+      message: 'Share your referral link to earn Pro time, credits, and mission XP. Every referred signup counts.',
+      action_url: '/referrals',
+    });
+  }
+
   return suggs.sort((a, b) => a.priority - b.priority).slice(0, 5);
 }
 
@@ -231,6 +289,9 @@ function generateAnswer(message, ctx) {
   }
 
   if (msg.includes('team') || msg.includes('equipo') || msg.includes('recruit') || msg.includes('members')) {
+    if (ctx.team) {
+      return `Your team **"${ctx.team.name}"** has **${ctx.team.member_count} active member(s)** with a combined **${parseInt(ctx.team.total_xp || 0).toLocaleString()} XP**.\n\nTo grow your team:\n\n1. **Share your referral link** — each signup who joins your team boosts your team XP\n2. **Set weekly goals** — coordinate store visits across different stores\n3. **Help teammates complete missions** — their XP counts toward the team total\n4. **Encourage University completion** — each certificate adds to member XP\n\nTeams are ranked in the Hall of Fame by total XP. With 5 active members doing daily missions, your team could earn 275+ XP/week.`;
+    }
     return `Growing your team:\n\n1. **Share your referral link** (in Business Home) — each active signup earns you mission XP\n2. **Reach Líder level** (1,000 XP) to unlock team creation\n3. **Join an existing team** from the Teams section if you're not ready to lead\n4. **Active teams coordinate hunts** — more stores covered = more deals found\n\n${ctx.level.name === 'Hunter' && ctx.xpToNext > 0 ? `You're ${ctx.xpToNext} XP away from Líder — focus on missions and University first.` : 'You can create or lead a team now. Head to Teams to get started.'}`;
   }
 
@@ -244,6 +305,12 @@ function generateAnswer(message, ctx) {
 
   if (msg.includes('scan') || msg.includes('barcode') || msg.includes('scanner') || msg.includes('upc')) {
     return `The Scanner is your most powerful tool. Here's how to get the most from it:\n\n1. **Scan any product barcode** (UPC or SKU) to see Amazon price history\n2. **Enter your found price** to calculate exact profit and ROI\n3. **Look for 🟢 Live Prices** — these are the most reliable\n4. **Check sales rank** — under 100,000 in most categories means it sells regularly\n5. **Submit promising finds** directly from the scan result screen\n\nYou've done **${ctx.profile.scan_count}** scans so far. Each unique scan (with 5-min debounce) earns +1 XP.`;
+  }
+
+  if (msg.includes('referral') || msg.includes('invite') || msg.includes('refer') || msg.includes('invitar')) {
+    const signups = ctx.referrals.total_signups;
+    const convs   = ctx.referrals.conversions;
+    return `Your referral stats:\n\n- **Total signups:** ${signups}\n- **Paid conversions:** ${convs}\n\nHow the reward tiers work:\n- 1 conversion → **7 days Pro free**\n- 3 conversions → **1 month Pro free**\n- 5 conversions → **$10 account credit**\n- 10 conversions → **$25 account credit**\n- 25 conversions → **Lifetime Pro**\n\nBest ways to share:\n1. **Copy your referral link** from Business Home or the Refer & Earn section\n2. **Post in reseller Facebook groups** or Discord servers\n3. **Tell local store regulars** — anyone who shops at Best Buy, GameStop, etc. benefits from Deal Hunter\n\nEach referral who converts also counts toward the **monthly referral mission** (+200 XP for 2 conversions). Head to the **Refer & Earn** section to grab your link.`;
   }
 
   if (msg.includes('top 10') || msg.includes('hall of fame') || msg.includes('leaderboard') || msg.includes('ranking') || msg.includes('rank higher') || msg.includes('mi rango') || msg.includes('my rank') || msg.includes('current rank')) {

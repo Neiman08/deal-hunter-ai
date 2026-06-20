@@ -309,4 +309,76 @@ router.get('/certificates', authenticate, async (req, res) => {
   }
 });
 
+// ── GET /api/university/progress ─────────────────────────────────────────────
+router.get('/progress', authenticate, async (req, res) => {
+  try {
+    const uid = req.user.id;
+
+    const [coursesRes, certsRes, badgesRes] = await Promise.all([
+      query(`
+        SELECT
+          c.id, c.slug, c.title, c.category, c.xp_reward,
+          COUNT(l.id) AS total_lessons,
+          COUNT(up.id) FILTER (WHERE up.status = 'completed') AS completed_lessons
+        FROM university_courses c
+        JOIN university_lessons l ON l.course_id = c.id AND l.is_active = true
+        LEFT JOIN university_progress up ON up.lesson_id = l.id AND up.user_id = $1
+        WHERE c.is_active = true
+        GROUP BY c.id, c.slug, c.title, c.category, c.xp_reward
+        ORDER BY c.sort_order ASC NULLS LAST, c.created_at ASC
+      `, [uid]),
+      query(`
+        SELECT uc.certificate_code, uc.issued_at, c.title, c.slug, c.category
+        FROM university_certificates uc
+        JOIN university_courses c ON c.id = uc.course_id
+        WHERE uc.user_id = $1
+        ORDER BY uc.issued_at DESC
+      `, [uid]),
+      query(`
+        SELECT badge_slug, badge_name, awarded_at
+        FROM hunter_badges WHERE user_id = $1
+        ORDER BY awarded_at DESC
+      `, [uid]),
+    ]);
+
+    const courses = coursesRes.rows.map(c => ({
+      ...c,
+      total_lessons:      parseInt(c.total_lessons),
+      completed_lessons:  parseInt(c.completed_lessons),
+      is_completed:       parseInt(c.completed_lessons) >= parseInt(c.total_lessons) && parseInt(c.total_lessons) > 0,
+      progress_percent:   parseInt(c.total_lessons) > 0
+        ? Math.round((parseInt(c.completed_lessons) / parseInt(c.total_lessons)) * 100)
+        : 0,
+    }));
+
+    const totalCourses     = courses.length;
+    const completedCourses = courses.filter(c => c.is_completed).length;
+    const inProgress       = courses.filter(c => !c.is_completed && c.completed_lessons > 0).length;
+    const overallPercent   = totalCourses > 0
+      ? Math.round((completedCourses / totalCourses) * 100)
+      : 0;
+    const totalXpEarned    = courses
+      .filter(c => c.is_completed)
+      .reduce((s, c) => s + (parseInt(c.xp_reward) || 0), 0);
+
+    res.json({
+      summary: {
+        total_courses:     totalCourses,
+        completed_courses: completedCourses,
+        in_progress:       inProgress,
+        overall_percent:   overallPercent,
+        total_xp_earned:   totalXpEarned,
+        certificates:      certsRes.rows.length,
+        badges:            badgesRes.rows.length,
+      },
+      courses,
+      certificates: certsRes.rows,
+      badges:       badgesRes.rows,
+    });
+  } catch (err) {
+    logger.error(`[University] GET /progress: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

@@ -3,6 +3,7 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const crypto = require('crypto');
+const { trackReferUser } = require('../services/businessActions');
 
 function generateCode(name) {
   const base = (name || 'user').split(' ')[0].toUpperCase().replace(/[^A-Z]/g, '').slice(0, 6);
@@ -129,6 +130,9 @@ router.post('/apply', async (req, res) => {
 
     // Track referral on new user
     await query('UPDATE users SET referred_by = $1 WHERE id = $2', [code, new_user_id]);
+
+    // Fire-and-forget: mission + XP for the referrer
+    trackReferUser(referrer.user_id).catch(() => {});
 
     res.json({ applied: true, referrer_id: referrer.user_id });
   } catch (err) {

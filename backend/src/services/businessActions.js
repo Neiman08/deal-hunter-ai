@@ -199,4 +199,21 @@ async function trackConfirmDeal(userId, dealId) {
   }
 }
 
-module.exports = { trackScan, trackSubmitDeal, trackConfirmDeal, logTransaction };
+/**
+ * Call after a referral code is applied at signup.
+ * - Increments refer_user missions for the referrer
+ * - Logs the referral_active transaction
+ */
+async function trackReferUser(referrerId) {
+  try {
+    await incrementMission(referrerId, 'refer_user');
+    await logTransaction(referrerId, 'referral_active', {
+      xp: 0, status: 'approved', refType: 'referral',
+      description: 'New user signed up with your referral code',
+    });
+  } catch (e) {
+    logger.warn(`[BusinessActions] trackReferUser: ${e.message}`);
+  }
+}
+
+module.exports = { trackScan, trackSubmitDeal, trackConfirmDeal, trackReferUser, logTransaction };

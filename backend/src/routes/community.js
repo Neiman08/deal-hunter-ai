@@ -129,6 +129,13 @@ router.get('/deals', async (req, res) => {
     const status = req.query.status || 'verified,official';
     const statusList = status.split(',').map(s => s.trim());
 
+    const sort = req.query.sort || '';
+  const orderBy = sort === 'roi_percent'
+    ? 'sd.roi_percent DESC NULLS LAST, sd.created_at DESC'
+    : sort === 'profit'
+      ? 'sd.estimated_profit DESC NULLS LAST, sd.created_at DESC'
+      : 'sd.created_at DESC';
+
     const r = await query(`
       SELECT
         sd.id, sd.product_name, sd.brand, sd.found_price, sd.estimated_profit,
@@ -145,7 +152,7 @@ router.get('/deals', async (req, res) => {
       LEFT JOIN store_locations sl ON sd.store_location_id = sl.id
       LEFT JOIN collaborator_profiles cp ON sd.collaborator_id = cp.id
       WHERE sd.status = ANY($1)
-      ORDER BY sd.created_at DESC
+      ORDER BY ${orderBy}
       LIMIT $2 OFFSET $3
     `, [statusList, limit, offset]);
 

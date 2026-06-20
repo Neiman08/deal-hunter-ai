@@ -194,7 +194,7 @@ router.get('/stats', async (req, res) => {
       `),
       query(`
         SELECT c.name, c.slug, COUNT(d.id) as deal_count,
-          ROUND(AVG(d.estimated_profit), 2) as avg_profit
+          ROUND(AVG(d.estimated_profit) FILTER (WHERE d.estimated_profit > 0), 2) as avg_profit
         FROM deals d JOIN products p ON d.product_id = p.id
         LEFT JOIN categories c ON p.category_id = c.id
         WHERE d.is_active = true AND c.name IS NOT NULL

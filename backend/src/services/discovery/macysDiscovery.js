@@ -23,12 +23,47 @@ const BASE_URL    = 'https://www.macys.com';
 
 // Each group = list of {label, path} pages to SPA-navigate
 const SALE_GROUPS = {
-  sale_main:  [{ label: 'sale-main',   path: '/shop/sale?id=3536' }],
-  last_act:   [{ label: 'last-act',    path: '/shop/sale/last-act?id=33490' }],
-  clearance:  [{ label: 'clearance',   path: '/shop/sale/clearance' }],
-  home:       [{ label: 'home-sale',   path: '/shop/sale/home-sale' }],
-  womens:     [{ label: 'womens-sale', path: '/shop/sale/womens-sale' }],
-  mens:       [{ label: 'mens-sale',   path: '/shop/sale/mens-sale' }],
+  sale_main:    [{ label: 'sale-main',      path: '/shop/sale?id=3536' }],
+  last_act:     [{ label: 'last-act',       path: '/shop/sale/last-act?id=33490' }],
+  clearance:    [{ label: 'clearance',      path: '/shop/sale/clearance' }],
+  // Home & Living
+  home:         [
+    { label: 'home-sale',     path: '/shop/sale/home-sale' },
+    { label: 'bedding-sale',  path: '/shop/sale/home-sale/bedding-and-bath' },
+    { label: 'furniture-sale',path: '/shop/sale/home-sale/furniture' },
+  ],
+  // Women's Fashion
+  womens:       [
+    { label: 'womens-sale',   path: '/shop/sale/womens-sale' },
+    { label: 'womens-shoes',  path: '/shop/sale/womens-sale/shoes' },
+    { label: 'womens-active', path: '/shop/sale/womens-sale/activewear' },
+  ],
+  // Men's Fashion
+  mens:         [
+    { label: 'mens-sale',     path: '/shop/sale/mens-sale' },
+    { label: 'mens-shoes',    path: '/shop/sale/mens-sale/shoes' },
+    { label: 'mens-active',   path: '/shop/sale/mens-sale/activewear' },
+  ],
+  // Shoes (all)
+  shoes:        [
+    { label: 'shoes-sale',    path: '/shop/sale/shoes-sale' },
+    { label: 'kids-shoes',    path: '/shop/sale/kids-sale/shoes' },
+  ],
+  // Beauty & Fragrance
+  beauty:       [
+    { label: 'beauty-sale',   path: '/shop/sale/beauty-and-fragrance' },
+    { label: 'fragrance-sale',path: '/shop/beauty-and-fragrance/shop-all-fragrance/sale' },
+  ],
+  // Handbags & Accessories
+  handbags:     [
+    { label: 'handbags-sale', path: '/shop/sale/handbags-and-accessories' },
+    { label: 'jewelry-sale',  path: '/shop/sale/jewelry-and-watches' },
+  ],
+  // Kids
+  kids:         [
+    { label: 'kids-sale',     path: '/shop/sale/kids-sale' },
+    { label: 'baby-sale',     path: '/shop/sale/kids-sale/baby' },
+  ],
 };
 
 // ─── Pricing parser (mirrors macys.js scraper) ────────────────────────────────
@@ -50,13 +85,17 @@ function parsePricing(pricing) {
 async function createSession() {
   logger.info(`[Discovery:${STORE_LABEL}] Launching browser on homepage...`);
 
-  const { chromium } = require('playwright-extra');
-  const stealth = require('puppeteer-extra-plugin-stealth');
-  chromium.use(stealth());
+  const { chromium } = require('playwright-core');
 
   const browser = await chromium.launch({
-    headless: process.env.NODE_ENV !== 'development',
-    args: ['--disable-blink-features=AutomationControlled'],
+    headless: true,
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-dev-shm-usage',
+    ],
   });
   const ctx = await browser.newContext({
     ignoreHTTPSErrors: true,
@@ -93,6 +132,9 @@ function guessMacysCategory(name = '') {
   if (/perfume|fragrance|eau de|cologne|foundation|mascara|serum|moisturizer|skincare|makeup|blush|eyeshadow|cushion foundation/.test(n)) return 'health-beauty';
   if (/ring|necklace|earring|bracelet|\bwatch\b|pendant|chain|brooch/.test(n)) return 'jewelry';
   if (/pokemon|zygarde|pikachu|trading card|collection box|\btoy\b|board game/.test(n)) return 'toys';
+  if (/\bkid\b|kids'|toddler|infant|baby|children/.test(n)) return 'clothing';
+  if (/activewear|legging|sports bra|athletic|yoga pant|jogger|sweatpant|track pant|windbreaker/.test(n)) return 'sports';
+  if (/sheet set|duvet|comforter set|quilt|blanket|towel set|bath towel|pillow case|bedspread/.test(n)) return 'bedding';
   if (/top|shirt|shorts|pants|dress|blouse|sweater|suit|polo|bra|jeans|rompers|hoodie|cardigan|undershirt|skirt|coat|jacket|vest/.test(n)) return 'clothing';
   return 'clothing'; // Macy's default — mostly apparel
 }

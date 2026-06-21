@@ -162,6 +162,9 @@ async function runOfficeDepotDiscovery(options = {}) {
 
   if (!stats.pages_visited) {
     logger.error(`[Discovery:${STORE_LABEL}] All sitemaps failed`);
+    stats.blocked = true;
+    stats.blockType = 'sitemap_fetch_failed';
+    await writeStoreRun(STORE_SLUG, startedAt, stats);
     return stats;
   }
 
@@ -180,6 +183,7 @@ async function runOfficeDepotDiscovery(options = {}) {
 
   if (!uniqueCandidates.length) {
     logger.warn(`[Discovery:${STORE_LABEL}] No candidates found`);
+    await writeStoreRun(STORE_SLUG, startedAt, stats);
     return stats;
   }
 
@@ -200,6 +204,8 @@ async function runOfficeDepotDiscovery(options = {}) {
 
   if (!toProcess.length) {
     logger.info(`[Discovery:${STORE_LABEL}] All sampled URLs already have sale prices saved — rotating next cycle`);
+    stats.blockType = 'all_urls_known';
+    await writeStoreRun(STORE_SLUG, startedAt, stats);
     return stats;
   }
 

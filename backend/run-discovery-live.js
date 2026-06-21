@@ -647,6 +647,9 @@ function loadEngines() {
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const STORE_TIMEOUTS_MS  = {
   'office-depot': 20 * 60 * 1000,  // sitemap + proxy scrape is slow; needs extra headroom
+  'home-depot':   25 * 60 * 1000,  // ISP-proxy Playwright + scan loop needs extra time
+  'lowes':        25 * 60 * 1000,  // ISP-proxy Playwright + scan loop needs extra time
+  'walmart':      25 * 60 * 1000,  // diagnostic (60s) + ISP Playwright scan needs extra time
 };
 
 async function runEngine(engines, slug, opts, label) {

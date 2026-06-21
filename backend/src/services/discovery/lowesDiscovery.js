@@ -171,10 +171,20 @@ async function runLowesDiscovery(options = {}) {
     blocked: false, blockType: null,
   };
 
+  // Heartbeat — confirms this function is being invoked each cycle
+  try {
+    const { query: _hbQ } = require('../../config/database');
+    await _hbQ(
+      "INSERT INTO worker_store_runs (store_slug, started_at, blocked, block_type) VALUES ($1, NOW(), false, 'heartbeat_start')",
+      [STORE_SLUG + '-hb']
+    );
+  } catch {}
+
   if (shouldSkipStore(STORE_SLUG)) {
     logger.warn(`[Discovery:${STORE_LABEL}] Skipping — too many recent failures`);
     stats.blocked = true;
     stats.blockType = 'skipped_due_to_failures';
+    await writeStoreRun(STORE_SLUG, startedAt, stats);
     return stats;
   }
 
@@ -249,6 +259,9 @@ async function runLowesDiscovery(options = {}) {
   }
 
   logger.info(`\n[Discovery:${STORE_LABEL}] Scanning ${toProcess.length} new products...`);
+
+  // Pre-scan write — records URL-discovery stats before scan loop that may timeout
+  await writeStoreRun(STORE_SLUG, startedAt, { ...stats, blockType: 'pre_scan_checkpoint' });
 
   const { scanSingleProduct } = require('../../jobs/scanJob');
   const CONCURRENCY = parseInt(process.env.SCAN_CONCURRENCY) || 2;

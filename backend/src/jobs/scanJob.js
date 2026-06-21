@@ -58,6 +58,39 @@ const ACTIVE_STORES = (process.env.ACTIVE_STORES || ALL_STORES).split(',').map(s
 
 let isRunning = false;
 
+// ─── Category inference by store + product name ───────────────────────────────
+// Returns a category slug from the categories table, or null to use DB default.
+function inferCategorySlug(storeSlug, name = '') {
+  const n = name.toLowerCase();
+
+  if (storeSlug === 'staples') {
+    // Electronics — computers, peripherals, printers
+    if (/\blaptop\b|\bchromebook\b|\bmacbook\b/.test(n)) return 'electronics';
+    if (/\bmonitor\b|\bdisplay\b|\bwebcam\b/.test(n)) return 'electronics';
+    if (/\bkeyboard\b|\bheadset\b|\bheadphones?\b|\bearbuds?\b/.test(n)) return 'electronics';
+    if (/\btablet\b|\bipad\b|\bdesktop\b/.test(n)) return 'electronics';
+    if (/\bprinter\b(?!\s+paper)|\bscanner\b|\bcopier\b|\bshredder\b/.test(n)) return 'electronics';
+    // Office supplies — consumables, paper, stationery
+    if (/\btoner\b|\bcartridge\b|\binkjet\b/.test(n)) return 'office';
+    if (/\bpaper\b|\bnotepad\b|\bpost.it\b|\bpost it\b|\bsticky note\b/.test(n)) return 'office';
+    if (/\bpen\b|\bpencil\b|\bmarker\b|\bsharpie\b|\bhighlighter\b/.test(n)) return 'office';
+    if (/\bfolder\b|\bbinder\b|\bfile\b|\bstaple\b|\btape\b|\blabel\b|\benvelope\b/.test(n)) return 'office';
+    if (/\bdry.?erase\b|\bwhiteboard\b/.test(n)) return 'office';
+    // Furniture
+    if (/\bchair\b|\bdesk\b|\bstanding desk\b|\bfurniture\b/.test(n)) return 'home-decor';
+    // Cleaning / personal care
+    if (/\bsoap\b|\bcleaner\b|\bwipes?\b|\bsanitizer\b|\bdisinfect|\bpaper towel\b/.test(n)) return 'health-beauty';
+    // Appliances
+    if (/\bkeurig\b|\bcoffee maker\b|\bespresso\b|\bblender\b|\btoaster\b/.test(n)) return 'appliances';
+    // Toys / novelty
+    if (/\bstress ball\b|\bneedoh\b|\btoy\b/.test(n)) return 'toys';
+    // Default for Staples = office (most items are office supplies)
+    return 'office';
+  }
+
+  return null; // other stores: use existing DB default logic
+}
+
 // ─── Main scan orchestrator ───────────────────────────────────────────────────
 async function runScan(storeSlug = null) {
   if (isRunning) {
@@ -294,8 +327,16 @@ async function scanSingleProduct(storeSlug, urlOrId) {
 
     // 2) Si no existe, crear producto nuevo live
     if (!dbProduct) {
-      const cat = await query('SELECT id, slug FROM categories ORDER BY name LIMIT 1');
-      const categoryId = cat.rows[0]?.id || null;
+      const inferredSlug = inferCategorySlug(storeSlug, result.name || '');
+      let categoryId = null;
+      if (inferredSlug) {
+        const catInferred = await query('SELECT id FROM categories WHERE slug=$1 LIMIT 1', [inferredSlug]);
+        categoryId = catInferred.rows[0]?.id || null;
+      }
+      if (!categoryId) {
+        const cat = await query('SELECT id, slug FROM categories ORDER BY name LIMIT 1');
+        categoryId = cat.rows[0]?.id || null;
+      }
 
       const inserted = await query(
         `INSERT INTO products (name, brand, sku, upc, store_id, category_id, image_url, product_url, created_at, updated_at)

@@ -314,28 +314,24 @@ async function runMacysDiscovery(options = {}) {
   } catch (err) {
     const errMsg = (err?.message || String(err) || 'unknown_error').slice(0, 200);
     logger.error(`[Discovery:${STORE_LABEL}] Fatal: ${errMsg}`);
-    stats.blocked    = true;
-    stats.blockType  = 'fatal_error';
-    // proxy_used is VARCHAR(30) — use as fallback diagnostic carrier if last_error stays null
-    stats.proxy_used = ('ISP:' + (process.env.ISP_PROXY_HOST ? 'Y' : 'N')
+    stats.blocked   = true;
+    stats.blockType = 'fatal_error';
+    const puStr = ('ISP:' + (process.env.ISP_PROXY_HOST ? 'Y' : 'N')
       + '|RES:' + (process.env.PROXY_ENABLED || 'N')
       + '|U:' + (process.env.ISP_PROXY_USER ? 'Y' : 'N')).slice(0, 29);
-    const diagStr = 'err=' + errMsg
+    const leStr = ('err=' + errMsg
       + '|ISP_HOST=' + (process.env.ISP_PROXY_HOST ? 'set' : 'no')
       + '|ISP_PORT=' + (process.env.ISP_PROXY_PORT || 'no')
       + '|ISP_USER=' + (process.env.ISP_PROXY_USER ? 'set' : 'no')
       + '|PROXY_EN=' + (process.env.PROXY_ENABLED || 'no')
       + '|PROXY_HOST=' + (process.env.PROXY_HOST ? 'set' : 'no')
-      + '|PROXY_USER=' + (process.env.PROXY_USER ? 'set' : 'no');
-    stats.last_error = diagStr;
-    // Direct raw INSERT bypassing writeStoreRun to confirm DB write works in catch block
-    try {
-      const { query: dbQ } = require('../../config/database');
-      await dbQ(
-        "INSERT INTO worker_store_runs (store_slug, started_at, blocked, block_type, last_error) VALUES ('macys-raw', NOW(), true, 'fatal_raw', $1)",
-        [diagStr]
-      );
-    } catch {}
+      + '|PROXY_USER=' + (process.env.PROXY_USER ? 'set' : 'no'));
+    // Write directly in catch so proxy/error info lands in DB regardless of later flow
+    await writeStoreRun(STORE_SLUG, startedAt, {
+      ...stats, blocked: true, blockType: 'fatal_error',
+      proxy_used: puStr, last_error: leStr,
+    });
+    return stats;
   } finally {
     if (session?.browser) {
       await session.browser.close().catch(() => {});

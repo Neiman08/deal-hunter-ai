@@ -3,10 +3,11 @@ import { Link } from 'react-router-dom';
 import {
   Flame, DollarSign, RefreshCw,
   AlertTriangle, ArrowRight, Star, Brain, TrendingUp, Clock, CheckCircle, AlertCircle,
-  Search, X,
+  Search, X, Shield, Package,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LineChart, Line, CartesianGrid } from 'recharts';
 import api from '../utils/api';
+import { useAuth } from '../context/AuthContext';
 import StatCard from '../components/StatCard';
 import DealCard from '../components/DealCard';
 import FilterBar from '../components/FilterBar';
@@ -16,24 +17,25 @@ const LIMIT = 24;
 function parseStats(raw) {
   return {
     ...raw,
-    total_deals:                parseInt(raw.total_deals)                || 0,
-    total_db_deals:             parseInt(raw.total_deals)                || 0,
-    searchable_deals_default:   parseInt(raw.searchable_deals_default)   || 0,
-    low_discount_deals:         parseInt(raw.low_discount_deals)         || 0,
-    new_today:                  parseInt(raw.new_today)                  || 0,
-    new_this_hour:              parseInt(raw.new_this_hour)              || 0,
-    error_prices:               parseInt(raw.error_prices)               || 0,
-    excellent_deals:            parseInt(raw.excellent_deals)            || 0,
-    good_deals:                 parseInt(raw.good_deals)                 || 0,
-    total_potential_profit:     parseFloat(raw.total_potential_profit)   || 0,
-    avg_discount:               parseFloat(raw.avg_discount)             || 0,
-    avg_score:                  parseFloat(raw.avg_score)                || 0,
-    avg_roi:                    parseFloat(raw.avg_roi)                  || 0,
-    fresh_24h:                  parseInt(raw.fresh_24h)                  || 0,
-    recent_7d:                  parseInt(raw.recent_7d)                  || 0,
-    aging_30d:                  parseInt(raw.aging_30d)                  || 0,
-    historical_45d:             parseInt(raw.historical_45d)             || 0,
-    stores_with_fresh_deals:    parseInt(raw.stores_with_fresh_deals)    || 0,
+    total_deals:                  parseInt(raw.total_deals)                  || 0,
+    total_db_deals:               parseInt(raw.total_deals)                  || 0,
+    total_products:               parseInt(raw.total_products)               || 0,
+    searchable_deals_default:     parseInt(raw.searchable_deals_default)     || 0,
+    low_discount_deals:           parseInt(raw.low_discount_deals)           || 0,
+    new_today:                    parseInt(raw.new_today)                    || 0,
+    new_this_hour:                parseInt(raw.new_this_hour)                || 0,
+    error_prices:                 parseInt(raw.error_prices)                 || 0,
+    excellent_deals:              parseInt(raw.excellent_deals)              || 0,
+    good_deals:                   parseInt(raw.good_deals)                   || 0,
+    total_potential_profit:       parseFloat(raw.total_potential_profit)     || 0,
+    potential_profit_searchable:  parseFloat(raw.potential_profit_searchable)|| 0,
+    avg_discount:                 parseFloat(raw.avg_discount)               || 0,
+    avg_score:                    parseFloat(raw.avg_score)                  || 0,
+    fresh_24h:                    parseInt(raw.fresh_24h)                    || 0,
+    recent_7d:                    parseInt(raw.recent_7d)                    || 0,
+    aging_30d:                    parseInt(raw.aging_30d)                    || 0,
+    historical_45d:               parseInt(raw.historical_45d)               || 0,
+    stores_with_fresh_deals:      parseInt(raw.stores_with_fresh_deals)      || 0,
   };
 }
 
@@ -45,19 +47,21 @@ const SCORE_BANDS = (stats) => [
 ];
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const isAdmin = !!user?.is_admin;
+
   const [stats, setStats] = useState(null);
   const [deals, setDeals] = useState([]);
   const [totalDeals, setTotalDeals] = useState(0);
   const [offset, setOffset] = useState(0);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [filters, setFilters] = useState({ store: '', min_discount: '20', sort: 'freshness' });
+  const [filters, setFilters] = useState({ store: '', min_discount: '20', sort: 'freshness', category: '', freshness: '' });
   const [searchQ, setSearchQ] = useState('');
   const [debouncedQ, setDebouncedQ] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
 
-  // Debounce search input 300ms
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(searchQ), 300);
     return () => clearTimeout(t);
@@ -65,7 +69,6 @@ export default function Dashboard() {
 
   useEffect(() => { fetchData(); }, []);
 
-  // Reset and re-fetch when filters, tab, or search changes
   useEffect(() => {
     setOffset(0);
     setDeals([]);
@@ -134,6 +137,7 @@ export default function Dashboard() {
   );
 
   const activeStores = (stats.top_stores || []).filter(s => parseInt(s.deal_count) > 0);
+  const allCategories = (stats.top_categories || []).filter(c => parseInt(c.deal_count) > 0);
 
   const storeData = activeStores.map(s => ({
     name: s.name,
@@ -154,6 +158,7 @@ export default function Dashboard() {
     ? `${highScore} high-score deals active. Top category: ${topCat.name} (${parseInt(topCat.deal_count)} deals, ~$${parseFloat(topCat.avg_profit || 0).toFixed(0)} avg profit).`
     : `${highScore} high-score deals (score ≥ 71) available right now. Check AI Recommendations for personalized picks.`;
 
+  const searchableCount = stats.searchable_deals_default || stats.total_deals;
   const hasMore = deals.length < totalDeals;
 
   return (
@@ -164,10 +169,10 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-bold text-white">Deal Dashboard</h1>
           <p className="text-gray-400 text-sm mt-0.5">
-            <span className="text-neon-green font-semibold">{(stats.searchable_deals_default || stats.total_deals).toLocaleString()}</span>
+            <span className="text-neon-green font-semibold">{searchableCount.toLocaleString()}</span>
             {' '}deals available
             {stats.new_today > 0 && <> · <span className="text-neon-green">+{stats.new_today} today</span></>}
-            <span className="text-gray-600"> · {stats.total_db_deals.toLocaleString()} total cataloged</span>
+            {isAdmin && <span className="text-gray-600"> · {stats.total_db_deals.toLocaleString()} cataloged</span>}
           </p>
         </div>
         <button onClick={handleRefresh} disabled={refreshing}
@@ -177,18 +182,45 @@ export default function Dashboard() {
         </button>
       </div>
 
-      {/* Stat Cards */}
+      {/* Admin internal metrics banner */}
+      {isAdmin && (
+        <div className="bg-dark-800 rounded-xl p-3 border border-yellow-500/20 flex flex-wrap gap-x-5 gap-y-1.5 items-center">
+          <div className="flex items-center gap-1.5 text-yellow-400 text-xs font-semibold">
+            <Shield size={12} /> Admin
+          </div>
+          {[
+            { label: 'Cataloged', value: stats.total_db_deals.toLocaleString() },
+            { label: 'Products',  value: stats.total_products.toLocaleString() },
+            { label: 'Searchable ≥20%', value: searchableCount.toLocaleString() },
+            { label: 'Low Discount <20%', value: stats.low_discount_deals.toLocaleString() },
+            { label: 'Error Prices', value: stats.error_prices },
+            { label: 'Stores Active', value: activeStores.length },
+          ].map(m => (
+            <span key={m.label} className="text-xs text-gray-500">
+              {m.label}: <span className="text-white font-mono">{m.value}</span>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Stat Cards — user-facing (searchable metrics) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           icon={<Flame size={18} />}
           title="Searchable Deals"
-          value={(stats.searchable_deals_default || stats.total_deals).toLocaleString()}
-          sub={`of ${stats.total_db_deals.toLocaleString()} cataloged`}
+          value={searchableCount.toLocaleString()}
+          sub={`+${stats.new_this_hour} this hour`}
           color="green"
         />
-        <StatCard icon={<AlertTriangle size={18} />}  title="Error Prices"     value={stats.error_prices} sub="Pricing mistakes"                              color="red"    />
-        <StatCard icon={<DollarSign size={18} />}     title="Potential Profit" value={`$${(stats.total_potential_profit / 1000).toFixed(1)}k`} sub="Combined" color="blue"   />
-        <StatCard icon={<Star size={18} />}           title="High-Score Deals" value={stats.good_deals}   sub="Score 71+"                                     color="yellow" />
+        <StatCard icon={<Star size={18} />}        title="High-Score Deals" value={stats.good_deals}  sub="Score 71+"  color="yellow" />
+        <StatCard
+          icon={<DollarSign size={18} />}
+          title="Potential Profit"
+          value={`$${(stats.potential_profit_searchable / 1000).toFixed(1)}k`}
+          sub="From searchable deals"
+          color="blue"
+        />
+        <StatCard icon={<AlertTriangle size={18} />} title="Error Prices" value={stats.error_prices} sub="Pricing mistakes" color="red" />
       </div>
 
       {/* Freshness Breakdown */}
@@ -197,7 +229,7 @@ export default function Dashboard() {
           { label: 'Verified Today', count: stats.fresh_24h,      color: '#00ff88', icon: <CheckCircle size={12} />, title: 'Seen in last 24h' },
           { label: 'This Week',      count: stats.recent_7d,      color: '#00d4ff', icon: <Clock size={12} />,       title: 'Seen 1–7 days ago' },
           { label: 'Needs Recheck', count: stats.aging_30d,      color: '#fbbf24', icon: <AlertCircle size={12} />, title: 'Seen 7–30 days ago' },
-          { label: 'Historical',    count: stats.historical_45d, color: '#ef4444', icon: <AlertTriangle size={12} />, title: '30–45 days — verify before buying' },
+          { label: 'Historical',    count: stats.historical_45d, color: '#ef4444', icon: <AlertTriangle size={12} />, title: '30+ days — verify before buying' },
         ].map(f => (
           <div key={f.label} title={f.title}
             className="bg-dark-700 rounded-xl p-3 flex flex-col gap-1"
@@ -218,7 +250,7 @@ export default function Dashboard() {
         {SCORE_BANDS(stats).map(s => (
           <div key={s.label}
             className="bg-dark-700 rounded-xl p-3 text-center"
-            style={{ borderTop: `2px solid ${s.color}`, border: `1px solid rgba(255,255,255,0.08)`, borderTopWidth: '2px', borderTopColor: s.color }}>
+            style={{ border: `1px solid rgba(255,255,255,0.08)`, borderTopWidth: '2px', borderTopColor: s.color }}>
             <div className="text-xl font-black font-mono" style={{ color: s.color }}>
               {s.count > 0 ? s.count : <span className="text-gray-500 text-base">—</span>}
             </div>
@@ -230,8 +262,6 @@ export default function Dashboard() {
 
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-        {/* Deals by Store */}
         <div className="bg-dark-700 rounded-2xl p-5" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
           <h3 className="text-white font-semibold text-sm mb-4">Deals by Store</h3>
           {storeData.length === 0 ? (
@@ -241,10 +271,7 @@ export default function Dashboard() {
               <BarChart data={storeData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
                 <XAxis dataKey="name" tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{ background: '#0f0f1a', border: '1px solid #22223a', borderRadius: 8, color: '#fff', fontSize: 12 }}
-                  formatter={(v) => [v, 'Deals']}
-                />
+                <Tooltip contentStyle={{ background: '#0f0f1a', border: '1px solid #22223a', borderRadius: 8, color: '#fff', fontSize: 12 }} formatter={(v) => [v, 'Deals']} />
                 <Bar dataKey="deals" radius={[4, 4, 0, 0]} isAnimationActive={false}>
                   {storeData.map((s, i) => <Cell key={i} fill={s.color} />)}
                 </Bar>
@@ -253,7 +280,6 @@ export default function Dashboard() {
           )}
         </div>
 
-        {/* 7-Day Trend */}
         <div className="bg-dark-700 rounded-2xl p-5" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
           <h3 className="text-white font-semibold text-sm mb-4">7-Day Deal Trend</h3>
           {!hasTrend ? (
@@ -264,10 +290,7 @@ export default function Dashboard() {
                 <CartesianGrid stroke="#0f0f1a" strokeDasharray="3 3" />
                 <XAxis dataKey="day" tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis tick={{ fill: '#6b7280', fontSize: 10 }} axisLine={false} tickLine={false} />
-                <Tooltip
-                  contentStyle={{ background: '#0f0f1a', border: '1px solid #22223a', borderRadius: 8, color: '#fff', fontSize: 12 }}
-                  formatter={(v, name) => [name === 'profit' ? `$${parseFloat(v).toFixed(0)}` : v, name === 'profit' ? 'Profit' : 'Deals']}
-                />
+                <Tooltip contentStyle={{ background: '#0f0f1a', border: '1px solid #22223a', borderRadius: 8, color: '#fff', fontSize: 12 }} formatter={(v, name) => [name === 'profit' ? `$${parseFloat(v).toFixed(0)}` : v, name === 'profit' ? 'Profit' : 'Deals']} />
                 <Line type="monotone" dataKey="deals"  stroke="#00ff88" strokeWidth={2} dot={false} isAnimationActive={false} />
                 <Line type="monotone" dataKey="profit" stroke="#00d4ff" strokeWidth={1.5} dot={false} strokeDasharray="4 2" isAnimationActive={false} />
               </LineChart>
@@ -278,15 +301,15 @@ export default function Dashboard() {
 
       {/* Top Categories */}
       {(() => {
-        const cats = (stats.top_categories || [])
+        const cats = allCategories
           .map(cat => ({
             name:       cat.name,
             slug:       cat.slug,
-            deal_count: parseInt(cat.deal_count)         || 0,
+            deal_count: parseInt(cat.deal_count) || 0,
             avg_profit: cat.avg_profit != null ? parseFloat(cat.avg_profit) : null,
-            avg_score:  cat.avg_score  != null ? parseFloat(cat.avg_score)  : null,
           }))
-          .filter(c => c.deal_count > 0);
+          .filter(c => c.deal_count > 0)
+          .slice(0, 8);
 
         if (!cats.length) return null;
 
@@ -295,17 +318,19 @@ export default function Dashboard() {
             <h3 className="text-white font-semibold text-sm mb-3">Top Categories</h3>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {cats.map(cat => (
-                <div key={cat.slug}
-                  className="bg-dark-700 rounded-xl border border-dark-400 hover:border-neon-green/30 p-4 transition-all cursor-pointer group">
-                  <p className="text-white font-semibold text-sm group-hover:text-neon-green transition-colors">{cat.name}</p>
+                <button key={cat.slug}
+                  onClick={() => setFilters(f => ({ ...f, category: f.category === cat.slug ? '' : cat.slug }))}
+                  className={`bg-dark-700 rounded-xl border p-4 transition-all text-left group ${
+                    filters.category === cat.slug
+                      ? 'border-neon-green/60 bg-neon-green/5'
+                      : 'border-dark-400 hover:border-neon-green/30'
+                  }`}>
+                  <p className={`font-semibold text-sm transition-colors ${filters.category === cat.slug ? 'text-neon-green' : 'text-white group-hover:text-neon-green'}`}>{cat.name}</p>
                   <p className="text-gray-500 text-xs mt-1">{cat.deal_count} deals</p>
                   {cat.avg_profit != null && (
                     <p className="text-neon-green text-sm font-bold mt-2">~${cat.avg_profit.toFixed(0)} profit</p>
                   )}
-                  {cat.avg_score != null && (
-                    <p className="text-gray-600 text-xs mt-0.5">Avg score {cat.avg_score.toFixed(0)}</p>
-                  )}
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -347,9 +372,7 @@ export default function Dashboard() {
             className="w-full bg-dark-700 border border-dark-400 rounded-xl pl-9 pr-10 py-2.5 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-neon-green transition-colors"
           />
           {searchQ && (
-            <button
-              onClick={() => setSearchQ('')}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors">
+            <button onClick={() => setSearchQ('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors">
               <X size={14} />
             </button>
           )}
@@ -357,12 +380,18 @@ export default function Dashboard() {
 
         {/* FilterBar */}
         <div className="bg-dark-800/60 rounded-xl border border-dark-500 px-4">
-          <FilterBar filters={filters} onChange={setFilters} stores={activeStores} />
+          <FilterBar
+            filters={filters}
+            onChange={setFilters}
+            stores={activeStores}
+            categories={allCategories}
+          />
         </div>
 
         {/* Results count */}
         <p className="text-gray-600 text-xs mt-3 mb-1">
-          Showing {deals.length} of {totalDeals.toLocaleString()} deals
+          Showing deals that match your current filters.{' '}
+          <span className="text-gray-500">{deals.length} of {totalDeals.toLocaleString()}</span>
           {debouncedQ ? <> for <span className="text-gray-400">"{debouncedQ}"</span></> : ''}
         </p>
 
@@ -380,9 +409,7 @@ export default function Dashboard() {
               onClick={handleLoadMore}
               disabled={loadingMore}
               className="btn-ghost flex items-center gap-2 text-sm px-8 py-2.5 disabled:opacity-50">
-              {loadingMore
-                ? <div className="w-4 h-4 border-2 border-neon-green border-t-transparent rounded-full animate-spin" />
-                : null}
+              {loadingMore ? <div className="w-4 h-4 border-2 border-neon-green border-t-transparent rounded-full animate-spin" /> : null}
               {loadingMore ? 'Loading…' : `Load More (${totalDeals - deals.length} remaining)`}
             </button>
           </div>

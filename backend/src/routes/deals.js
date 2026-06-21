@@ -29,7 +29,7 @@ router.get('/', async (req, res) => {
   try {
     const {
       store, category, min_discount = 15, max_discount,
-      min_score, min_profit, brand, keyword, q: search,
+      min_score, min_profit, brand, keyword, q: search, freshness,
       sort = 'score', limit = 20, offset = 0,
       is_error_price,
     } = req.query;
@@ -57,6 +57,9 @@ router.get('/', async (req, res) => {
       params.push(`%${search.toLowerCase()}%`);
       p++;
     }
+    if (freshness === 'fresh')  conditions.push(`d.last_seen_at > NOW() - INTERVAL '24 hours'`);
+    if (freshness === 'recent') conditions.push(`d.last_seen_at > NOW() - INTERVAL '7 days' AND d.last_seen_at <= NOW() - INTERVAL '24 hours'`);
+    if (freshness === 'aging')  conditions.push(`d.last_seen_at <= NOW() - INTERVAL '7 days'`);
     if (is_error_price === 'true') { conditions.push(`d.is_error_price = true`); }
 
     const sortMap = {
@@ -188,7 +191,7 @@ router.get('/live', async (req, res) => {
 // GET /deals/stats
 router.get('/stats', async (req, res) => {
   try {
-    const [main, stores, cats] = await Promise.all([
+    const [main, stores, cats, productsRes] = await Promise.all([
       query(`
         SELECT
           COUNT(*) FILTER (WHERE is_active) as total_deals,
@@ -196,6 +199,7 @@ router.get('/stats', async (req, res) => {
           COUNT(*) FILTER (WHERE is_active AND detected_at > NOW() - INTERVAL '1 hour') as new_this_hour,
           COUNT(*) FILTER (WHERE is_active AND is_error_price) as error_prices,
           COALESCE(SUM(estimated_profit) FILTER (WHERE is_active AND estimated_profit > 0), 0) as total_potential_profit,
+          COALESCE(SUM(estimated_profit) FILTER (WHERE is_active AND discount_percent >= 20 AND estimated_profit > 0), 0) as potential_profit_searchable,
           COALESCE(AVG(discount_percent) FILTER (WHERE is_active), 0) as avg_discount,
           COALESCE(AVG(opportunity_score) FILTER (WHERE is_active), 0) as avg_score,
           COUNT(*) FILTER (WHERE is_active AND opportunity_score >= 90) as excellent_deals,
@@ -225,12 +229,14 @@ router.get('/stats', async (req, res) => {
         LEFT JOIN categories c ON p.category_id = c.id
         WHERE d.is_active = true AND c.name IS NOT NULL
         GROUP BY c.id, c.name, c.slug
-        ORDER BY deal_count DESC LIMIT 6
+        ORDER BY deal_count DESC
       `),
+      query(`SELECT COUNT(*) as total_products FROM products`),
     ]);
 
     res.json({
       ...main.rows[0],
+      total_products: parseInt(productsRes.rows[0].total_products) || 0,
       stores_with_fresh_deals: stores.rows.filter(s => parseInt(s.fresh_deal_count || 0) > 0).length,
       top_stores: stores.rows,
       top_categories: cats.rows,

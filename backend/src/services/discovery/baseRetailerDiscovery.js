@@ -61,7 +61,7 @@ async function safeGoto(page, url, options = {}) {
     const partialTitle   = await page.title().catch(() => '');
     const partialBody    = await page.$eval('body', el => el.innerText?.slice(0, 400) || '').catch(() => '');
     const partialHtmlLen = await page.content().then(h => h.length).catch(() => 0);
-    if (err.message.includes('timeout')) {
+    if (/timeout/i.test(err.message)) {
       return { ok: false, blocked: false, blockType: 'timeout', error: err.message,
                title: partialTitle, bodyText: partialBody, htmlLen: partialHtmlLen };
     }
@@ -338,13 +338,14 @@ async function runStoreDiscovery(config) {
       if (!nav.ok) {
         const _d = {
           label: p.label, status: nav.blockType || 'failed',
+          error: (nav.error || '').slice(0, 300),
           title: nav.title || '', htmlLen: nav.htmlLen || 0,
           bodyPreview: (nav.bodyText || '').slice(0, 250).replace(/\s+/g, ' '),
           captcha: /captcha|verify.*human|robot/i.test((nav.bodyText || '') + (nav.title || '')),
           akamai:  /akamai|edgesuite/i.test(nav.bodyText || ''),
         };
         _diagPages.push(_d);
-        logger.warn(`[Diag:${storeLabel}] ${p.label} FAILED | type=${_d.status} | htmlLen=${_d.htmlLen} | title="${_d.title}" | captcha=${_d.captcha} | akamai=${_d.akamai} | body="${_d.bodyPreview.slice(0,120)}"`);
+        logger.warn(`[Diag:${storeLabel}] ${p.label} FAILED | type=${_d.status} | err="${_d.error}" | htmlLen=${_d.htmlLen} | title="${_d.title}" | captcha=${_d.captcha} | akamai=${_d.akamai} | body="${_d.bodyPreview.slice(0,120)}"`);
 
         if (nav.blocked) {
           const result = await handleBlock(page, ctx, storeSlug, nav.blockType, p.url);

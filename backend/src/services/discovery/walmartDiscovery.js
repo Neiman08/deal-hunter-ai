@@ -9,12 +9,45 @@
  * Product URL pattern: walmart.com/ip/{name}/{itemId}
  */
 
+const https = require('https');
 const { runStoreDiscovery, safeGoto, scrollPage, filterNewUrls, sleep } = require('./baseRetailerDiscovery');
 const { newIspContext }     = require('../browserEngine');
 const { shouldSkipStore }   = require('../proxyManager');
 const { writeStoreRun }     = require('../../utils/storeRunStats');
+const { buildIspHttpProxyAgent } = require('../../utils/proxyUtils');
 const { scanSingleProduct } = require('../../jobs/scanJob');
 const logger = require('../../utils/logger');
+
+// ISP proxy HTTP probe — checks reachability and returns exit IP.
+// Result written to last_error for DB inspection.
+async function probeIspProxy() {
+  const agent = buildIspHttpProxyAgent('Walmart-probe');
+  const host  = process.env.ISP_PROXY_HOST || '(not set)';
+  const port  = process.env.ISP_PROXY_PORT || '33335';
+  const user  = process.env.ISP_PROXY_USER ? '***set***' : '(not set)';
+  if (!agent) return { ok: false, error: 'no_agent', host, port, user };
+
+  return new Promise((resolve) => {
+    const req = https.get('https://api.ipify.org?format=json',
+      { agent, timeout: 15000, rejectUnauthorized: false },
+      (res) => {
+        let data = '';
+        res.on('data', c => data += c);
+        res.on('end', () => {
+          try {
+            const ip = JSON.parse(data).ip || data.slice(0, 80);
+            resolve({ ok: true, status: res.statusCode, exitIp: ip, host, port, user });
+          } catch {
+            resolve({ ok: true, status: res.statusCode, body: data.slice(0, 80), host, port, user });
+          }
+        });
+        res.on('error', e => resolve({ ok: false, error: e.message, host, port, user }));
+      }
+    );
+    req.on('error', e => resolve({ ok: false, error: e.message, host, port, user }));
+    req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'probe_timeout_15s', host, port, user }); });
+  });
+}
 
 const STORE_SLUG  = 'walmart';
 const STORE_LABEL = 'Walmart';
@@ -111,13 +144,14 @@ async function collectUrls(maxTotal) {
       if (!nav.ok) {
         const diag = {
           label: p.label, status: nav.blockType || 'failed',
+          error: (nav.error || '').slice(0, 300),
           title: nav.title || '', htmlLen: nav.htmlLen || 0,
           bodyPreview: (nav.bodyText || '').slice(0, 300).replace(/\s+/g, ' '),
           captcha: /captcha|verify.*human|robot/i.test((nav.bodyText || '') + (nav.title || '')),
           akamai:  /akamai|edgesuite/i.test(nav.bodyText || ''),
         };
         diagPages.push(diag);
-        logger.warn(`[Diag:${STORE_LABEL}] ${p.label} FAILED | type=${diag.status} | htmlLen=${diag.htmlLen} | title="${diag.title}" | captcha=${diag.captcha} | akamai=${diag.akamai} | body="${diag.bodyPreview.slice(0,150)}"`);
+        logger.warn(`[Diag:${STORE_LABEL}] ${p.label} FAILED | type=${diag.status} | err="${diag.error}" | htmlLen=${diag.htmlLen} | title="${diag.title}" | captcha=${diag.captcha} | akamai=${diag.akamai} | body="${diag.bodyPreview.slice(0,150)}"`);
         consecutiveEmpty++;
         continue;
       }
@@ -211,6 +245,10 @@ async function runWalmartDiscovery(options = {}) {
   logger.info(`🏪 ${STORE_LABEL.toUpperCase()} DISCOVERY`);
   logger.info('═'.repeat(60));
 
+  // Probe ISP proxy connectivity before attempting Playwright navigation
+  const probeResult = await probeIspProxy();
+  logger.info(`[Diag:${STORE_LABEL}] ISP proxy probe: ${JSON.stringify(probeResult)}`);
+
   // Phase 1: collect product URLs
   let allRaw, collectDiag;
   try {
@@ -218,14 +256,14 @@ async function runWalmartDiscovery(options = {}) {
   } catch (err) {
     logger.error(`[Discovery:${STORE_LABEL}] collectUrls fatal: ${err.message}`);
     stats.errors = 1; stats.blocked = true; stats.blockType = 'fatal_error';
-    stats.last_error = err.message;
+    stats.last_error = JSON.stringify({ probe: probeResult, error: err.message });
     await writeStoreRun(STORE_SLUG, startedAt, stats);
     return stats;
   }
 
   stats.pages_visited   = DISCOVERY_PAGES.length;
   stats.urls_discovered = allRaw.length;
-  stats.last_error      = JSON.stringify(collectDiag).slice(0, 8000);
+  stats.last_error      = JSON.stringify({ probe: probeResult, pages: collectDiag }).slice(0, 8000);
 
   if (!allRaw.length) {
     logger.warn(`[Discovery:${STORE_LABEL}] No URLs found across all pages`);

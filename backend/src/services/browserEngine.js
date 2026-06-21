@@ -606,8 +606,12 @@ async function getIspBrowser() {
     // Real Chrome for authentic JA3 TLS fingerprint (Akamai key check)
     if (!isLinux) launchOpts.channel = 'chrome';
 
-    logger.info(`[Browser:ISP] Launching | proxy=${!!proxyConfig} | host=${process.env.ISP_PROXY_HOST}:${process.env.ISP_PROXY_PORT} | headless=${headless}`);
-    ispBrowserInstance = await chromium.launch(launchOpts);
+    // Use patchright (like BB) for authentic JA3 TLS fingerprint — Akamai detects standard Chromium
+    // even through ISP proxy IPs. Falls back to standard chromium if patchright unavailable.
+    const ispLauncher = _patchrightChromium || chromium;
+    const ispEngine   = _patchrightChromium ? 'patchright' : 'chromium';
+    logger.info(`[Browser:ISP] Launching | engine=${ispEngine} | proxy=${!!proxyConfig} | host=${process.env.ISP_PROXY_HOST}:${process.env.ISP_PROXY_PORT} | headless=${headless}`);
+    ispBrowserInstance = await ispLauncher.launch(launchOpts);
     ispBrowserInstance.on('disconnected', () => {
       logger.warn('[Browser:ISP] ISP browser disconnected');
       ispBrowserInstance = null;

@@ -59,16 +59,15 @@ async function cleanupDeals() {
   if (c1.rowCount > 0) console.log(`  ✂️  Stripped query params from ${c1.rowCount} URLs`);
 
   // 2) Deactivate stale / clearly-no-discount deals
-  // Profit-based criteria (estimated_profit <= 0, roi_percent <= 0) removed:
-  // those fields come from estimated resale data that is often 0 for newly
-  // discovered products, causing the cleanup to immediately wipe valid deals.
-  // Rule: keep any deal with discount >= 20% and seen within 7 days.
+  // Window extended to 45 days so deals survive when a store's scraper is temporarily
+  // blocked (proxy billing, 402, bot-detection). Only kills deals with NO reg_price
+  // AND zero discount — deals with a reg_price are kept even at small discounts.
   const c2 = await query(`
     UPDATE deals SET is_active=false
-    WHERE last_seen_at < NOW() - INTERVAL '14 days'
+    WHERE last_seen_at < NOW() - INTERVAL '45 days'
        OR (
          is_error_price = false
-         AND discount_percent < 20
+         AND discount_percent = 0
          AND regular_price IS NULL
        )
     RETURNING id
@@ -93,9 +92,8 @@ async function cleanupDeals() {
   if (c3.rowCount > 0) console.log(`  🗑️  Deactivated ${c3.rowCount} Best Buy false deals`);
 
   // 4) Reactivate qualifying deals for all active stores
-  // Must stay in sync with scraperBase.js and recalculate-deals endpoint:
-  //   - discount >= 30% → active (high_discount_override, no profit requirement)
-  //   - discount 20-29.99% → active only with estimated_profit > 0 AND roi_percent > 0
+  // Window extended to 45 days. Threshold lowered: any deal with a reg_price set
+  // (even < 20% off) is eligible — quality filtering happens in the eval engine.
   const c4 = await query(`
     UPDATE deals d SET is_active=true
     FROM products p, stores s
@@ -107,8 +105,9 @@ async function cleanupDeals() {
       'costco','walmart'
     )
     AND p.product_url NOT LIKE '%searchpage.jsp%'
+    AND d.deal_price > 0
     AND d.deal_price < 10000
-    AND d.last_seen_at >= NOW() - INTERVAL '14 days'
+    AND d.last_seen_at >= NOW() - INTERVAL '45 days'
     AND NOT (
       s.slug='best-buy' AND d.regular_price > d.deal_price * 3
       AND (LOWER(p.name) LIKE '%refurbished%' OR LOWER(p.name) LIKE '%renewed%'
@@ -117,10 +116,11 @@ async function cleanupDeals() {
     AND (
       d.is_error_price = true
       OR d.discount_percent >= 20
+      OR (d.regular_price IS NOT NULL AND d.regular_price > d.deal_price)
     )
     RETURNING d.id
   `);
-  console.log(`  ✅ Reactivated ${c4.rowCount} qualifying deals (>=20% off, seen <7 days)`);
+  console.log(`  ✅ Reactivated ${c4.rowCount} qualifying deals (seen <45 days, has discount or reg_price)`);
 
   // 5) Dedup active deals by canonical URL (keep highest-score one)
   const c5 = await query(`
@@ -1018,13 +1018,15 @@ async function main() {
       console.log(`  [STORE_DEBUG=${_debugStore}] skipping best-buy`);
     }
 
-    // Target (SPA — early-exit after 3 empty pages, rescans existing products)
-    if (engines['target'] && (!_debugStore || _debugStore === 'target')) {
+    // Target (SPA — hard 10-min cap to prevent blocking the full cycle)
+    if (engines['target'] && (!_debugStore || _debugStore === 'target') && !PAUSED_STORES.has('target')) {
       try {
         console.log('\n🎯 Target Discovery...');
-        const s = await engines['target'].runTargetDiscovery({
-          maxTotal: 500, maxPerPage: 50, delayMs: 1200,
-        });
+        const TARGET_TIMEOUT_MS = 10 * 60 * 1000;
+        const s = await Promise.race([
+          engines['target'].runTargetDiscovery({ maxTotal: 100, maxPerPage: 25, delayMs: 1200 }),
+          new Promise((_, rej) => setTimeout(() => rej(new Error('Target discovery timeout (10 min)')), TARGET_TIMEOUT_MS)),
+        ]);
         cycleStats['target'] = s;
         console.log(`   discovered:${s.urls_discovered||0} new:${s.urls_new||0} saved:${s.saved||0} errors:${s.errors||0}`);
       } catch (e) { console.error('  ❌ Target error:', e.message); }

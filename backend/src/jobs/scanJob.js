@@ -173,21 +173,32 @@ async function runScan(storeSlug = null) {
     }
   }
 
-  // Deactivate stale deals — ONLY when the scan actually produced results.
-  // Running cleanup after a failed/empty scan would wipe deals that the
-  // discovery worker just saved, leaving 0 deals on the dashboard.
+  // Deactivate stale deals — ONLY for stores that the scan job actually ran AND
+  // produced results. Scoping to successfully-scanned stores prevents a single
+  // successful BB scan from killing OD/Macy's deals that the discovery worker saves.
+  // Window extended to 45 days to match the discovery cleanupDeals function.
   if (totals.scanned > 0) {
-    try {
-      const deactivated = await query(`
-        UPDATE deals SET is_active = false
-        WHERE last_seen_at < NOW() - INTERVAL '24 hours'
-          AND is_active = true
-      `);
-      if (deactivated.rowCount > 0) {
-        logger.info(`[ScanJob] Deactivated ${deactivated.rowCount} stale deals`);
+    const successStores = Object.entries(storeResults)
+      .filter(([, r]) => r.status === 'success' && (r.products_scanned || 0) > 0)
+      .map(([slug]) => slug);
+    if (successStores.length > 0) {
+      try {
+        const placeholders = successStores.map((_, i) => `$${i + 1}`).join(',');
+        const deactivated = await query(
+          `UPDATE deals d SET is_active = false
+           FROM stores s
+           WHERE d.store_id = s.id
+             AND s.slug IN (${placeholders})
+             AND d.last_seen_at < NOW() - INTERVAL '45 days'
+             AND d.is_active = true`,
+          successStores
+        );
+        if (deactivated.rowCount > 0) {
+          logger.info(`[ScanJob] Deactivated ${deactivated.rowCount} stale deals for [${successStores.join(',')}]`);
+        }
+      } catch (err) {
+        logger.warn(`[ScanJob] Could not deactivate stale deals: ${err.message}`);
       }
-    } catch (err) {
-      logger.warn(`[ScanJob] Could not deactivate stale deals: ${err.message}`);
     }
   } else {
     logger.info('[ScanJob] Scan produced 0 products — skipping stale deal cleanup to preserve existing deals');

@@ -611,7 +611,11 @@ async function getIspBrowser() {
     const ispLauncher = _patchrightChromium || chromium;
     const ispEngine   = _patchrightChromium ? 'patchright' : 'chromium';
     logger.info(`[Browser:ISP] Launching | engine=${ispEngine} | proxy=${!!proxyConfig} | host=${process.env.ISP_PROXY_HOST}:${process.env.ISP_PROXY_PORT} | headless=${headless}`);
-    ispBrowserInstance = await ispLauncher.launch(launchOpts);
+    const LAUNCH_TIMEOUT_MS = 45000;
+    ispBrowserInstance = await Promise.race([
+      ispLauncher.launch(launchOpts),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`ISP browser launch timeout after ${LAUNCH_TIMEOUT_MS / 1000}s`)), LAUNCH_TIMEOUT_MS)),
+    ]);
     ispBrowserInstance.on('disconnected', () => {
       logger.warn('[Browser:ISP] ISP browser disconnected');
       ispBrowserInstance = null;

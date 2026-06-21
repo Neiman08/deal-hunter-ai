@@ -691,6 +691,38 @@ async function logStartup() {
   const pUser = process.env.PROXY_USER || '';
   const ispUser = process.env.ISP_PROXY_USER || '';
 
+  // Write env-var presence snapshot FIRST — before any network tests that could hang.
+  // This guarantees the Render worker's proxy config is queryable even if later steps fail.
+  try {
+    const { writeStoreRun } = require('./src/utils/storeRunStats');
+    await writeStoreRun('proxy-diag-startup', Date.now(), {
+      pages_visited:   0,
+      urls_discovered: 0,
+      blocked:         true,
+      blockType:       'startup_env_snapshot',
+      last_error: JSON.stringify({
+        phase: 'startup_pre_test',
+        env: {
+          PROXY_ENABLED:     process.env.PROXY_ENABLED     || '(not set)',
+          PROXY_HOST:        process.env.PROXY_HOST         ? 'set' : '(not set)',
+          PROXY_PORT:        process.env.PROXY_PORT         || '(not set)',
+          PROXY_USER:        pUser                          ? pUser.slice(0, 40) : '(not set)',
+          PROXY_PASS:        process.env.PROXY_PASS         ? 'set' : '(not set)',
+          ISP_PROXY_ENABLED: process.env.ISP_PROXY_ENABLED  || '(not set)',
+          ISP_PROXY_HOST:    process.env.ISP_PROXY_HOST     ? 'set' : '(not set)',
+          ISP_PROXY_PORT:    process.env.ISP_PROXY_PORT     || '(not set)',
+          ISP_PROXY_USER:    ispUser                        ? ispUser.slice(0, 40) : '(not set)',
+          ISP_PROXY_PASS:    process.env.ISP_PROXY_PASS     ? 'set' : '(not set)',
+          DATABASE_URL:      process.env.DATABASE_URL        ? 'set' : '(not set)',
+          NODE_ENV:          process.env.NODE_ENV            || '(not set)',
+          EBAY_ENABLED:      process.env.EBAY_ENABLED        || '(not set)',
+        },
+      }).slice(0, 8000),
+    });
+  } catch (e) {
+    console.error('[ProxyDiag-Startup] Early env snapshot write failed:', e.message);
+  }
+
   console.log('╔' + '═'.repeat(58) + '╗');
   console.log('║  WORKER STARTUP DIAGNOSTICS' + ' '.repeat(30) + '║');
   console.log('╠' + '═'.repeat(58) + '╣');

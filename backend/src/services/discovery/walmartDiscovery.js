@@ -340,8 +340,22 @@ async function runWalmartDiscovery(options = {}) {
   logger.info(`🏪 ${STORE_LABEL.toUpperCase()} DISCOVERY`);
   logger.info('═'.repeat(60));
 
-  // Full proxy diagnostic before Playwright navigation
-  const probeResult = await runFullDiagnostic();
+  // Full proxy diagnostic before Playwright navigation (60s timeout so it can't hang forever)
+  let probeResult;
+  try {
+    probeResult = await Promise.race([
+      runFullDiagnostic(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('runFullDiagnostic timeout 60s')), 60000)),
+    ]);
+  } catch (diagErr) {
+    logger.error(`[Discovery:${STORE_LABEL}] Diagnostic failed/timed out: ${diagErr.message}`);
+    probeResult = { error: diagErr.message, proxyMeta: {}, httpResults: [], playwright: {} };
+    stats.last_error = JSON.stringify({ phase: 'diagnostic', error: diagErr.message }).slice(0, 4000);
+    stats.blocked = true;
+    stats.blockType = 'diagnostic_failed';
+    await writeStoreRun(STORE_SLUG, startedAt, stats);
+    return stats;
+  }
 
   // Phase 1: collect product URLs
   let allRaw, collectDiag;

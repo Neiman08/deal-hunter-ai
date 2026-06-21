@@ -312,10 +312,21 @@ async function runMacysDiscovery(options = {}) {
     }
 
   } catch (err) {
-    logger.error(`[Discovery:${STORE_LABEL}] Fatal: ${err.message}`);
+    const errMsg = (err?.message || String(err) || 'unknown_error').slice(0, 200);
+    logger.error(`[Discovery:${STORE_LABEL}] Fatal: ${errMsg}`);
     stats.blocked    = true;
     stats.blockType  = 'fatal_error';
-    stats.last_error = (err?.message || String(err) || 'unknown_error').slice(0, 500);
+    // Include proxy env var presence so we can diagnose from DB without Render log access
+    stats.last_error = JSON.stringify({
+      error: errMsg,
+      ISP_PROXY_HOST: process.env.ISP_PROXY_HOST ? 'set' : '(not set)',
+      ISP_PROXY_PORT: process.env.ISP_PROXY_PORT || '(not set)',
+      ISP_PROXY_USER: process.env.ISP_PROXY_USER ? process.env.ISP_PROXY_USER.slice(0, 30) : '(not set)',
+      ISP_PROXY_PASS: process.env.ISP_PROXY_PASS ? 'set' : '(not set)',
+      PROXY_ENABLED:  process.env.PROXY_ENABLED  || '(not set)',
+      PROXY_HOST:     process.env.PROXY_HOST      ? 'set' : '(not set)',
+      PROXY_USER:     process.env.PROXY_USER      ? process.env.PROXY_USER.slice(0, 30) : '(not set)',
+    });
   } finally {
     if (session?.browser) {
       await session.browser.close().catch(() => {});

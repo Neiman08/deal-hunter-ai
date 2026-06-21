@@ -946,6 +946,16 @@ async function runBestBuyDiscovery(options = {}) {
 
   if (!allCards.length) {
     logger.warn('[Discovery:BB] 0 cards encontrados. Revisar si searchpage.jsp sigue funcionando.');
+    await writeStoreRun('best-buy', startedAt, {
+      pages_visited:     stats.searches_run,
+      urls_discovered:   0,
+      saved:             0,
+      errors:            stats.errors,
+      blocked:           true,
+      blockType:         'searchpage_0_cards',
+      reason_for_stop:   'searchpage.jsp returned 0 product cards',
+      proxy_requests_est: stats.searches_run * 2,
+    });
     return stats;
   }
 
@@ -965,6 +975,16 @@ async function runBestBuyDiscovery(options = {}) {
 
   if (!toProcess.length) {
     logger.info('[Discovery:BB] Todos los cards ya están en DB.');
+    await writeStoreRun('best-buy', startedAt, {
+      pages_visited:     stats.searches_run,
+      urls_discovered:   stats.cards_found,
+      urls_new:          0,
+      saved:             0,
+      errors:            stats.errors,
+      blocked:           false,
+      reason_for_stop:   'all_cards_already_in_db',
+      proxy_requests_est: stats.searches_run * 2,
+    });
     return stats;
   }
 

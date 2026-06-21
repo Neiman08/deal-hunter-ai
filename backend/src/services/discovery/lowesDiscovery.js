@@ -215,20 +215,15 @@ async function runLowesDiscovery(options = {}) {
       rawXml = await fetchText(sitemapUrl);
       stats.pages_visited = 1;
     } catch (proxyErr) {
-      logger.error(`[Discovery:${STORE_LABEL}] Sitemap fetch failed: ${proxyErr.message}`);
-      let fbResult;
-      try {
-        fbResult = await runLowesPlaywrightFallback(options);
-      } catch (fbErr) {
-        logger.error(`[Discovery:${STORE_LABEL}] Playwright fallback also failed: ${fbErr.message}`);
-        fbResult = {
-          store: STORE_SLUG, pages_visited: 0, urls_discovered: 0,
-          urls_new: 0, saved: 0, errors: 1, blocked: true,
-          blockType: 'playwright_fallback_failed', last_error: fbErr.message,
-        };
-      }
-      await writeStoreRun(STORE_SLUG, startedAt, fbResult);
-      return fbResult;
+      // ISP Playwright is also Akamai-blocked at homepage level — no viable fallback.
+      // Mark blocked and exit fast rather than burning 25min on Playwright sessions.
+      logger.error(`[Discovery:${STORE_LABEL}] Sitemap via residential proxy also failed: ${proxyErr.message}`);
+      logger.warn(`[Discovery:${STORE_LABEL}] Both direct and residential blocked — ISP proxy also Akamai-blocked. Requires better residential proxy.`);
+      stats.blocked   = true;
+      stats.blockType = 'akamai';
+      stats.last_error = `direct=${directErr.message.slice(0,100)}|proxy=${proxyErr.message.slice(0,100)}`;
+      await writeStoreRun(STORE_SLUG, startedAt, stats);
+      return stats;
     }
   }
 

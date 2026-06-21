@@ -294,6 +294,13 @@ async function runMacysDiscovery(options = {}) {
           stats.no_price++;
           continue;
         }
+        // Guard: Macy's scraper requires ?ID= or /ID/ in URL to locate the product
+        if (!product.productUrl ||
+            (!product.productUrl.includes('?ID=') && !product.productUrl.includes('&ID=') && !/\/ID\/\d+/.test(product.productUrl))) {
+          logger.warn(`[Discovery:${STORE_LABEL}]   ⚠️  id=${productId}: URL missing ID param — needs_url_verification`);
+          stats.errors++;
+          continue;
+        }
         const r = await saveDiscoveryCard(product, STORE_SLUG);
         if (r) {
           stats.saved++;

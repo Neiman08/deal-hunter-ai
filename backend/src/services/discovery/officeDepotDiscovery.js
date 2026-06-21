@@ -242,16 +242,24 @@ async function runOfficeDepotDiscovery(options = {}) {
 
   logger.info(`\n[Discovery:${STORE_LABEL}] Scanning ${toProcess.length} candidates (all prices)...`);
 
+  let consec402 = 0;
+  let bail402   = false;
+  stats.od_402_count = 0;
+
   async function scanOneOd(url, idx) {
+    if (bail402) return;
     logger.info(`[Discovery:${STORE_LABEL}] [${idx + 1}/${toProcess.length}] ${url}`);
     try {
       const scraped = await scrapeOfficeDepotProduct(url);
 
       if (!scraped?.currentPrice) {
+        consec402 = 0;
         stats.errors++;
         logger.warn(`[Discovery:${STORE_LABEL}]   ⚠️  No price found`);
         return;
       }
+
+      consec402 = 0; // successful fetch resets counter
 
       if (!scraped.regularPrice) {
         stats.no_price++;
@@ -302,9 +310,23 @@ async function runOfficeDepotDiscovery(options = {}) {
       logger.info(`[Discovery:${STORE_LABEL}]   ✅ $${scraped.currentPrice}${saleTag} | "${scraped.name?.slice(0,50) || ''}"`);
     } catch (err) {
       if (err.message === 'product_not_found') {
-        // OD redirected to homepage — product discontinued; skip silently
+        consec402 = 0;
         return;
       }
+      // 402 Payment Required — proxy billing/auth issue with OD product pages
+      if (/HTTP 402/.test(err.message)) {
+        consec402++;
+        stats.od_402_count = (stats.od_402_count || 0) + 1;
+        logger.warn(`[Discovery:${STORE_LABEL}]   ⚠️  402 Payment Required (${consec402} consecutive) | ${url.slice(-60)}`);
+        if (consec402 >= 10) {
+          logger.error(`[Discovery:${STORE_LABEL}]   ❌ 10 consecutive 402s — proxy billing issue on product pages. Cutting scan early.`);
+          stats.blockType = 'proxy_402_billing';
+          stats.blocked   = true;
+          bail402 = true;
+        }
+        return;
+      }
+      consec402 = 0;
       stats.errors++;
       logger.error(`[Discovery:${STORE_LABEL}]   ❌ ${err.message.slice(0, 100)}`);
     }
@@ -312,9 +334,13 @@ async function runOfficeDepotDiscovery(options = {}) {
   }
 
   for (let i = 0; i < toProcess.length; i += CONCURRENCY) {
+    if (bail402) break;
     await Promise.all(
       toProcess.slice(i, i + CONCURRENCY).map((url, j) => scanOneOd(url, i + j))
     );
+  }
+  if (bail402) {
+    logger.warn(`[Discovery:${STORE_LABEL}] Scan cut short — ${stats.od_402_count} total 402s. Sitemaps work; product pages require different proxy auth.`);
   }
 
   logger.info('═'.repeat(60));

@@ -1,322 +1,160 @@
 /**
- * Walmart Discovery Engine — Clearance / Rollback / Deals pages
+ * Walmart Discovery Engine — Sitemap Strategy
  *
- * Strategy:
- *  1. Navigate listing pages with ISP proxy (bypasses Akamai)
- *  2. Wait up to 20s for React to hydrate and render product <a href="/ip/..."> links
- *  3. Fallback: extract usItemId from __NEXT_DATA__ / __WML_REDUX_INITIAL_STATE__ JSON
+ * PerimeterX blocks all Playwright category pages ("Robot or human?").
+ * ISP proxy is also blocked on listing pages.
+ *
+ * New approach: fetch product sitemaps via residential proxy (port 22225).
+ * Walmart has sitemaps listed in robots.txt — we try them in order.
+ * If all sitemaps are blocked, exit fast (< 60s) vs the old 25min Playwright cycle.
  *
  * Product URL pattern: walmart.com/ip/{name}/{itemId}
  */
 
 const https = require('https');
-const { runStoreDiscovery, safeGoto, scrollPage, filterNewUrls, sleep } = require('./baseRetailerDiscovery');
-const { newIspContext }     = require('../browserEngine');
-const { shouldSkipStore }   = require('../proxyManager');
-const { writeStoreRun }     = require('../../utils/storeRunStats');
-const { buildIspHttpProxyAgent } = require('../../utils/proxyUtils');
-const { scanSingleProduct } = require('../../jobs/scanJob');
+const http  = require('http');
+const { filterNewUrls, sleep } = require('./baseRetailerDiscovery');
+const { shouldSkipStore }      = require('../proxyManager');
+const { writeStoreRun }        = require('../../utils/storeRunStats');
+const { buildHttpProxyAgent }  = require('../../utils/proxyUtils');
+const { scanSingleProduct }    = require('../../jobs/scanJob');
 const logger = require('../../utils/logger');
-
-// ─── Comprehensive ISP proxy diagnostic ──────────────────────────────────────
-// Tests HTTP connectivity and Playwright navigation through the ISP proxy
-// against 6 target URLs. Results stored in last_error for DB inspection.
-// Classifies failure as:
-//   Case A — proxy can't reach even ipify/google (credential/port issue)
-//   Case B — proxy reaches simple sites but target domains block exit IPs
-//   Case C — pages load; issue is selector/SPA extraction
-
-const DIAG_URLS = [
-  { label: 'ipify',     url: 'https://api.ipify.org?format=json' },
-  { label: 'google',    url: 'https://www.google.com' },
-  { label: 'bestbuy',   url: 'https://www.bestbuy.com' },
-  { label: 'lowes',     url: 'https://www.lowes.com' },
-  { label: 'homedepot', url: 'https://www.homedepot.com' },
-  { label: 'walmart',   url: 'https://www.walmart.com' },
-];
-
-async function httpProbe(agent, { label, url }) {
-  const start = Date.now();
-  return new Promise((resolve) => {
-    const reqOpts = {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-      },
-      timeout: 20000,
-      rejectUnauthorized: false,
-    };
-    if (agent) reqOpts.agent = agent;
-    const req = https.get(url, reqOpts, (res) => {
-      let data = '';
-      res.on('data', c => { data += c; if (data.length > 3000) res.destroy(); });
-      res.on('close', () => {
-        const elapsed = Date.now() - start;
-        let exitIp = null;
-        if (label === 'ipify') { try { exitIp = JSON.parse(data).ip; } catch {} }
-        const preview = data.slice(0, 300).replace(/\s+/g, ' ');
-        resolve({
-          label, ok: true, status: res.statusCode, elapsed,
-          htmlLen: data.length, exitIp, preview,
-          akamai:  /akamai|edgesuite|reference #[0-9a-f.]+/i.test(preview),
-          captcha: /captcha|verify.*human|robot/i.test(preview),
-          denied:  /access denied|403 forbidden/i.test(preview),
-        });
-      });
-      res.on('error', e => resolve({ label, ok: false, error: e.message, elapsed: Date.now() - start }));
-    });
-    req.on('error', e => resolve({ label, ok: false, error: e.message, elapsed: Date.now() - start }));
-    req.on('timeout', () => { req.destroy(); resolve({ label, ok: false, error: 'timeout_20s', elapsed: 20000 }); });
-  });
-}
-
-async function playwrightProbe(url, label) {
-  const { safeGoto: sg } = require('./baseRetailerDiscovery');
-  let ctx, page;
-  const start = Date.now();
-  try {
-    ctx  = await newIspContext();
-    page = await ctx.newPage();
-    const nav = await sg(page, url, { waitUntil: 'domcontentloaded', timeout: 20000 });
-    return {
-      label, ok: nav.ok, elapsed: Date.now() - start,
-      status:   nav.blockType || 'ok',
-      htmlLen:  nav.htmlLen  || 0,
-      title:    nav.title    || '',
-      preview:  (nav.bodyText || '').slice(0, 200).replace(/\s+/g, ' '),
-      captcha:  /captcha|verify.*human/i.test((nav.bodyText || '') + (nav.title || '')),
-      akamai:   /akamai|edgesuite/i.test(nav.bodyText || ''),
-      error:    nav.error    || null,
-    };
-  } catch (err) {
-    return { label, ok: false, error: err.message, elapsed: Date.now() - start };
-  } finally {
-    if (page) await page.close().catch(() => {});
-    if (ctx)  await ctx.close().catch(() => {});
-  }
-}
-
-async function runFullDiagnostic() {
-  const agent   = buildIspHttpProxyAgent('Walmart-diag');
-  const proxyMeta = {
-    host: process.env.ISP_PROXY_HOST || '(not set)',
-    port: process.env.ISP_PROXY_PORT || '33335(default)',
-    user: process.env.ISP_PROXY_USER ? '***set***' : '(not set)',
-    agentBuilt: !!agent,
-  };
-
-  logger.info(`[Diag:Walmart] === FULL PROXY DIAGNOSTIC === proxy=${JSON.stringify(proxyMeta)}`);
-
-  // Phase 1: HTTP probe all 6 URLs (Node.js https module + HttpsProxyAgent)
-  const httpResults = [];
-  for (const entry of DIAG_URLS) {
-    const r = await httpProbe(agent, entry);
-    httpResults.push(r);
-    logger.info(`[Diag:HTTP] ${r.label}: ok=${r.ok} status=${r.status||'N/A'} htmlLen=${r.htmlLen||0} elapsed=${r.elapsed}ms exitIp=${r.exitIp||'N/A'} err=${r.error||'none'} akamai=${r.akamai||false}`);
-  }
-
-  // Phase 2: Playwright probe — google (simple site) and lowes (Akamai site)
-  const pwGoogle = await playwrightProbe('https://www.google.com', 'pw:google');
-  logger.info(`[Diag:PW] google: ok=${pwGoogle.ok} htmlLen=${pwGoogle.htmlLen} elapsed=${pwGoogle.elapsed}ms status=${pwGoogle.status} err=${pwGoogle.error||'none'}`);
-
-  const pwLowes  = await playwrightProbe('https://www.lowes.com', 'pw:lowes');
-  logger.info(`[Diag:PW] lowes:  ok=${pwLowes.ok} htmlLen=${pwLowes.htmlLen} elapsed=${pwLowes.elapsed}ms status=${pwLowes.status} err=${pwLowes.error||'none'}`);
-
-  // Classify
-  const ipifyOk  = httpResults.find(r => r.label === 'ipify')?.ok && httpResults.find(r => r.label === 'ipify')?.status < 400;
-  const googleOk = httpResults.find(r => r.label === 'google')?.ok && httpResults.find(r => r.label === 'google')?.status < 400;
-  const exitIp   = httpResults.find(r => r.label === 'ipify')?.exitIp || null;
-
-  let caseClassification;
-  if (!ipifyOk && !googleOk) {
-    caseClassification = 'A:proxy_not_working_even_for_simple_sites';
-  } else if (ipifyOk && pwLowes && !pwLowes.ok) {
-    caseClassification = 'B:proxy_works_http_but_akamai_sites_block_browser';
-  } else if (ipifyOk && pwLowes && pwLowes.ok) {
-    caseClassification = 'C:pages_load_check_selectors';
-  } else {
-    caseClassification = 'unknown';
-  }
-
-  logger.info(`[Diag:Walmart] CASE=${caseClassification} exitIp=${exitIp}`);
-
-  return { proxyMeta, httpResults, playwright: { google: pwGoogle, lowes: pwLowes }, exitIp, case: caseClassification };
-}
 
 const STORE_SLUG  = 'walmart';
 const STORE_LABEL = 'Walmart';
 
-const DISCOVERY_PAGES = [
-  { label: 'clearance',             url: 'https://www.walmart.com/browse/clearance' },
-  { label: 'rollback',              url: 'https://www.walmart.com/shop/deals/rollback' },
-  { label: 'deals',                 url: 'https://www.walmart.com/shop/deals' },
-  { label: 'electronics-clearance', url: 'https://www.walmart.com/browse/electronics/clearance/3944_1105910?facet=deal_type:Clearance' },
-  { label: 'home-clearance',        url: 'https://www.walmart.com/browse/home/clearance/4044_623679?facet=deal_type:Clearance' },
-  { label: 'seasonal-rollback',     url: 'https://www.walmart.com/browse/seasonal/rollback/976759?facet=deal_type:Rollback' },
+// Sitemaps to try (product-level, not category browse pages)
+// Walmart publishes these in robots.txt — rotate by cycle number
+const WALMART_SITEMAP_CANDIDATES = [
+  'https://www.walmart.com/sitemap_item_1.xml',
+  'https://www.walmart.com/sitemap_item_2.xml',
+  'https://www.walmart.com/sitemap_item_3.xml',
+  'https://www.walmart.com/sitemap_browse.xml',
+];
+const WALMART_ROBOTS_URL = 'https://www.walmart.com/robots.txt';
+
+// Keywords that indicate resaleable high-margin products
+const INCLUDE_KEYWORDS = [
+  // Electronics
+  'television', '-tv-', 'laptop', 'computer', 'tablet', 'ipad', 'monitor',
+  'headphone', 'earphone', 'speaker', 'soundbar', 'camera', 'projector',
+  'gaming', 'playstation', 'xbox', 'nintendo', 'console',
+  // Appliances
+  'refrigerator', 'washer', 'dryer', 'dishwasher', 'microwave', 'air-conditioner',
+  'vacuum', 'instant-pot', 'air-fryer', 'coffee-maker', 'keurig', 'blender',
+  // Power tools / outdoor
+  'drill', 'circular-saw', 'miter-saw', 'grinder', 'impact-driver',
+  'lawn-mower', 'pressure-washer', 'leaf-blower', 'trimmer', 'chainsaw',
+  // Brands
+  'dewalt', 'milwaukee', 'makita', 'ryobi', 'craftsman', 'dyson', 'shark',
+  'kitchenaid', 'vitamix', 'instant-pot',
 ];
 
-function linkFilter(href) {
-  return !!(href && href.match(/walmart\.com\/ip\/[^/?#]+\/\d+/));
-}
-function cleanUrl(href) {
-  const base = href.startsWith('http') ? href : `https://www.walmart.com${href}`;
-  return base.split('?')[0].split('#')[0];
+function isResaleableWalmartUrl(url) {
+  const lower = url.toLowerCase();
+  if (!lower.includes('/ip/')) return false;
+  return INCLUDE_KEYWORDS.some(kw => lower.includes(kw));
 }
 
-// Extract product URLs from Walmart's embedded page JSON and inline scripts
-async function extractJsonUrls(page) {
-  return page.evaluate(() => {
-    const urls = [];
-
-    // Method A: __NEXT_DATA__ structured walk
-    try {
-      const el = document.getElementById('__NEXT_DATA__');
-      if (el) {
-        const data = JSON.parse(el.textContent || '{}');
-        const walk = (obj, depth) => {
-          if (depth > 12 || !obj || typeof obj !== 'object') return;
-          if (Array.isArray(obj)) { obj.forEach(v => walk(v, depth + 1)); return; }
-          const id = obj.usItemId || obj.itemId;
-          if (id && /^\d{6,}$/.test(String(id))) {
-            const slug = (obj.name || obj.productName || obj.displayName || 'product')
-              .toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60).replace(/-+$/, '');
-            urls.push(`/ip/${slug}/${id}`);
-          }
-          if (typeof obj.canonicalUrl === 'string' && obj.canonicalUrl.includes('/ip/')) {
-            urls.push(obj.canonicalUrl.startsWith('/') ? obj.canonicalUrl : `/${obj.canonicalUrl}`);
-          }
-          Object.values(obj).forEach(v => walk(v, depth + 1));
-        };
-        walk(data, 0);
+function fetchText(url, hops = 0, agent = undefined) {
+  if (hops > 4) return Promise.reject(new Error('Too many redirects'));
+  if (hops === 0 && agent === undefined) agent = buildHttpProxyAgent('Walmart');
+  return new Promise((resolve, reject) => {
+    const lib  = url.startsWith('https:') ? https : http;
+    const opts = {
+      timeout: 30000,
+      rejectUnauthorized: false,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
+        'Accept': 'text/html,application/xml,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+    };
+    if (agent) opts.agent = agent;
+    const req = lib.get(url, opts, res => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) {
+        res.resume();
+        return fetchText(res.headers.location, hops + 1, agent).then(resolve).catch(reject);
       }
-    } catch { /* ignore */ }
-
-    // Method B: scan ALL inline scripts for "usItemId":"123456" pattern
-    // Works even when JSON structure changes — finds IDs anywhere on the page
-    try {
-      if (urls.length === 0) {
-        document.querySelectorAll('script:not([src])').forEach(s => {
-          const text = s.textContent || '';
-          if (!text.includes('usItemId')) return;
-          const re = /"usItemId"\s*:\s*"(\d{6,})"/g;
-          let m;
-          while ((m = re.exec(text)) !== null) {
-            urls.push(`/ip/product/${m[1]}`);
-          }
+      if (res.statusCode !== 200) {
+        const preview = [];
+        res.on('data', c => { if (preview.join('').length < 500) preview.push(c); });
+        res.on('end', () => {
+          const body = preview.join('').slice(0, 500);
+          reject(new Error(`HTTP ${res.statusCode} | body=${body.replace(/\s+/g, ' ')}`));
         });
+        res.on('error', reject);
+        return;
       }
-    } catch { /* ignore */ }
-
-    return [...new Set(urls)];
-  }).catch(() => []);
+      const chunks = [];
+      res.on('data', c => chunks.push(c));
+      res.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+      res.on('error', reject);
+    });
+    req.on('error', reject);
+    req.on('timeout', () => { req.destroy(); reject(new Error('fetch timeout 30s')); });
+  });
 }
 
-// Custom URL collection that combines DOM + JSON extraction
-async function collectUrls(maxTotal) {
-  const allRaw = [];
-  const diagPages = [];
-  let consecutiveEmpty = 0;
-  const MAX_CONSECUTIVE = 3;
+// Discover sitemap URLs from robots.txt, then try known candidates
+async function discoverSitemapUrls(cycleNum) {
+  const agent = buildHttpProxyAgent('Walmart');
 
-  for (const p of DISCOVERY_PAGES) {
-    if (allRaw.length >= maxTotal * 3) break;
-    if (consecutiveEmpty >= MAX_CONSECUTIVE) {
-      logger.warn(`[Discovery:${STORE_LABEL}] ${MAX_CONSECUTIVE} consecutive empty — stopping URL collection`);
-      break;
-    }
-
-    logger.info(`\n[Discovery:${STORE_LABEL}] ── ${p.label}`);
-    let ctx, page;
-    try {
-      ctx  = await newIspContext();
-      page = await ctx.newPage();
-
-      // Use domcontentloaded — 'load' never fires on Walmart SPAs (ongoing API calls).
-      // Then waitForSelector waits up to 20s for React to hydrate product links.
-      const nav = await safeGoto(page, p.url, { waitUntil: 'domcontentloaded', timeout: 40000 });
-
-      if (!nav.ok) {
-        const diag = {
-          label: p.label, status: nav.blockType || 'failed',
-          error: (nav.error || '').slice(0, 300),
-          title: nav.title || '', htmlLen: nav.htmlLen || 0,
-          bodyPreview: (nav.bodyText || '').slice(0, 300).replace(/\s+/g, ' '),
-          captcha: /captcha|verify.*human|robot/i.test((nav.bodyText || '') + (nav.title || '')),
-          akamai:  /akamai|edgesuite/i.test(nav.bodyText || ''),
-        };
-        diagPages.push(diag);
-        logger.warn(`[Diag:${STORE_LABEL}] ${p.label} FAILED | type=${diag.status} | err="${diag.error}" | htmlLen=${diag.htmlLen} | title="${diag.title}" | captcha=${diag.captcha} | akamai=${diag.akamai} | body="${diag.bodyPreview.slice(0,150)}"`);
-        consecutiveEmpty++;
-        continue;
-      }
-
-      // Wait up to 20s for React to inject product <a href="/ip/..."> links
-      await page.waitForSelector('a[href*="/ip/"]', { timeout: 20000 }).catch(() => {});
-      await scrollPage(page);
-
-      // Method 1: DOM link extraction — accept both relative (/ip/...) and absolute URLs
-      const domLinks = await page.evaluate(() => {
-        const found = new Set();
-        document.querySelectorAll('a[href]').forEach(a => {
-          const href = a.getAttribute('href');
-          if (href) found.add(href);
-        });
-        return [...found];
-      }).catch(() => []);
-
-      const domFiltered = domLinks
-        .filter(href => href && (
-          href.match(/walmart\.com\/ip\/[^/?#]+\/\d+/) ||
-          href.match(/^\/ip\/[^/?#]+\/\d+/)
-        ))
-        .map(cleanUrl).filter(Boolean);
-
-      // Method 2: JSON extraction fallback (works even when DOM extraction fails)
-      let jsonFiltered = [];
-      if (domFiltered.length === 0) {
-        const jsonLinks = await extractJsonUrls(page);
-        jsonFiltered = jsonLinks.map(cleanUrl).filter(Boolean);
-      }
-
-      const combined = domFiltered.length > 0 ? domFiltered : jsonFiltered;
-
-      // Capture per-page diagnostic info
-      const diagOk = {
-        label: p.label, status: 'ok',
-        title: nav.title || '', htmlLen: nav.htmlLen || 0,
-        bodyPreview: (nav.bodyText || '').slice(0, 300).replace(/\s+/g, ' '),
-        totalLinks: domLinks.length, domFiltered: domFiltered.length,
-        jsonFiltered: jsonFiltered.length,
-        captcha: /captcha|verify.*human|robot/i.test((nav.bodyText || '') + (nav.title || '')),
-        akamai:  /akamai|edgesuite/i.test(nav.bodyText || ''),
-        denied:  /access denied|403/i.test((nav.bodyText || '') + (nav.title || '')),
-      };
-      diagPages.push(diagOk);
-      logger.info(`[Diag:${STORE_LABEL}] ${p.label} OK | htmlLen=${diagOk.htmlLen} | title="${diagOk.title}" | allLinks=${domLinks.length} | domFiltered=${domFiltered.length} | json=${jsonFiltered.length} | captcha=${diagOk.captcha} | akamai=${diagOk.akamai} | body="${diagOk.bodyPreview.slice(0,150)}"`);
-
-      logger.info(`[Discovery:${STORE_LABEL}]   DOM=${domFiltered.length} JSON=${jsonFiltered.length} → using ${combined.length}`);
-
-      if (combined.length > 0) {
-        allRaw.push(...combined);
-        consecutiveEmpty = 0;
-      } else {
-        consecutiveEmpty++;
-      }
-
-    } catch (err) {
-      logger.error(`[Discovery:${STORE_LABEL}]   Error: ${err.message}`);
-      diagPages.push({ label: p.label, status: 'exception', error: err.message });
-      consecutiveEmpty++;
-    } finally {
-      if (page) await page.close().catch(() => {});
-      if (ctx)  await ctx.close().catch(() => {});
-    }
-
-    await sleep(2000);
+  // Try robots.txt to find declared sitemaps
+  let declaredSitemaps = [];
+  try {
+    const robots = await fetchText(WALMART_ROBOTS_URL, 0, agent);
+    const matches = [...robots.matchAll(/^Sitemap:\s*(https:\/\/www\.walmart\.com\/sitemap[^\s]+)/gim)];
+    declaredSitemaps = matches.map(m => m[1]);
+    logger.info(`[Discovery:${STORE_LABEL}] robots.txt: ${declaredSitemaps.length} sitemaps declared`);
+  } catch (e) {
+    logger.warn(`[Discovery:${STORE_LABEL}] robots.txt failed (${e.message.slice(0,80)}) — using hardcoded candidates`);
   }
 
-  return { urls: allRaw, diag: diagPages };
+  // Merge declared + hardcoded candidates, rotate by cycle
+  const allCandidates = [...new Set([...declaredSitemaps, ...WALMART_SITEMAP_CANDIDATES])];
+  const startIdx = cycleNum % allCandidates.length;
+  const ordered  = [...allCandidates.slice(startIdx), ...allCandidates.slice(0, startIdx)];
+
+  logger.info(`[Discovery:${STORE_LABEL}] Trying ${ordered.length} sitemap(s), starting at index ${startIdx}`);
+
+  for (const sitemapUrl of ordered) {
+    logger.info(`[Discovery:${STORE_LABEL}] Fetching ${sitemapUrl}`);
+    try {
+      const xml = await fetchText(sitemapUrl, 0, agent);
+
+      // Sitemap index — look for nested sitemap refs
+      const nestedRefs = [...xml.matchAll(/<loc>\s*(https:\/\/www\.walmart\.com\/sitemap[^<]+)\s*<\/loc>/g)].map(m => m[1]);
+      if (nestedRefs.length > 0) {
+        logger.info(`[Discovery:${STORE_LABEL}] Sitemap index — ${nestedRefs.length} nested sitemaps. Fetching first...`);
+        const nested = await fetchText(nestedRefs[0], 0, agent);
+        const urls = nested.match(/https:\/\/www\.walmart\.com\/ip\/[^<\s"]+/g) || [];
+        logger.info(`[Discovery:${STORE_LABEL}] Nested sitemap: ${urls.length} product URLs`);
+        return { urls, source: nestedRefs[0] };
+      }
+
+      // Direct product URLs
+      const urls = xml.match(/https:\/\/www\.walmart\.com\/ip\/[^<\s"]+/g) || [];
+      logger.info(`[Discovery:${STORE_LABEL}] Sitemap: ${urls.length} product URLs`);
+      if (urls.length > 0) return { urls, source: sitemapUrl };
+
+    } catch (err) {
+      logger.warn(`[Discovery:${STORE_LABEL}] ${sitemapUrl} failed: ${err.message.slice(0, 120)}`);
+    }
+  }
+
+  return null; // all sitemaps blocked
+}
+
+function seededShuffle(arr, seed) {
+  const out = [...arr];
+  let s = seed;
+  for (let i = out.length - 1; i > 0; i--) {
+    s = (s * 1664525 + 1013904223) & 0xffffffff;
+    const j = Math.abs(s) % (i + 1);
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 
 async function runWalmartDiscovery(options = {}) {
@@ -329,7 +167,7 @@ async function runWalmartDiscovery(options = {}) {
     urls_new: 0, saved: 0, no_price: 0, errors: 0, blocked: false, blockType: null,
   };
 
-  // Heartbeat — confirms this function is invoked each cycle
+  // Heartbeat — confirms this function is being invoked each cycle
   try {
     const { query: _hbQ } = require('../../config/database');
     await _hbQ(
@@ -346,67 +184,72 @@ async function runWalmartDiscovery(options = {}) {
   }
 
   logger.info('\n' + '═'.repeat(60));
-  logger.info(`🏪 ${STORE_LABEL.toUpperCase()} DISCOVERY`);
+  logger.info(`🏪 ${STORE_LABEL.toUpperCase()} DISCOVERY (sitemap via residential proxy)`);
   logger.info('═'.repeat(60));
 
-  // Full proxy diagnostic before Playwright navigation (60s timeout so it can't hang forever)
-  let probeResult;
+  const cycleNum = Math.floor(Date.now() / (30 * 60 * 1000));
+
+  // Try sitemaps via residential proxy
+  let sitemapResult;
   try {
-    probeResult = await Promise.race([
-      runFullDiagnostic(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('runFullDiagnostic timeout 60s')), 60000)),
+    sitemapResult = await Promise.race([
+      discoverSitemapUrls(cycleNum),
+      new Promise((_, rej) => setTimeout(() => rej(new Error('sitemap discovery timeout 90s')), 90000)),
     ]);
-  } catch (diagErr) {
-    logger.error(`[Discovery:${STORE_LABEL}] Diagnostic failed/timed out: ${diagErr.message}`);
-    probeResult = { error: diagErr.message, proxyMeta: {}, httpResults: [], playwright: {} };
-    stats.last_error = JSON.stringify({ phase: 'diagnostic', error: diagErr.message }).slice(0, 4000);
-    stats.blocked = true;
-    stats.blockType = 'diagnostic_failed';
-    await writeStoreRun(STORE_SLUG, startedAt, stats);
-    return stats;
-  }
-
-  // Phase 1: collect product URLs
-  let allRaw, collectDiag;
-  try {
-    ({ urls: allRaw, diag: collectDiag } = await collectUrls(maxTotal));
   } catch (err) {
-    logger.error(`[Discovery:${STORE_LABEL}] collectUrls fatal: ${err.message}`);
-    stats.errors = 1; stats.blocked = true; stats.blockType = 'fatal_error';
-    stats.last_error = JSON.stringify({ probe: probeResult, error: err.message });
+    logger.error(`[Discovery:${STORE_LABEL}] Sitemap discovery failed: ${err.message}`);
+    stats.blocked   = true;
+    stats.blockType = 'sitemap_blocked';
+    stats.last_error = err.message.slice(0, 500);
     await writeStoreRun(STORE_SLUG, startedAt, stats);
     return stats;
   }
 
-  stats.pages_visited   = DISCOVERY_PAGES.length;
-  stats.urls_discovered = allRaw.length;
-  stats.last_error      = JSON.stringify({ diag: probeResult, pages: collectDiag }).slice(0, 8000);
-
-  if (!allRaw.length) {
-    logger.warn(`[Discovery:${STORE_LABEL}] No URLs found across all pages`);
-    stats.blocked = true; stats.blockType = 'no_urls_found';
+  if (!sitemapResult) {
+    logger.warn(`[Discovery:${STORE_LABEL}] All sitemaps blocked by PerimeterX — needs residential proxy with US exit IP`);
+    stats.blocked   = true;
+    stats.blockType = 'sitemap_blocked';
+    stats.last_error = 'All sitemap candidates returned non-200 via residential proxy';
     await writeStoreRun(STORE_SLUG, startedAt, stats);
     return stats;
   }
 
-  // Phase 2: dedup
-  const unique   = [...new Set(allRaw)];
-  const newUrls  = await filterNewUrls(unique, STORE_LABEL);
+  stats.pages_visited = 1;
+  logger.info(`[Discovery:${STORE_LABEL}] Source: ${sitemapResult.source}`);
+
+  // Filter to resaleable high-margin products
+  const candidates = sitemapResult.urls
+    .map(u => u.split('?')[0].split('#')[0])
+    .filter(isResaleableWalmartUrl);
+
+  stats.urls_discovered = candidates.length;
+  logger.info(`[Discovery:${STORE_LABEL}] ${sitemapResult.urls.length} total → ${candidates.length} resaleable`);
+
+  if (!candidates.length) {
+    logger.warn(`[Discovery:${STORE_LABEL}] No resaleable products in sitemap`);
+    stats.blockType = 'no_resaleable_urls';
+    await writeStoreRun(STORE_SLUG, startedAt, stats);
+    return stats;
+  }
+
+  const seed     = cycleNum * 31337;
+  const shuffled = seededShuffle(candidates, seed);
+  const sample   = shuffled.slice(0, Math.min(maxTotal * 5, shuffled.length));
+  const newUrls  = await filterNewUrls(sample, STORE_LABEL);
   stats.urls_new = newUrls.length;
   const toProcess = newUrls.slice(0, maxTotal);
 
   if (!toProcess.length) {
-    logger.info(`[Discovery:${STORE_LABEL}] All URLs already in DB`);
+    logger.info(`[Discovery:${STORE_LABEL}] All sampled URLs already in DB`);
     await writeStoreRun(STORE_SLUG, startedAt, stats);
     return stats;
   }
 
   logger.info(`\n[Discovery:${STORE_LABEL}] Scanning ${toProcess.length} new products...`);
 
-  // Pre-scan write — records URL-discovery stats before scan loop that may timeout
+  // Pre-scan checkpoint
   await writeStoreRun(STORE_SLUG, startedAt, { ...stats, blockType: 'pre_scan_checkpoint' });
 
-  // Phase 3: scan
   const CONCURRENCY = parseInt(process.env.SCAN_CONCURRENCY) || 2;
 
   async function scanOne(url, idx) {
@@ -424,7 +267,7 @@ async function runWalmartDiscovery(options = {}) {
       }
     } catch (err) {
       stats.errors++;
-      logger.error(`[Discovery:${STORE_LABEL}]   ❌ ${err.message}`);
+      logger.error(`[Discovery:${STORE_LABEL}]   ❌ ${err.message.slice(0, 100)}`);
     }
     await sleep(delayMs);
   }

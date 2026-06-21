@@ -646,13 +646,35 @@ function loadEngines() {
 // ─── Run one engine safely (per-store timeout, default 10 min) ───────────────
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const STORE_TIMEOUTS_MS  = {
-  'office-depot': 20 * 60 * 1000,  // sitemap + proxy scrape is slow; needs extra headroom
-  'home-depot':   25 * 60 * 1000,  // ISP-proxy Playwright + scan loop needs extra time
-  'lowes':        25 * 60 * 1000,  // ISP-proxy Playwright + scan loop needs extra time
-  'walmart':      25 * 60 * 1000,  // diagnostic (60s) + ISP Playwright scan needs extra time
+  'office-depot': 20 * 60 * 1000,
+  'home-depot':   15 * 60 * 1000,  // sitemap-only now; reduced from 25min
+  'lowes':        15 * 60 * 1000,  // sitemap-only now; reduced from 25min
+  'walmart':      10 * 60 * 1000,  // sitemap-only now; diagnostic removed
 };
 
+// Stores temporarily paused — bot-blocked, waiting for alternative strategies.
+// Override via env: PAUSED_STORES=store1,store2 or PAUSED_STORES= (empty = none paused).
+const PAUSED_STORES = new Set(
+  (process.env.PAUSED_STORES !== undefined
+    ? process.env.PAUSED_STORES
+    : 'walmart,home-depot,lowes,staples,gamestop'
+  ).split(',').filter(Boolean)
+);
+
 async function runEngine(engines, slug, opts, label) {
+  // STORE_DEBUG mode: run only the specified store, skip all others
+  const debugStore = process.env.STORE_DEBUG;
+  if (debugStore && slug !== debugStore) {
+    console.log(`  [STORE_DEBUG=${debugStore}] skipping ${slug}`);
+    return { store: slug, skipped: true, saved: 0, errors: 0 };
+  }
+
+  // Temporarily paused stores — skip while alternative strategies are implemented
+  if (!debugStore && PAUSED_STORES.has(slug)) {
+    console.log(`  ⏸️  [PAUSED] ${label || slug} skipped (bot-blocked, pending alt strategy)`);
+    return { store: slug, paused: true, saved: 0, errors: 0 };
+  }
+
   const eng = engines[slug];
   if (!eng) return null;
 
@@ -982,7 +1004,8 @@ async function main() {
     // ── Tier 1: Stable direct-connection stores ───────────────────────────────
 
     // Best Buy (link fallback, highly reliable)
-    if (engines['best-buy']) {
+    const _debugStore = process.env.STORE_DEBUG;
+    if (engines['best-buy'] && (!_debugStore || _debugStore === 'best-buy')) {
       try {
         console.log('\n🟦 Best Buy Discovery...');
         const s = await engines['best-buy'].runBestBuyDiscovery({
@@ -991,10 +1014,12 @@ async function main() {
         cycleStats['best-buy'] = s;
         console.log(`   discovered:${s.urls_discovered||s.cards_found||0} saved:${s.saved||0} errors:${s.errors||0}`);
       } catch (e) { console.error('  ❌ Best Buy error:', e.message); }
+    } else if (_debugStore && _debugStore !== 'best-buy') {
+      console.log(`  [STORE_DEBUG=${_debugStore}] skipping best-buy`);
     }
 
     // Target (SPA — early-exit after 3 empty pages, rescans existing products)
-    if (engines['target']) {
+    if (engines['target'] && (!_debugStore || _debugStore === 'target')) {
       try {
         console.log('\n🎯 Target Discovery...');
         const s = await engines['target'].runTargetDiscovery({
@@ -1003,6 +1028,8 @@ async function main() {
         cycleStats['target'] = s;
         console.log(`   discovered:${s.urls_discovered||0} new:${s.urls_new||0} saved:${s.saved||0} errors:${s.errors||0}`);
       } catch (e) { console.error('  ❌ Target error:', e.message); }
+    } else if (_debugStore && _debugStore !== 'target') {
+      // already logged above
     }
 
     // Tier 1 direct stores — Office Depot runs first (HTTP sitemap, most reliable)

@@ -56,20 +56,28 @@ async function safeGoto(page, url, options = {}) {
   try {
     await page.goto(url, { waitUntil, timeout });
   } catch (err) {
+    // After timeout, page may have partial content — capture it for diagnostics.
+    // If htmlLen=0 after timeout, the TCP connection itself failed (pure Akamai block).
+    const partialTitle   = await page.title().catch(() => '');
+    const partialBody    = await page.$eval('body', el => el.innerText?.slice(0, 400) || '').catch(() => '');
+    const partialHtmlLen = await page.content().then(h => h.length).catch(() => 0);
     if (err.message.includes('timeout')) {
-      return { ok: false, blocked: false, blockType: 'timeout', error: err.message };
+      return { ok: false, blocked: false, blockType: 'timeout', error: err.message,
+               title: partialTitle, bodyText: partialBody, htmlLen: partialHtmlLen };
     }
-    return { ok: false, blocked: false, blockType: 'nav_error', error: err.message };
+    return { ok: false, blocked: false, blockType: 'nav_error', error: err.message,
+             title: partialTitle, bodyText: partialBody, htmlLen: partialHtmlLen };
   }
 
   const title    = await page.title().catch(() => '');
   const bodyText = await page.$eval('body', el => el.innerText?.slice(0, 600) || '').catch(() => '');
+  const htmlLen  = await page.content().then(h => h.length).catch(() => 0);
   const blockType = classifyBlock(title, bodyText);
 
   if (blockType) {
-    return { ok: false, blocked: true, blockType, title, bodyText };
+    return { ok: false, blocked: true, blockType, title, bodyText, htmlLen };
   }
-  return { ok: true, blocked: false, title, bodyText };
+  return { ok: true, blocked: false, title, bodyText, htmlLen };
 }
 
 /**
@@ -287,6 +295,7 @@ async function runStoreDiscovery(config) {
     store: storeSlug, pages_visited: 0, urls_discovered: 0,
     urls_new: 0, saved: 0, no_price: 0, errors: 0, blocked: false, blockType: null,
   };
+  const _diagPages = []; // per-page diagnostic capture (written to last_error)
 
   // Check if store was recently blocked too many times
   if (shouldSkipStore(storeSlug)) {
@@ -327,11 +336,22 @@ async function runStoreDiscovery(config) {
       const nav = await safeGoto(page, p.url, { waitUntil });
 
       if (!nav.ok) {
+        const _d = {
+          label: p.label, status: nav.blockType || 'failed',
+          title: nav.title || '', htmlLen: nav.htmlLen || 0,
+          bodyPreview: (nav.bodyText || '').slice(0, 250).replace(/\s+/g, ' '),
+          captcha: /captcha|verify.*human|robot/i.test((nav.bodyText || '') + (nav.title || '')),
+          akamai:  /akamai|edgesuite/i.test(nav.bodyText || ''),
+        };
+        _diagPages.push(_d);
+        logger.warn(`[Diag:${storeLabel}] ${p.label} FAILED | type=${_d.status} | htmlLen=${_d.htmlLen} | title="${_d.title}" | captcha=${_d.captcha} | akamai=${_d.akamai} | body="${_d.bodyPreview.slice(0,120)}"`);
+
         if (nav.blocked) {
           const result = await handleBlock(page, ctx, storeSlug, nav.blockType, p.url);
           if (result.shouldSkip) {
             stats.blocked   = true;
             stats.blockType = nav.blockType;
+            stats.last_error = JSON.stringify(_diagPages).slice(0, 8000);
             logger.warn(`[Discovery:${storeLabel}] BLOCKED_BY_AKAMAI — stopping`);
             return stats;
           }
@@ -377,6 +397,18 @@ async function runStoreDiscovery(config) {
         }
       }
 
+      const _diagOk = {
+        label: p.label, status: 'ok',
+        title: nav.title || '', htmlLen: nav.htmlLen || 0,
+        bodyPreview: (nav.bodyText || '').slice(0, 250).replace(/\s+/g, ' '),
+        totalLinks: raw.length, filteredLinks: filtered.length,
+        captcha: /captcha|verify.*human|robot/i.test((nav.bodyText || '') + (nav.title || '')),
+        akamai:  /akamai|edgesuite/i.test(nav.bodyText || ''),
+        denied:  /access denied|403.*forbidden/i.test((nav.bodyText || '') + (nav.title || '')),
+      };
+      _diagPages.push(_diagOk);
+      logger.info(`[Diag:${storeLabel}] ${p.label} OK | htmlLen=${_diagOk.htmlLen} | title="${_diagOk.title}" | links=${raw.length} | filtered=${filtered.length} | captcha=${_diagOk.captcha} | akamai=${_diagOk.akamai} | body="${_diagOk.bodyPreview.slice(0,120)}"`);
+
       logger.info(`[Discovery:${storeLabel}]   Found ${filtered.length} URLs`);
       allRaw.push(...filtered);
 
@@ -397,6 +429,7 @@ async function runStoreDiscovery(config) {
   }
 
   stats.urls_discovered = allRaw.length;
+  stats.last_error = JSON.stringify(_diagPages).slice(0, 8000);
 
   if (!allRaw.length) {
     logger.warn(`[Discovery:${storeLabel}] No URLs extracted`);

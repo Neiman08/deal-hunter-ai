@@ -87,6 +87,7 @@ async function extractJsonUrls(page) {
 // Custom URL collection that combines DOM + JSON extraction
 async function collectUrls(maxTotal) {
   const allRaw = [];
+  const diagPages = [];
   let consecutiveEmpty = 0;
   const MAX_CONSECUTIVE = 3;
 
@@ -106,8 +107,17 @@ async function collectUrls(maxTotal) {
       // Use domcontentloaded — 'load' never fires on Walmart SPAs (ongoing API calls).
       // Then waitForSelector waits up to 20s for React to hydrate product links.
       const nav = await safeGoto(page, p.url, { waitUntil: 'domcontentloaded', timeout: 40000 });
+
       if (!nav.ok) {
-        logger.warn(`[Discovery:${STORE_LABEL}]   ${nav.blockType || 'nav_error'} — skipping`);
+        const diag = {
+          label: p.label, status: nav.blockType || 'failed',
+          title: nav.title || '', htmlLen: nav.htmlLen || 0,
+          bodyPreview: (nav.bodyText || '').slice(0, 300).replace(/\s+/g, ' '),
+          captcha: /captcha|verify.*human|robot/i.test((nav.bodyText || '') + (nav.title || '')),
+          akamai:  /akamai|edgesuite/i.test(nav.bodyText || ''),
+        };
+        diagPages.push(diag);
+        logger.warn(`[Diag:${STORE_LABEL}] ${p.label} FAILED | type=${diag.status} | htmlLen=${diag.htmlLen} | title="${diag.title}" | captcha=${diag.captcha} | akamai=${diag.akamai} | body="${diag.bodyPreview.slice(0,150)}"`);
         consecutiveEmpty++;
         continue;
       }
@@ -141,6 +151,21 @@ async function collectUrls(maxTotal) {
       }
 
       const combined = domFiltered.length > 0 ? domFiltered : jsonFiltered;
+
+      // Capture per-page diagnostic info
+      const diagOk = {
+        label: p.label, status: 'ok',
+        title: nav.title || '', htmlLen: nav.htmlLen || 0,
+        bodyPreview: (nav.bodyText || '').slice(0, 300).replace(/\s+/g, ' '),
+        totalLinks: domLinks.length, domFiltered: domFiltered.length,
+        jsonFiltered: jsonFiltered.length,
+        captcha: /captcha|verify.*human|robot/i.test((nav.bodyText || '') + (nav.title || '')),
+        akamai:  /akamai|edgesuite/i.test(nav.bodyText || ''),
+        denied:  /access denied|403/i.test((nav.bodyText || '') + (nav.title || '')),
+      };
+      diagPages.push(diagOk);
+      logger.info(`[Diag:${STORE_LABEL}] ${p.label} OK | htmlLen=${diagOk.htmlLen} | title="${diagOk.title}" | allLinks=${domLinks.length} | domFiltered=${domFiltered.length} | json=${jsonFiltered.length} | captcha=${diagOk.captcha} | akamai=${diagOk.akamai} | body="${diagOk.bodyPreview.slice(0,150)}"`);
+
       logger.info(`[Discovery:${STORE_LABEL}]   DOM=${domFiltered.length} JSON=${jsonFiltered.length} → using ${combined.length}`);
 
       if (combined.length > 0) {
@@ -152,6 +177,7 @@ async function collectUrls(maxTotal) {
 
     } catch (err) {
       logger.error(`[Discovery:${STORE_LABEL}]   Error: ${err.message}`);
+      diagPages.push({ label: p.label, status: 'exception', error: err.message });
       consecutiveEmpty++;
     } finally {
       if (page) await page.close().catch(() => {});
@@ -161,7 +187,7 @@ async function collectUrls(maxTotal) {
     await sleep(2000);
   }
 
-  return allRaw;
+  return { urls: allRaw, diag: diagPages };
 }
 
 async function runWalmartDiscovery(options = {}) {
@@ -186,9 +212,9 @@ async function runWalmartDiscovery(options = {}) {
   logger.info('═'.repeat(60));
 
   // Phase 1: collect product URLs
-  let allRaw;
+  let allRaw, collectDiag;
   try {
-    allRaw = await collectUrls(maxTotal);
+    ({ urls: allRaw, diag: collectDiag } = await collectUrls(maxTotal));
   } catch (err) {
     logger.error(`[Discovery:${STORE_LABEL}] collectUrls fatal: ${err.message}`);
     stats.errors = 1; stats.blocked = true; stats.blockType = 'fatal_error';
@@ -199,6 +225,7 @@ async function runWalmartDiscovery(options = {}) {
 
   stats.pages_visited   = DISCOVERY_PAGES.length;
   stats.urls_discovered = allRaw.length;
+  stats.last_error      = JSON.stringify(collectDiag).slice(0, 8000);
 
   if (!allRaw.length) {
     logger.warn(`[Discovery:${STORE_LABEL}] No URLs found across all pages`);

@@ -329,13 +329,16 @@ async function scanSingleProduct(storeSlug, urlOrId) {
     if (!dbProduct) {
       const inferredSlug = inferCategorySlug(storeSlug, result.name || '');
       let categoryId = null;
+      let catSlug = null;
       if (inferredSlug) {
         const catInferred = await query('SELECT id FROM categories WHERE slug=$1 LIMIT 1', [inferredSlug]);
         categoryId = catInferred.rows[0]?.id || null;
+        catSlug = categoryId ? inferredSlug : null;
       }
       if (!categoryId) {
         const cat = await query('SELECT id, slug FROM categories ORDER BY name LIMIT 1');
         categoryId = cat.rows[0]?.id || null;
+        catSlug = cat.rows[0]?.slug || null;
       }
 
       const inserted = await query(
@@ -360,7 +363,7 @@ async function scanSingleProduct(storeSlug, urlOrId) {
         ]
       );
 
-      dbProduct = { ...inserted.rows[0], cat_slug: cat.rows[0]?.slug || null };
+      dbProduct = { ...inserted.rows[0], cat_slug: catSlug };
     }
 
     await saveProductData(dbProduct, result, storeSlug);

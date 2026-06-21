@@ -272,11 +272,12 @@ async function runStoreDiscovery(config) {
     getContext,
     linkFilter,
     cleanUrl,
-    waitSelector = null,
-    waitUntil    = 'domcontentloaded',
-    maxPerPage   = 30,
-    maxTotal     = 150,
-    delayMs      = 2000,
+    waitSelector        = null,
+    waitSelectorTimeout = 20000,
+    waitUntil           = 'domcontentloaded',
+    maxPerPage          = 30,
+    maxTotal            = 150,
+    delayMs             = 2000,
     maxConsecutiveEmpty = 3,
   } = config;
 
@@ -350,7 +351,7 @@ async function runStoreDiscovery(config) {
       clearFailures(storeSlug);
 
       if (waitSelector) {
-        await page.waitForSelector(waitSelector, { timeout: 12000 }).catch(() => {});
+        await page.waitForSelector(waitSelector, { timeout: waitSelectorTimeout }).catch(() => {});
       }
       await scrollPage(page);
 

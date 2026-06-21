@@ -145,7 +145,9 @@ async function getBrowser() {
   launchPromise = (async () => {
     logger.info('[Browser] Launching Chromium...');
 
-    const proxyConfig = buildProxyConfig();
+    // If main residential proxy is not configured, fall back to ISP proxy so the
+    // scan job can still reach Akamai-protected stores (Walmart, HD, Lowe's).
+    const proxyConfig = buildProxyConfig() || buildBbIspProxyConfig();
 
     const launchOptions = {
       headless: true,

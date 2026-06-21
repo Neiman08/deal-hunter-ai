@@ -183,15 +183,19 @@ async function discoverViaPlaywright(options) {
     return base.split('?')[0].split('#')[0];
   }
   return runStoreDiscovery({
-    storeSlug:  STORE_SLUG,
-    storeLabel: STORE_LABEL,
-    pages:      DISCOVERY_PAGES,
-    getContext: () => newIspContext(),
+    storeSlug:           STORE_SLUG,
+    storeLabel:          STORE_LABEL,
+    pages:               DISCOVERY_PAGES,
+    getContext:          () => newIspContext(),
     linkFilter,
     cleanUrl,
-    maxPerPage: options.maxPerPage || 30,
-    maxTotal:   options.maxTotal   || 150,
-    delayMs:    options.delayMs    || 2000,
+    // Wait for HD's React SPA to render product cards (hydration can take 10-15s)
+    waitSelector:        'a[href*="/p/"]',
+    waitSelectorTimeout: 20000,
+    waitUntil:           'load',
+    maxPerPage:          options.maxPerPage || 30,
+    maxTotal:            options.maxTotal   || 150,
+    delayMs:             options.delayMs    || 2000,
     maxConsecutiveEmpty: 3,
   });
 }

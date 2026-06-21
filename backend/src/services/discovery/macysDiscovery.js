@@ -316,17 +316,19 @@ async function runMacysDiscovery(options = {}) {
     logger.error(`[Discovery:${STORE_LABEL}] Fatal: ${errMsg}`);
     stats.blocked    = true;
     stats.blockType  = 'fatal_error';
-    // Include proxy env var presence so we can diagnose from DB without Render log access
-    stats.last_error = JSON.stringify({
-      error: errMsg,
-      ISP_PROXY_HOST: process.env.ISP_PROXY_HOST ? 'set' : '(not set)',
-      ISP_PROXY_PORT: process.env.ISP_PROXY_PORT || '(not set)',
-      ISP_PROXY_USER: process.env.ISP_PROXY_USER ? process.env.ISP_PROXY_USER.slice(0, 30) : '(not set)',
-      ISP_PROXY_PASS: process.env.ISP_PROXY_PASS ? 'set' : '(not set)',
-      PROXY_ENABLED:  process.env.PROXY_ENABLED  || '(not set)',
-      PROXY_HOST:     process.env.PROXY_HOST      ? 'set' : '(not set)',
-      PROXY_USER:     process.env.PROXY_USER      ? process.env.PROXY_USER.slice(0, 30) : '(not set)',
-    });
+    const diagStr = 'err=' + errMsg
+      + '|ISP_HOST=' + (process.env.ISP_PROXY_HOST ? 'set' : 'no')
+      + '|ISP_PORT=' + (process.env.ISP_PROXY_PORT || 'no')
+      + '|ISP_USER=' + (process.env.ISP_PROXY_USER ? 'set' : 'no')
+      + '|PROXY_EN=' + (process.env.PROXY_ENABLED || 'no')
+      + '|PROXY_HOST=' + (process.env.PROXY_HOST ? 'set' : 'no')
+      + '|PROXY_USER=' + (process.env.PROXY_USER ? 'set' : 'no');
+    stats.last_error = diagStr;
+    // Belt-and-suspenders: write diagnostic immediately in case last_error is lost later
+    await writeStoreRun('macys-fatal', startedAt, {
+      pages_visited: 0, urls_discovered: 0, blocked: true,
+      blockType: 'fatal_diag', last_error: diagStr,
+    }).catch(() => {});
   } finally {
     if (session?.browser) {
       await session.browser.close().catch(() => {});

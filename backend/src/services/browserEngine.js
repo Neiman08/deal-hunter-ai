@@ -407,7 +407,11 @@ async function getBestBuyBrowser() {
     logger.info(`[Browser:BB] Launching | engine=${engine} | proxy=ISP | host=${host} | port=${port}`);
     const launchOpts = { headless, args };
     if (proxyConfig) launchOpts.proxy = proxyConfig;
-    bbBrowserInstance = await launcher.launch(launchOpts);
+    const BB_LAUNCH_TIMEOUT_MS = 45000;
+    bbBrowserInstance = await Promise.race([
+      launcher.launch(launchOpts),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`BB browser launch timeout after ${BB_LAUNCH_TIMEOUT_MS / 1000}s`)), BB_LAUNCH_TIMEOUT_MS)),
+    ]);
     bbBrowserInstance.on('disconnected', () => {
       logger.warn('[Browser:BB] Disconnected — will relaunch on next request');
       bbBrowserInstance = null;
@@ -435,7 +439,11 @@ async function getBestBuyDiscoveryBrowser() {
     logger.info(`[Browser:BB-Discovery] Launching | engine=${engine} | proxy=ISP | host=${host} | port=${port}`);
     const launchOpts = { headless, args };
     if (proxyConfig) launchOpts.proxy = proxyConfig;
-    bbDiscoveryBrowserInstance = await launcher.launch(launchOpts);
+    const BBD_LAUNCH_TIMEOUT_MS = 45000;
+    bbDiscoveryBrowserInstance = await Promise.race([
+      launcher.launch(launchOpts),
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`BB-Discovery browser launch timeout after ${BBD_LAUNCH_TIMEOUT_MS / 1000}s`)), BBD_LAUNCH_TIMEOUT_MS)),
+    ]);
     bbDiscoveryBrowserInstance.on('disconnected', () => {
       logger.warn('[Browser:BB-Discovery] Disconnected — will relaunch on next request');
       bbDiscoveryBrowserInstance = null;

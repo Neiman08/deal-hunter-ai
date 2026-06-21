@@ -29,7 +29,7 @@ router.get('/', async (req, res) => {
   try {
     const {
       store, category, min_discount = 15, max_discount,
-      min_score, min_profit, brand, keyword,
+      min_score, min_profit, brand, keyword, q: search,
       sort = 'score', limit = 20, offset = 0,
       is_error_price,
     } = req.query;
@@ -52,22 +52,27 @@ router.get('/', async (req, res) => {
       params.push(`%${keyword.toLowerCase()}%`);
       p++;
     }
+    if (search) {
+      conditions.push(`(LOWER(p.name) LIKE $${p} OR LOWER(p.brand) LIKE $${p} OR LOWER(s.name) LIKE $${p} OR LOWER(COALESCE(c.name,'')) LIKE $${p})`);
+      params.push(`%${search.toLowerCase()}%`);
+      p++;
+    }
     if (is_error_price === 'true') { conditions.push(`d.is_error_price = true`); }
 
     const sortMap = {
-      score: 'd.opportunity_score DESC, d.discount_percent DESC',
-      discount: 'd.discount_percent DESC',
-      profit: 'd.estimated_profit DESC NULLS LAST',
-      roi: 'd.roi_percent DESC NULLS LAST',
-      newest: 'd.detected_at DESC',
-      price_asc: 'd.deal_price ASC',
-      price_desc: 'd.deal_price DESC',
-      freshness: `CASE WHEN d.last_seen_at > NOW() - INTERVAL '24 hours' THEN 1 WHEN d.last_seen_at > NOW() - INTERVAL '7 days' THEN 2 WHEN d.last_seen_at > NOW() - INTERVAL '30 days' THEN 3 ELSE 4 END ASC, d.opportunity_score DESC, d.discount_percent DESC`,
+      score:     'd.opportunity_score DESC, d.discount_percent DESC, d.id ASC',
+      discount:  'd.discount_percent DESC, d.id ASC',
+      profit:    'd.estimated_profit DESC NULLS LAST, d.id ASC',
+      roi:       'd.roi_percent DESC NULLS LAST, d.id ASC',
+      newest:    'd.detected_at DESC, d.id ASC',
+      price_asc: 'd.deal_price ASC, d.id ASC',
+      price_desc:'d.deal_price DESC, d.id ASC',
+      freshness: `CASE WHEN d.last_seen_at > NOW() - INTERVAL '24 hours' THEN 1 WHEN d.last_seen_at > NOW() - INTERVAL '7 days' THEN 2 WHEN d.last_seen_at > NOW() - INTERVAL '30 days' THEN 3 ELSE 4 END ASC, d.opportunity_score DESC, d.discount_percent DESC, d.id ASC`,
     };
     const orderBy = sortMap[sort] || sortMap.score;
 
     const where = conditions.join(' AND ');
-    const q = `
+    const sql = `
       SELECT
         d.id, d.regular_price, d.deal_price, d.discount_percent, d.savings_amount,
         d.estimated_profit, d.roi_percent, d.demand_level,
@@ -105,7 +110,7 @@ router.get('/', async (req, res) => {
     params.push(parseInt(limit), parseInt(offset));
 
     const [dealsRes, countRes] = await Promise.all([
-      query(q, params),
+      query(sql, params),
       query(`SELECT COUNT(*) FROM deals d JOIN products p ON d.product_id = p.id JOIN stores s ON d.store_id = s.id LEFT JOIN categories c ON p.category_id = c.id WHERE ${where}`, params.slice(0, -2)),
     ]);
 
@@ -198,7 +203,9 @@ router.get('/stats', async (req, res) => {
           COUNT(*) FILTER (WHERE is_active AND last_seen_at > NOW() - INTERVAL '24 hours') as fresh_24h,
           COUNT(*) FILTER (WHERE is_active AND last_seen_at <= NOW() - INTERVAL '24 hours' AND last_seen_at > NOW() - INTERVAL '7 days') as recent_7d,
           COUNT(*) FILTER (WHERE is_active AND last_seen_at <= NOW() - INTERVAL '7 days'   AND last_seen_at > NOW() - INTERVAL '30 days') as aging_30d,
-          COUNT(*) FILTER (WHERE is_active AND last_seen_at <= NOW() - INTERVAL '30 days') as historical_45d
+          COUNT(*) FILTER (WHERE is_active AND last_seen_at <= NOW() - INTERVAL '30 days') as historical_45d,
+          COUNT(*) FILTER (WHERE is_active AND discount_percent >= 20) as searchable_deals_default,
+          COUNT(*) FILTER (WHERE is_active AND discount_percent < 20)  as low_discount_deals
         FROM deals
       `),
       query(`

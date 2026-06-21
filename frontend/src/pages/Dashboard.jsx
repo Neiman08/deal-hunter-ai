@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Flame, DollarSign, RefreshCw,
-  AlertTriangle, ArrowRight, Star, Brain, TrendingUp, Clock, CheckCircle, AlertCircle
+  AlertTriangle, ArrowRight, Star, Brain, TrendingUp, Clock, CheckCircle, AlertCircle,
+  Search, X,
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LineChart, Line, CartesianGrid } from 'recharts';
 import api from '../utils/api';
@@ -10,24 +11,29 @@ import StatCard from '../components/StatCard';
 import DealCard from '../components/DealCard';
 import FilterBar from '../components/FilterBar';
 
+const LIMIT = 24;
+
 function parseStats(raw) {
   return {
     ...raw,
-    total_deals:            parseInt(raw.total_deals)            || 0,
-    new_today:              parseInt(raw.new_today)              || 0,
-    new_this_hour:          parseInt(raw.new_this_hour)          || 0,
-    error_prices:           parseInt(raw.error_prices)           || 0,
-    excellent_deals:        parseInt(raw.excellent_deals)        || 0,
-    good_deals:             parseInt(raw.good_deals)             || 0,
-    total_potential_profit: parseFloat(raw.total_potential_profit) || 0,
-    avg_discount:           parseFloat(raw.avg_discount)         || 0,
-    avg_score:              parseFloat(raw.avg_score)            || 0,
-    avg_roi:                parseFloat(raw.avg_roi)              || 0,
-    fresh_24h:              parseInt(raw.fresh_24h)              || 0,
-    recent_7d:              parseInt(raw.recent_7d)              || 0,
-    aging_30d:              parseInt(raw.aging_30d)              || 0,
-    historical_45d:         parseInt(raw.historical_45d)         || 0,
-    stores_with_fresh_deals: parseInt(raw.stores_with_fresh_deals) || 0,
+    total_deals:                parseInt(raw.total_deals)                || 0,
+    total_db_deals:             parseInt(raw.total_deals)                || 0,
+    searchable_deals_default:   parseInt(raw.searchable_deals_default)   || 0,
+    low_discount_deals:         parseInt(raw.low_discount_deals)         || 0,
+    new_today:                  parseInt(raw.new_today)                  || 0,
+    new_this_hour:              parseInt(raw.new_this_hour)              || 0,
+    error_prices:               parseInt(raw.error_prices)               || 0,
+    excellent_deals:            parseInt(raw.excellent_deals)            || 0,
+    good_deals:                 parseInt(raw.good_deals)                 || 0,
+    total_potential_profit:     parseFloat(raw.total_potential_profit)   || 0,
+    avg_discount:               parseFloat(raw.avg_discount)             || 0,
+    avg_score:                  parseFloat(raw.avg_score)                || 0,
+    avg_roi:                    parseFloat(raw.avg_roi)                  || 0,
+    fresh_24h:                  parseInt(raw.fresh_24h)                  || 0,
+    recent_7d:                  parseInt(raw.recent_7d)                  || 0,
+    aging_30d:                  parseInt(raw.aging_30d)                  || 0,
+    historical_45d:             parseInt(raw.historical_45d)             || 0,
+    stores_with_fresh_deals:    parseInt(raw.stores_with_fresh_deals)    || 0,
   };
 }
 
@@ -41,22 +47,40 @@ const SCORE_BANDS = (stats) => [
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [deals, setDeals] = useState([]);
+  const [totalDeals, setTotalDeals] = useState(0);
+  const [offset, setOffset] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [filters, setFilters] = useState({ store: '', min_discount: '20', sort: 'freshness' });
+  const [searchQ, setSearchQ] = useState('');
+  const [debouncedQ, setDebouncedQ] = useState('');
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
 
+  // Debounce search input 300ms
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedQ(searchQ), 300);
+    return () => clearTimeout(t);
+  }, [searchQ]);
+
   useEffect(() => { fetchData(); }, []);
-  useEffect(() => { fetchDeals(); }, [filters, activeTab]);
+
+  // Reset and re-fetch when filters, tab, or search changes
+  useEffect(() => {
+    setOffset(0);
+    setDeals([]);
+    fetchDeals(0, debouncedQ);
+  }, [filters, activeTab, debouncedQ]); // eslint-disable-line
 
   async function fetchData() {
     try {
       const [sr, dr] = await Promise.all([
         api.get('/deals/stats'),
-        api.get('/deals', { params: { ...filters, limit: 12 } }),
+        api.get('/deals', { params: { ...filters, limit: LIMIT, offset: 0 } }),
       ]);
       setStats(parseStats(sr.data));
       setDeals(dr.data.deals || []);
+      setTotalDeals(dr.data.total || 0);
     } catch (err) {
       console.error('Dashboard fetchData error:', err);
     } finally {
@@ -64,16 +88,31 @@ export default function Dashboard() {
     }
   }
 
-  async function fetchDeals() {
+  async function fetchDeals(startOffset, q = '') {
     try {
-      const params = { ...filters, limit: 12 };
+      const params = { ...filters, limit: LIMIT, offset: startOffset };
+      if (q) params.q = q;
       if (activeTab === 'error') params.is_error_price = 'true';
       if (activeTab === 'top')   params.min_score = 91;
       const r = await api.get('/deals', { params });
-      setDeals(r.data.deals || []);
+      const newDeals = r.data.deals || [];
+      if (startOffset === 0) {
+        setDeals(newDeals);
+      } else {
+        setDeals(prev => [...prev, ...newDeals]);
+      }
+      setTotalDeals(r.data.total || 0);
     } catch {
-      setDeals([]);
+      if (startOffset === 0) setDeals([]);
     }
+  }
+
+  async function handleLoadMore() {
+    const nextOffset = offset + LIMIT;
+    setLoadingMore(true);
+    await fetchDeals(nextOffset, debouncedQ);
+    setOffset(nextOffset);
+    setLoadingMore(false);
   }
 
   async function handleRefresh() {
@@ -94,7 +133,6 @@ export default function Dashboard() {
     </div>
   );
 
-  // Only pass stores that actually have active deals — keeps FilterBar honest
   const activeStores = (stats.top_stores || []).filter(s => parseInt(s.deal_count) > 0);
 
   const storeData = activeStores.map(s => ({
@@ -110,12 +148,13 @@ export default function Dashboard() {
   }));
   const hasTrend = trendData.some(r => r.deals > 0);
 
-  // Data-driven AI insight
   const topCat    = (stats.top_categories || [])[0];
   const highScore = stats.good_deals || 0;
   const insightText = topCat
     ? `${highScore} high-score deals active. Top category: ${topCat.name} (${parseInt(topCat.deal_count)} deals, ~$${parseFloat(topCat.avg_profit || 0).toFixed(0)} avg profit).`
     : `${highScore} high-score deals (score ≥ 71) available right now. Check AI Recommendations for personalized picks.`;
+
+  const hasMore = deals.length < totalDeals;
 
   return (
     <div className="p-4 lg:p-6 space-y-5 animate-fade-in">
@@ -125,8 +164,10 @@ export default function Dashboard() {
         <div>
           <h1 className="text-2xl font-bold text-white">Deal Dashboard</h1>
           <p className="text-gray-400 text-sm mt-0.5">
-            {stats.total_deals} active deals
+            <span className="text-neon-green font-semibold">{(stats.searchable_deals_default || stats.total_deals).toLocaleString()}</span>
+            {' '}deals available
             {stats.new_today > 0 && <> · <span className="text-neon-green">+{stats.new_today} today</span></>}
+            <span className="text-gray-600"> · {stats.total_db_deals.toLocaleString()} total cataloged</span>
           </p>
         </div>
         <button onClick={handleRefresh} disabled={refreshing}
@@ -138,7 +179,13 @@ export default function Dashboard() {
 
       {/* Stat Cards */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard icon={<Flame size={18} />}         title="Active Deals"     value={stats.total_deals}  sub={`+${stats.new_this_hour} this hour`}          color="green"  />
+        <StatCard
+          icon={<Flame size={18} />}
+          title="Searchable Deals"
+          value={(stats.searchable_deals_default || stats.total_deals).toLocaleString()}
+          sub={`of ${stats.total_db_deals.toLocaleString()} cataloged`}
+          color="green"
+        />
         <StatCard icon={<AlertTriangle size={18} />}  title="Error Prices"     value={stats.error_prices} sub="Pricing mistakes"                              color="red"    />
         <StatCard icon={<DollarSign size={18} />}     title="Potential Profit" value={`$${(stats.total_potential_profit / 1000).toFixed(1)}k`} sub="Combined" color="blue"   />
         <StatCard icon={<Star size={18} />}           title="High-Score Deals" value={stats.good_deals}   sub="Score 71+"                                     color="yellow" />
@@ -289,20 +336,60 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {/* FilterBar — only shows stores that have active deals */}
+        {/* Search input */}
+        <div className="relative mb-2">
+          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+          <input
+            type="text"
+            placeholder="Search deals… laptop, Sony, Milwaukee, DeWalt"
+            value={searchQ}
+            onChange={e => setSearchQ(e.target.value)}
+            className="w-full bg-dark-700 border border-dark-400 rounded-xl pl-9 pr-10 py-2.5 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-neon-green transition-colors"
+          />
+          {searchQ && (
+            <button
+              onClick={() => setSearchQ('')}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white transition-colors">
+              <X size={14} />
+            </button>
+          )}
+        </div>
+
+        {/* FilterBar */}
         <div className="bg-dark-800/60 rounded-xl border border-dark-500 px-4">
           <FilterBar filters={filters} onChange={setFilters} stores={activeStores} />
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
+        {/* Results count */}
+        <p className="text-gray-600 text-xs mt-3 mb-1">
+          Showing {deals.length} of {totalDeals.toLocaleString()} deals
+          {debouncedQ ? <> for <span className="text-gray-400">"{debouncedQ}"</span></> : ''}
+        </p>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-2">
           {deals.length === 0
             ? <div className="col-span-3 text-center py-12 text-gray-600 text-sm">No deals match these filters</div>
             : deals.map(deal => <DealCard key={deal.id} deal={deal} />)
           }
         </div>
+
+        {/* Load More */}
+        {hasMore && (
+          <div className="flex flex-col items-center gap-2 pt-6">
+            <button
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              className="btn-ghost flex items-center gap-2 text-sm px-8 py-2.5 disabled:opacity-50">
+              {loadingMore
+                ? <div className="w-4 h-4 border-2 border-neon-green border-t-transparent rounded-full animate-spin" />
+                : null}
+              {loadingMore ? 'Loading…' : `Load More (${totalDeals - deals.length} remaining)`}
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* AI Insight — data-driven */}
+      {/* AI Insight */}
       <div className="bg-neon-blue/5 rounded-2xl border border-neon-blue/20 flex items-center gap-4 p-4">
         <div className="w-10 h-10 rounded-xl bg-neon-blue/15 flex items-center justify-center flex-shrink-0">
           <Brain size={20} className="text-neon-blue" />

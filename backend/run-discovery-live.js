@@ -8,6 +8,7 @@ const { detectRecentChanges } = require('./src/services/priceChangeDetector');
 const { restartBrowserPool }  = require('./src/services/browserEngine');
 const { query }               = require('./src/config/database');
 const { claimNextPendingJob, markCompleted, markFailed } = require('./src/services/discoveryQueue');
+const { writeStoreRun }       = require('./src/utils/storeRunStats');
 
 const POOL_RESTART_EVERY = parseInt(process.env.POOL_RESTART_CYCLES) || 5;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
@@ -652,12 +653,12 @@ const STORE_TIMEOUTS_MS  = {
   'walmart':      10 * 60 * 1000,  // sitemap-only now; diagnostic removed
 };
 
-// Stores temporarily paused — bot-blocked, waiting for alternative strategies.
+// Stores temporarily paused — bot-blocked or not yet producing.
 // Override via env: PAUSED_STORES=store1,store2 or PAUSED_STORES= (empty = none paused).
 const PAUSED_STORES = new Set(
   (process.env.PAUSED_STORES !== undefined
     ? process.env.PAUSED_STORES
-    : 'walmart,home-depot,lowes,costco,gamestop'
+    : 'walmart,home-depot,lowes,costco,gamestop,nordstrom-rack,kohls,tj-maxx,marshalls,burlington'
   ).split(',').filter(Boolean)
 );
 
@@ -674,11 +675,11 @@ const SAFE_OPTS = {
   'office-depot':{ maxTotal: 30, maxPerPage:  10,  delayMs: 1000 },
   'staples':     { maxTotal: 15, maxPerPage:   5,  delayMs: 2000 },
   'macys':       { maxTotal:  8,                   delayMs: 1000 },
-  'nordstrom-rack': { maxTotal: 30, maxPerPage: 10, delayMs: 2000 },
-  'kohls':       { maxTotal: 20, maxPerPage:  8,   delayMs: 2500 },
-  'tj-maxx':     { maxTotal: 20, maxPerPage:  8,   delayMs: 2500 },
-  'marshalls':   { maxTotal: 20, maxPerPage:  8,   delayMs: 2500 },
-  'burlington':  { maxTotal: 20, maxPerPage:  8,   delayMs: 2500 },
+  'nordstrom-rack': { maxTotal:  3, maxPerPage:  1, delayMs: 3000 },
+  'kohls':          { maxTotal:  3, maxPerPage:  1, delayMs: 3000 },
+  'tj-maxx':        { maxTotal:  3, maxPerPage:  1, delayMs: 3000 },
+  'marshalls':      { maxTotal:  3, maxPerPage:  1, delayMs: 3000 },
+  'burlington':     { maxTotal:  3, maxPerPage:  1, delayMs: 3000 },
 };
 
 // Merge safe limits over normal opts when SAFE_PROXY_MODE is on.
@@ -759,22 +760,35 @@ async function runEngine(engines, slug, opts, label, budget) {
     return { store: slug, paused: true, saved: 0, errors: 0 };
   }
 
-  // SAFE_PROXY_MODE: auto-pause and per-cycle budget checks
+  // SAFE_PROXY_MODE: auto-pause check (before engine or budget)
   if (SAFE_PROXY_MODE && !debugStore) {
     const pauseReason = await checkStorePause(slug);
     if (pauseReason) {
       console.log(`  ⏸️  [AUTO-PAUSE] ${label || slug}: ${pauseReason}`);
       return { store: slug, auto_paused: true, saved: 0, errors: 0 };
     }
-    if (budget && !budget.ok()) {
-      console.log(`  💰 [BUDGET] ${label || slug}: cycle budget exhausted (${budget.log()})`);
-      return { store: slug, budget_exhausted: true, saved: 0, errors: 0 };
-    }
-    if (budget) budget.add(estimateProxyReq(slug, opts));
   }
 
+  // Engine must exist before any budget is charged
   const eng = engines[slug];
   if (!eng) return null;
+
+  // SAFE_PROXY_MODE: pre-check budget with estimate BEFORE running or charging
+  if (SAFE_PROXY_MODE && !debugStore && budget) {
+    const estimated = estimateProxyReq(slug, opts);
+    if (!budget.ok(estimated)) {
+      console.log(`  💰 [BUDGET] ${label || slug}: cycle budget exhausted (${budget.log()} + est:${estimated})`);
+      writeStoreRun(slug, Date.now(), {
+        proxy_requests_est: estimated,
+        blocked: true,
+        blockType: 'budget_exhausted',
+        reason_for_stop: 'cycle_proxy_budget_exhausted',
+        saved: 0,
+      }).catch(() => {});
+      return { store: slug, budget_exhausted: true, saved: 0, errors: 0 };
+    }
+    budget.add(estimated);
+  }
 
   const timeoutMs = STORE_TIMEOUTS_MS[slug] || DEFAULT_TIMEOUT_MS;
   const t0 = Date.now();
@@ -1113,16 +1127,19 @@ async function main() {
       const bbPause = SAFE_PROXY_MODE ? await checkStorePause('best-buy') : null;
       if (bbPause) {
         console.log(`\n  ⏸️  [AUTO-PAUSE] best-buy: ${bbPause}`);
-      } else if (SAFE_PROXY_MODE && !budget.ok()) {
-        console.log(`\n  💰 [BUDGET] best-buy: budget exhausted (${budget.log()})`);
       } else {
         try {
           const bbOpts = applyLimits('best-buy', { maxTotal: 500, maxPerSearch: 30, delayMs: 1200 });
-          if (SAFE_PROXY_MODE) budget.add(estimateProxyReq('best-buy', bbOpts));
-          console.log(`\n🟦 Best Buy Discovery... (maxTotal=${bbOpts.maxTotal} maxPerSearch=${bbOpts.maxPerSearch})`);
-          const s = await engines['best-buy'].runBestBuyDiscovery(bbOpts);
-          cycleStats['best-buy'] = s;
-          console.log(`   discovered:${s.urls_discovered||s.cards_found||0} saved:${s.saved||0} errors:${s.errors||0}`);
+          const bbEst  = SAFE_PROXY_MODE ? estimateProxyReq('best-buy', bbOpts) : 0;
+          if (SAFE_PROXY_MODE && !budget.ok(bbEst)) {
+            console.log(`\n  💰 [BUDGET] best-buy: cycle budget exhausted (${budget.log()} + est:${bbEst})`);
+          } else {
+            if (SAFE_PROXY_MODE) budget.add(bbEst);
+            console.log(`\n🟦 Best Buy Discovery... (maxTotal=${bbOpts.maxTotal} maxPerSearch=${bbOpts.maxPerSearch})`);
+            const s = await engines['best-buy'].runBestBuyDiscovery(bbOpts);
+            cycleStats['best-buy'] = s;
+            console.log(`   discovered:${s.urls_discovered||s.cards_found||0} saved:${s.saved||0} errors:${s.errors||0}`);
+          }
         } catch (e) { console.error('  ❌ Best Buy error:', e.message); }
       }
     } else if (_debugStore && _debugStore !== 'best-buy') {
@@ -1134,20 +1151,23 @@ async function main() {
       const tgtPause = SAFE_PROXY_MODE ? await checkStorePause('target') : null;
       if (tgtPause) {
         console.log(`\n  ⏸️  [AUTO-PAUSE] target: ${tgtPause}`);
-      } else if (SAFE_PROXY_MODE && !budget.ok()) {
-        console.log(`\n  💰 [BUDGET] target: budget exhausted (${budget.log()})`);
       } else {
         try {
           const tgtOpts = applyLimits('target', { maxTotal: 100, maxPerPage: 25, delayMs: 1200 });
-          if (SAFE_PROXY_MODE) budget.add(estimateProxyReq('target', tgtOpts));
-          const tgtTimeoutMs = SAFE_PROXY_MODE ? 5 * 60 * 1000 : 10 * 60 * 1000;
-          console.log(`\n🎯 Target Discovery... (maxTotal=${tgtOpts.maxTotal} timeout=${tgtTimeoutMs/60000}min)`);
-          const s = await Promise.race([
-            engines['target'].runTargetDiscovery(tgtOpts),
-            new Promise((_, rej) => setTimeout(() => rej(new Error(`Target timeout (${tgtTimeoutMs/60000}min)`)), tgtTimeoutMs)),
-          ]);
-          cycleStats['target'] = s;
-          console.log(`   discovered:${s.urls_discovered||0} new:${s.urls_new||0} saved:${s.saved||0} errors:${s.errors||0}`);
+          const tgtEst  = SAFE_PROXY_MODE ? estimateProxyReq('target', tgtOpts) : 0;
+          if (SAFE_PROXY_MODE && !budget.ok(tgtEst)) {
+            console.log(`\n  💰 [BUDGET] target: cycle budget exhausted (${budget.log()} + est:${tgtEst})`);
+          } else {
+            if (SAFE_PROXY_MODE) budget.add(tgtEst);
+            const tgtTimeoutMs = SAFE_PROXY_MODE ? 5 * 60 * 1000 : 10 * 60 * 1000;
+            console.log(`\n🎯 Target Discovery... (maxTotal=${tgtOpts.maxTotal} timeout=${tgtTimeoutMs/60000}min)`);
+            const s = await Promise.race([
+              engines['target'].runTargetDiscovery(tgtOpts),
+              new Promise((_, rej) => setTimeout(() => rej(new Error(`Target timeout (${tgtTimeoutMs/60000}min)`)), tgtTimeoutMs)),
+            ]);
+            cycleStats['target'] = s;
+            console.log(`   discovered:${s.urls_discovered||0} new:${s.urls_new||0} saved:${s.saved||0} errors:${s.errors||0}`);
+          }
         } catch (e) { console.error('  ❌ Target error:', e.message); }
       }
     }

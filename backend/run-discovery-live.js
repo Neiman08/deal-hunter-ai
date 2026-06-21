@@ -692,38 +692,34 @@ async function logStartup() {
   const ispUser = process.env.ISP_PROXY_USER || '';
 
   // Write env-var presence snapshot FIRST — before any network tests that could hang.
-  // This guarantees the Render worker's proxy config is queryable even if later steps fail.
-  // Retry up to 3 times with 4s delay — first DB connection on Render cold-start can take >2s.
+  // Uses direct query() + retry to bypass writeStoreRun CREATE TABLE overhead on cold start.
   {
-    const { writeStoreRun } = require('./src/utils/storeRunStats');
-    const diagPayload = {
-      pages_visited:   0,
-      urls_discovered: 0,
-      blocked:         true,
-      blockType:       'startup_env_snapshot',
-      last_error: 'PROXY_ENABLED=' + (process.env.PROXY_ENABLED || 'no')
-        + '|PROXY_HOST=' + (process.env.PROXY_HOST ? 'set' : 'no')
-        + '|PROXY_USER=' + (pUser ? pUser.slice(0, 40) : 'no')
-        + '|ISP_HOST=' + (process.env.ISP_PROXY_HOST ? 'set' : 'no')
-        + '|ISP_PORT=' + (process.env.ISP_PROXY_PORT || 'no')
-        + '|ISP_USER=' + (ispUser ? ispUser.slice(0, 40) : 'no')
-        + '|ISP_PASS=' + (process.env.ISP_PROXY_PASS ? 'set' : 'no')
-        + '|DB=' + (process.env.DATABASE_URL ? 'set' : 'no')
-        + '|NODE_ENV=' + (process.env.NODE_ENV || 'no')
-        + '|EBAY=' + (process.env.EBAY_ENABLED || 'no'),
-    };
+    const { query: diagQuery } = require('./src/config/database');
+    const diagLastError = 'PROXY_EN=' + (process.env.PROXY_ENABLED || 'no')
+      + '|PROXY_HOST=' + (process.env.PROXY_HOST ? 'set' : 'no')
+      + '|PROXY_USER=' + (pUser ? pUser.slice(0, 20) : 'no')
+      + '|ISP_HOST=' + (process.env.ISP_PROXY_HOST ? 'set' : 'no')
+      + '|ISP_PORT=' + (process.env.ISP_PROXY_PORT || 'no')
+      + '|ISP_USER=' + (ispUser ? ispUser.slice(0, 20) : 'no')
+      + '|ISP_PASS=' + (process.env.ISP_PROXY_PASS ? 'set' : 'no')
+      + '|DB=' + (process.env.DATABASE_URL ? 'set' : 'no')
+      + '|NODE_ENV=' + (process.env.NODE_ENV || 'no')
+      + '|EBAY=' + (process.env.EBAY_ENABLED || 'no');
     let diagWritten = false;
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 5; attempt++) {
       try {
-        await writeStoreRun('proxy-diag-startup', Date.now(), diagPayload);
+        await diagQuery(
+          "INSERT INTO worker_store_runs (store_slug, started_at, blocked, block_type, last_error) VALUES ('proxy-diag-startup', NOW(), true, 'startup_env_snapshot', $1)",
+          [diagLastError]
+        );
         diagWritten = true;
         break;
       } catch (e) {
         console.error(`[ProxyDiag-Startup] Attempt ${attempt} failed: ${e.message}`);
-        if (attempt < 3) await new Promise(r => setTimeout(r, 4000));
+        if (attempt < 5) await new Promise(r => setTimeout(r, 3000));
       }
     }
-    if (!diagWritten) console.error('[ProxyDiag-Startup] All 3 attempts failed — DB unreachable at startup');
+    if (!diagWritten) console.error('[ProxyDiag-Startup] All 5 attempts failed — DB unreachable at startup');
   }
 
   console.log('╔' + '═'.repeat(58) + '╗');

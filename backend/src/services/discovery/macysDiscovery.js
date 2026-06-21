@@ -316,6 +316,10 @@ async function runMacysDiscovery(options = {}) {
     logger.error(`[Discovery:${STORE_LABEL}] Fatal: ${errMsg}`);
     stats.blocked    = true;
     stats.blockType  = 'fatal_error';
+    // proxy_used is VARCHAR(30) — use as fallback diagnostic carrier if last_error stays null
+    stats.proxy_used = ('ISP:' + (process.env.ISP_PROXY_HOST ? 'Y' : 'N')
+      + '|RES:' + (process.env.PROXY_ENABLED || 'N')
+      + '|U:' + (process.env.ISP_PROXY_USER ? 'Y' : 'N')).slice(0, 29);
     const diagStr = 'err=' + errMsg
       + '|ISP_HOST=' + (process.env.ISP_PROXY_HOST ? 'set' : 'no')
       + '|ISP_PORT=' + (process.env.ISP_PROXY_PORT || 'no')
@@ -324,11 +328,14 @@ async function runMacysDiscovery(options = {}) {
       + '|PROXY_HOST=' + (process.env.PROXY_HOST ? 'set' : 'no')
       + '|PROXY_USER=' + (process.env.PROXY_USER ? 'set' : 'no');
     stats.last_error = diagStr;
-    // Belt-and-suspenders: write diagnostic immediately in case last_error is lost later
-    await writeStoreRun('macys-fatal', startedAt, {
-      pages_visited: 0, urls_discovered: 0, blocked: true,
-      blockType: 'fatal_diag', last_error: diagStr,
-    }).catch(() => {});
+    // Direct raw INSERT bypassing writeStoreRun to confirm DB write works in catch block
+    try {
+      const { query: dbQ } = require('../../config/database');
+      await dbQ(
+        "INSERT INTO worker_store_runs (store_slug, started_at, blocked, block_type, last_error) VALUES ('macys-raw', NOW(), true, 'fatal_raw', $1)",
+        [diagStr]
+      );
+    } catch {}
   } finally {
     if (session?.browser) {
       await session.browser.close().catch(() => {});

@@ -132,10 +132,88 @@ const BB_KEYWORD_GROUPS = {
     { label: 'search-keurig',         kw: 'keurig' },
     { label: 'search-kitchenaid',     kw: 'kitchenaid' },
   ],
+  appliances: [
+    { label: 'search-washer',         kw: 'washer dryer' },
+    { label: 'search-refrigerator',   kw: 'refrigerator' },
+    { label: 'search-dishwasher',     kw: 'dishwasher' },
+    { label: 'search-range',          kw: 'electric range' },
+    { label: 'clearance-appliances',  kw: 'clearance appliances' },
+    { label: 'search-microwave',      kw: 'countertop microwave' },
+    { label: 'search-air-fryer',      kw: 'air fryer' },
+    { label: 'search-coffee',         kw: 'coffee maker' },
+  ],
+  cameras: [
+    { label: 'search-mirrorless',     kw: 'mirrorless camera' },
+    { label: 'search-dslr',           kw: 'dslr camera' },
+    { label: 'search-drone',          kw: 'dji drone' },
+    { label: 'clearance-camera',      kw: 'clearance camera' },
+    { label: 'search-action-cam',     kw: 'gopro action camera' },
+    { label: 'search-security-cam',   kw: 'security camera' },
+  ],
+  wearables: [
+    { label: 'search-smartwatch',     kw: 'smartwatch' },
+    { label: 'search-apple-watch',    kw: 'apple watch' },
+    { label: 'search-galaxy-watch',   kw: 'galaxy watch' },
+    { label: 'search-fitness-band',   kw: 'fitness tracker' },
+    { label: 'clearance-wearables',   kw: 'clearance smartwatch' },
+  ],
+  smart_home: [
+    { label: 'search-robot-vacuum',   kw: 'robot vacuum' },
+    { label: 'search-smart-display',  kw: 'smart display' },
+    { label: 'search-smart-speaker',  kw: 'smart speaker' },
+    { label: 'search-smart-lock',     kw: 'smart lock' },
+    { label: 'search-doorbell',       kw: 'video doorbell' },
+    { label: 'search-thermostat',     kw: 'smart thermostat' },
+  ],
+  mobile: [
+    { label: 'search-unlocked-phone', kw: 'unlocked smartphone' },
+    { label: 'search-android',        kw: 'android phone deals' },
+    { label: 'search-prepaid',        kw: 'prepaid phone' },
+    { label: 'clearance-phone',       kw: 'clearance smartphone' },
+    { label: 'search-tablet',         kw: 'android tablet' },
+  ],
 };
 
 // Flat list for backwards compatibility (used when options.keywords is explicitly passed)
 const SEARCH_KEYWORDS = Object.values(BB_KEYWORD_GROUPS).flat();
+
+// ─── Category inference by product name ───────────────────────────────────────
+function inferBBCategory(name = '') {
+  const n = name.toLowerCase();
+  // Gaming first (gaming laptops/monitors would otherwise match electronics)
+  if (/playstation|xbox|nintendo|\bps5\b|\bps4\b|gaming headset|gaming chair|gaming mouse|gaming keyboard|gaming monitor/.test(n)) return 'gaming';
+  if (/\bgame\b|video game/.test(n)) return 'gaming';
+  // TVs / home audio
+  if (/\btv\b|\btelevision\b|oled|qled|nanocell|\bqned\b/.test(n)) return 'electronics';
+  if (/soundbar|home theater|projector|receiver|amplifier/.test(n)) return 'electronics';
+  // Laptops / desktops / tablets
+  if (/\blaptop\b|chromebook|macbook|notebook pc/.test(n)) return 'electronics';
+  if (/\bdesktop\b|mini pc|all-in-one|imac/.test(n)) return 'electronics';
+  if (/\btablet\b|\bipad\b|surface pro|surface go/.test(n)) return 'electronics';
+  // Phones
+  if (/\bphone\b|smartphone|iphone|galaxy s\d|pixel \d|unlocked/.test(n)) return 'electronics';
+  // Monitors & peripherals
+  if (/\bmonitor\b|\bdisplay\b|webcam|keyboard|mouse\b|trackpad/.test(n)) return 'electronics';
+  // Headphones / earbuds / speakers
+  if (/headphone|earphone|earbuds|airpod|\bbuds\b|noise.?cancel/.test(n)) return 'electronics';
+  if (/speaker|soundbar|bose|sonos|jbl/.test(n)) return 'electronics';
+  // Wearables
+  if (/smartwatch|apple watch|galaxy watch|fitness tracker|fitbit|garmin/.test(n)) return 'electronics';
+  // Smart home
+  if (/robot vacuum|smart plug|smart bulb|smart lock|smart thermostat|video doorbell|ring door|nest|ecobee/.test(n)) return 'electronics';
+  // Cameras / drones
+  if (/camera|camcorder|\bdrone\b|dji|gopro/.test(n)) return 'electronics';
+  // Large appliances
+  if (/washer|dryer|refrigerator|dishwasher|\brange\b|\boven\b|microwave/.test(n)) return 'appliances';
+  // Small kitchen appliances
+  if (/coffee maker|espresso|air fryer|blender|toaster|keurig|instant pot|kitchenaid mixer/.test(n)) return 'appliances';
+  if (/stand mixer|slow cooker|rice cooker|food processor/.test(n)) return 'appliances';
+  // Printers / ink
+  if (/\bprinter\b|\bscanner\b|ink cartridge|toner/.test(n)) return 'office';
+  // Vacuums (non-robot)
+  if (/\bvacuum\b|dyson|roomba|shark/.test(n)) return 'appliances';
+  return 'electronics'; // Best Buy default
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Cerrar popups y overlays antes de extraer cards
@@ -700,9 +778,11 @@ async function saveCard(card, storeId) {
   }
 
   try {
-    // ── Upsert product ───────────────────────────────────────────────────────
+    // ── Resolve category ─────────────────────────────────────────────────────
+    const inferredSlug = inferBBCategory(name || '');
     const catRes = await query(
-      `SELECT id FROM categories WHERE slug = 'electronics' LIMIT 1`
+      `SELECT id FROM categories WHERE slug = $1 LIMIT 1`,
+      [inferredSlug]
     );
     const catId = catRes.rows[0]?.id || null;
 
@@ -811,8 +891,8 @@ async function saveCard(card, storeId) {
 // ─────────────────────────────────────────────────────────────────────────────
 async function runBestBuyDiscovery(options = {}) {
   const startedAt    = Date.now();
-  const maxPerSearch = options.maxPerSearch || options.maxPerPage || parseInt(process.env.BB_DISCOVERY_MAX_PER_SEARCH) || 20;
-  const maxTotal     = options.maxTotal    || parseInt(process.env.BB_DISCOVERY_MAX_TOTAL)      || 60;
+  const maxPerSearch = options.maxPerSearch || options.maxPerPage || parseInt(process.env.BB_DISCOVERY_MAX_PER_SEARCH) || 30;
+  const maxTotal     = options.maxTotal    || parseInt(process.env.BB_DISCOVERY_MAX_TOTAL)      || 150;
   const delayMs      = options.delayMs     || parseInt(process.env.BB_DISCOVERY_DELAY_MS)       || 3000;
   // Rotate keyword GROUP each 30-min cycle: each cycle runs a different category
   const cycleNum   = Math.floor(Date.now() / (30 * 60 * 1000));

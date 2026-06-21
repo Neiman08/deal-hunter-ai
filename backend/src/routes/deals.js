@@ -62,6 +62,7 @@ router.get('/', async (req, res) => {
       newest: 'd.detected_at DESC',
       price_asc: 'd.deal_price ASC',
       price_desc: 'd.deal_price DESC',
+      freshness: `CASE WHEN d.last_seen_at > NOW() - INTERVAL '24 hours' THEN 1 WHEN d.last_seen_at > NOW() - INTERVAL '7 days' THEN 2 WHEN d.last_seen_at > NOW() - INTERVAL '30 days' THEN 3 ELSE 4 END ASC, d.opportunity_score DESC, d.discount_percent DESC`,
     };
     const orderBy = sortMap[sort] || sortMap.score;
 
@@ -80,7 +81,19 @@ router.get('/', async (req, res) => {
           SELECT 1 FROM product_market_data pmd
           WHERE pmd.product_id = p.id AND pmd.source = 'keepa'
           AND pmd.fetched_at > NOW() - INTERVAL '7 days'
-        ) as has_keepa_data
+        ) as has_keepa_data,
+        CASE
+          WHEN d.last_seen_at > NOW() - INTERVAL '24 hours' THEN 1
+          WHEN d.last_seen_at > NOW() - INTERVAL '7 days'   THEN 2
+          WHEN d.last_seen_at > NOW() - INTERVAL '30 days'  THEN 3
+          ELSE 4
+        END AS freshness_rank,
+        CASE
+          WHEN d.last_seen_at > NOW() - INTERVAL '24 hours' THEN 'fresh'
+          WHEN d.last_seen_at > NOW() - INTERVAL '7 days'   THEN 'recent'
+          WHEN d.last_seen_at > NOW() - INTERVAL '30 days'  THEN 'aging'
+          ELSE 'historical'
+        END AS freshness
       FROM deals d
       JOIN products p ON d.product_id = p.id
       JOIN stores s ON d.store_id = s.id
@@ -181,12 +194,18 @@ router.get('/stats', async (req, res) => {
           COALESCE(AVG(discount_percent) FILTER (WHERE is_active), 0) as avg_discount,
           COALESCE(AVG(opportunity_score) FILTER (WHERE is_active), 0) as avg_score,
           COUNT(*) FILTER (WHERE is_active AND opportunity_score >= 90) as excellent_deals,
-          COUNT(*) FILTER (WHERE is_active AND opportunity_score >= 71) as good_deals
+          COUNT(*) FILTER (WHERE is_active AND opportunity_score >= 71) as good_deals,
+          COUNT(*) FILTER (WHERE is_active AND last_seen_at > NOW() - INTERVAL '24 hours') as fresh_24h,
+          COUNT(*) FILTER (WHERE is_active AND last_seen_at <= NOW() - INTERVAL '24 hours' AND last_seen_at > NOW() - INTERVAL '7 days') as recent_7d,
+          COUNT(*) FILTER (WHERE is_active AND last_seen_at <= NOW() - INTERVAL '7 days'   AND last_seen_at > NOW() - INTERVAL '30 days') as aging_30d,
+          COUNT(*) FILTER (WHERE is_active AND last_seen_at <= NOW() - INTERVAL '30 days') as historical_45d
         FROM deals
       `),
       query(`
         SELECT s.name, s.slug, s.color, COUNT(DISTINCT d.id) as deal_count,
-          ROUND(AVG(d.opportunity_score)::numeric, 1) as avg_score
+          ROUND(AVG(d.opportunity_score)::numeric, 1) as avg_score,
+          COUNT(DISTINCT d.id) FILTER (WHERE d.last_seen_at > NOW() - INTERVAL '24 hours') as fresh_deal_count,
+          MAX(d.last_seen_at) as last_seen_at
         FROM deals d JOIN stores s ON d.store_id = s.id
         WHERE d.is_active = true
         GROUP BY s.id, s.name, s.slug, s.color
@@ -205,6 +224,7 @@ router.get('/stats', async (req, res) => {
 
     res.json({
       ...main.rows[0],
+      stores_with_fresh_deals: stores.rows.filter(s => parseInt(s.fresh_deal_count || 0) > 0).length,
       top_stores: stores.rows,
       top_categories: cats.rows,
     });

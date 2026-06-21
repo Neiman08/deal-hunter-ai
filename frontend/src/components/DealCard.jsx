@@ -22,10 +22,12 @@ function ScoreRing({ score }) {
 function getDealFreshness(lastSeenAt) {
   if (!lastSeenAt) return null;
   const ms = Date.now() - new Date(lastSeenAt).getTime();
-  const h = ms / 3600000;
-  if (h <= 24) return { label: `Verified ${Math.round(ms / 60000)}m ago`, color: '#00ff88', bg: 'rgba(0,255,136,0.12)' };
-  if (h <= 48) return { label: `Verified ${Math.round(h)}h ago`, color: '#00d4ff', bg: 'rgba(0,212,255,0.12)' };
-  return { label: 'Stale — needs verification', color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' };
+  const h  = ms / 3600000;
+  const d  = h / 24;
+  if (h <= 24) return { label: 'Verified Today',                    tier: 'fresh',    color: '#00ff88', bg: 'rgba(0,255,136,0.12)' };
+  if (d <= 7)  return { label: 'Seen This Week',                    tier: 'recent',   color: '#00d4ff', bg: 'rgba(0,212,255,0.12)' };
+  if (d <= 30) return { label: 'Needs Recheck',                     tier: 'aging',    color: '#fbbf24', bg: 'rgba(251,191,36,0.12)' };
+  return         { label: 'Historical – Verify Before Buying',       tier: 'historical', color: '#ef4444', bg: 'rgba(239,68,68,0.10)' };
 }
 
 export default function DealCard({ deal }) {

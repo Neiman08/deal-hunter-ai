@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Flame, DollarSign, RefreshCw,
-  AlertTriangle, ArrowRight, Star, Brain, TrendingUp
+  AlertTriangle, ArrowRight, Star, Brain, TrendingUp, Clock, CheckCircle, AlertCircle
 } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LineChart, Line, CartesianGrid } from 'recharts';
 import api from '../utils/api';
@@ -13,16 +13,21 @@ import FilterBar from '../components/FilterBar';
 function parseStats(raw) {
   return {
     ...raw,
-    total_deals:           parseInt(raw.total_deals)           || 0,
-    new_today:             parseInt(raw.new_today)             || 0,
-    new_this_hour:         parseInt(raw.new_this_hour)         || 0,
-    error_prices:          parseInt(raw.error_prices)          || 0,
-    excellent_deals:       parseInt(raw.excellent_deals)       || 0,
-    good_deals:            parseInt(raw.good_deals)            || 0,
+    total_deals:            parseInt(raw.total_deals)            || 0,
+    new_today:              parseInt(raw.new_today)              || 0,
+    new_this_hour:          parseInt(raw.new_this_hour)          || 0,
+    error_prices:           parseInt(raw.error_prices)           || 0,
+    excellent_deals:        parseInt(raw.excellent_deals)        || 0,
+    good_deals:             parseInt(raw.good_deals)             || 0,
     total_potential_profit: parseFloat(raw.total_potential_profit) || 0,
-    avg_discount:          parseFloat(raw.avg_discount)        || 0,
-    avg_score:             parseFloat(raw.avg_score)           || 0,
-    avg_roi:               parseFloat(raw.avg_roi)             || 0,
+    avg_discount:           parseFloat(raw.avg_discount)         || 0,
+    avg_score:              parseFloat(raw.avg_score)            || 0,
+    avg_roi:                parseFloat(raw.avg_roi)              || 0,
+    fresh_24h:              parseInt(raw.fresh_24h)              || 0,
+    recent_7d:              parseInt(raw.recent_7d)              || 0,
+    aging_30d:              parseInt(raw.aging_30d)              || 0,
+    historical_45d:         parseInt(raw.historical_45d)         || 0,
+    stores_with_fresh_deals: parseInt(raw.stores_with_fresh_deals) || 0,
   };
 }
 
@@ -36,7 +41,7 @@ const SCORE_BANDS = (stats) => [
 export default function Dashboard() {
   const [stats, setStats] = useState(null);
   const [deals, setDeals] = useState([]);
-  const [filters, setFilters] = useState({ store: '', min_discount: '20', sort: 'score' });
+  const [filters, setFilters] = useState({ store: '', min_discount: '20', sort: 'freshness' });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
@@ -137,6 +142,28 @@ export default function Dashboard() {
         <StatCard icon={<AlertTriangle size={18} />}  title="Error Prices"     value={stats.error_prices} sub="Pricing mistakes"                              color="red"    />
         <StatCard icon={<DollarSign size={18} />}     title="Potential Profit" value={`$${(stats.total_potential_profit / 1000).toFixed(1)}k`} sub="Combined" color="blue"   />
         <StatCard icon={<Star size={18} />}           title="High-Score Deals" value={stats.good_deals}   sub="Score 71+"                                     color="yellow" />
+      </div>
+
+      {/* Freshness Breakdown */}
+      <div className="grid grid-cols-4 gap-2">
+        {[
+          { label: 'Verified Today', count: stats.fresh_24h,      color: '#00ff88', icon: <CheckCircle size={12} />, title: 'Seen in last 24h' },
+          { label: 'This Week',      count: stats.recent_7d,      color: '#00d4ff', icon: <Clock size={12} />,       title: 'Seen 1–7 days ago' },
+          { label: 'Needs Recheck', count: stats.aging_30d,      color: '#fbbf24', icon: <AlertCircle size={12} />, title: 'Seen 7–30 days ago' },
+          { label: 'Historical',    count: stats.historical_45d, color: '#ef4444', icon: <AlertTriangle size={12} />, title: '30–45 days — verify before buying' },
+        ].map(f => (
+          <div key={f.label} title={f.title}
+            className="bg-dark-700 rounded-xl p-3 flex flex-col gap-1"
+            style={{ border: `1px solid rgba(255,255,255,0.06)`, borderLeft: `3px solid ${f.color}` }}>
+            <div className="flex items-center gap-1.5" style={{ color: f.color }}>
+              {f.icon}
+              <span className="text-xs font-medium">{f.label}</span>
+            </div>
+            <div className="text-lg font-black font-mono" style={{ color: f.count > 0 ? '#fff' : '#6b7280' }}>
+              {f.count > 0 ? f.count.toLocaleString() : <span className="text-base">—</span>}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Score Distribution */}

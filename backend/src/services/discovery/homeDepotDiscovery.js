@@ -192,7 +192,7 @@ async function discoverViaPlaywright(options) {
     // Wait for HD's React SPA to render product cards (hydration can take 10-15s)
     waitSelector:        'a[href*="/p/"]',
     waitSelectorTimeout: 20000,
-    waitUntil:           'load',
+    waitUntil:           'domcontentloaded',
     maxPerPage:          options.maxPerPage || 30,
     maxTotal:            options.maxTotal   || 150,
     delayMs:             options.delayMs    || 2000,

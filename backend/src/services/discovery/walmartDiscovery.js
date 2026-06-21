@@ -36,31 +36,50 @@ function cleanUrl(href) {
   return base.split('?')[0].split('#')[0];
 }
 
-// Extract product URLs from Walmart's embedded page JSON (__NEXT_DATA__)
+// Extract product URLs from Walmart's embedded page JSON and inline scripts
 async function extractJsonUrls(page) {
   return page.evaluate(() => {
     const urls = [];
+
+    // Method A: __NEXT_DATA__ structured walk
     try {
       const el = document.getElementById('__NEXT_DATA__');
-      if (!el) return urls;
-      const data = JSON.parse(el.textContent || '{}');
-
-      const walk = (obj, depth) => {
-        if (depth > 12 || !obj || typeof obj !== 'object') return;
-        if (Array.isArray(obj)) { obj.forEach(v => walk(v, depth + 1)); return; }
-        // Walmart product objects have usItemId + (productUrl or canonicalUrl)
-        if (obj.usItemId) {
-          const itemId = String(obj.usItemId);
-          if (itemId && /^\d+$/.test(itemId)) {
-            const slug = (obj.name || obj.displayName || 'product')
+      if (el) {
+        const data = JSON.parse(el.textContent || '{}');
+        const walk = (obj, depth) => {
+          if (depth > 12 || !obj || typeof obj !== 'object') return;
+          if (Array.isArray(obj)) { obj.forEach(v => walk(v, depth + 1)); return; }
+          const id = obj.usItemId || obj.itemId;
+          if (id && /^\d{6,}$/.test(String(id))) {
+            const slug = (obj.name || obj.productName || obj.displayName || 'product')
               .toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 60).replace(/-+$/, '');
-            urls.push(`/ip/${slug}/${itemId}`);
+            urls.push(`/ip/${slug}/${id}`);
           }
-        }
-        Object.values(obj).forEach(v => walk(v, depth + 1));
-      };
-      walk(data, 0);
-    } catch { /* ignore parse errors */ }
+          if (typeof obj.canonicalUrl === 'string' && obj.canonicalUrl.includes('/ip/')) {
+            urls.push(obj.canonicalUrl.startsWith('/') ? obj.canonicalUrl : `/${obj.canonicalUrl}`);
+          }
+          Object.values(obj).forEach(v => walk(v, depth + 1));
+        };
+        walk(data, 0);
+      }
+    } catch { /* ignore */ }
+
+    // Method B: scan ALL inline scripts for "usItemId":"123456" pattern
+    // Works even when JSON structure changes — finds IDs anywhere on the page
+    try {
+      if (urls.length === 0) {
+        document.querySelectorAll('script:not([src])').forEach(s => {
+          const text = s.textContent || '';
+          if (!text.includes('usItemId')) return;
+          const re = /"usItemId"\s*:\s*"(\d{6,})"/g;
+          let m;
+          while ((m = re.exec(text)) !== null) {
+            urls.push(`/ip/product/${m[1]}`);
+          }
+        });
+      }
+    } catch { /* ignore */ }
+
     return [...new Set(urls)];
   }).catch(() => []);
 }
@@ -84,7 +103,9 @@ async function collectUrls(maxTotal) {
       ctx  = await newIspContext();
       page = await ctx.newPage();
 
-      const nav = await safeGoto(page, p.url, { waitUntil: 'load', timeout: 45000 });
+      // Use domcontentloaded — 'load' never fires on Walmart SPAs (ongoing API calls).
+      // Then waitForSelector waits up to 20s for React to hydrate product links.
+      const nav = await safeGoto(page, p.url, { waitUntil: 'domcontentloaded', timeout: 40000 });
       if (!nav.ok) {
         logger.warn(`[Discovery:${STORE_LABEL}]   ${nav.blockType || 'nav_error'} — skipping`);
         consecutiveEmpty++;
@@ -95,7 +116,7 @@ async function collectUrls(maxTotal) {
       await page.waitForSelector('a[href*="/ip/"]', { timeout: 20000 }).catch(() => {});
       await scrollPage(page);
 
-      // Method 1: DOM link extraction
+      // Method 1: DOM link extraction — accept both relative (/ip/...) and absolute URLs
       const domLinks = await page.evaluate(() => {
         const found = new Set();
         document.querySelectorAll('a[href]').forEach(a => {
@@ -105,7 +126,12 @@ async function collectUrls(maxTotal) {
         return [...found];
       }).catch(() => []);
 
-      const domFiltered = domLinks.filter(linkFilter).map(cleanUrl).filter(Boolean);
+      const domFiltered = domLinks
+        .filter(href => href && (
+          href.match(/walmart\.com\/ip\/[^/?#]+\/\d+/) ||
+          href.match(/^\/ip\/[^/?#]+\/\d+/)
+        ))
+        .map(cleanUrl).filter(Boolean);
 
       // Method 2: JSON extraction fallback (works even when DOM extraction fails)
       let jsonFiltered = [];

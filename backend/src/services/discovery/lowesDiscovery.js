@@ -152,7 +152,7 @@ async function runLowesPlaywrightFallback(options = {}) {
     // Wait for Lowe's React SPA to render product cards after hydration
     waitSelector:        'a[href*="/pd/"]',
     waitSelectorTimeout: 20000,
-    waitUntil:           'load',
+    waitUntil:           'domcontentloaded',
     maxPerPage:          options.maxPerPage || 30,
     maxTotal:            options.maxTotal   || 150,
     delayMs:             options.delayMs    || 2500,

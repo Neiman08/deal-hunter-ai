@@ -18,35 +18,130 @@ const { buildIspHttpProxyAgent } = require('../../utils/proxyUtils');
 const { scanSingleProduct } = require('../../jobs/scanJob');
 const logger = require('../../utils/logger');
 
-// ISP proxy HTTP probe — checks reachability and returns exit IP.
-// Result written to last_error for DB inspection.
-async function probeIspProxy() {
-  const agent = buildIspHttpProxyAgent('Walmart-probe');
-  const host  = process.env.ISP_PROXY_HOST || '(not set)';
-  const port  = process.env.ISP_PROXY_PORT || '33335';
-  const user  = process.env.ISP_PROXY_USER ? '***set***' : '(not set)';
-  if (!agent) return { ok: false, error: 'no_agent', host, port, user };
+// ─── Comprehensive ISP proxy diagnostic ──────────────────────────────────────
+// Tests HTTP connectivity and Playwright navigation through the ISP proxy
+// against 6 target URLs. Results stored in last_error for DB inspection.
+// Classifies failure as:
+//   Case A — proxy can't reach even ipify/google (credential/port issue)
+//   Case B — proxy reaches simple sites but target domains block exit IPs
+//   Case C — pages load; issue is selector/SPA extraction
 
+const DIAG_URLS = [
+  { label: 'ipify',     url: 'https://api.ipify.org?format=json' },
+  { label: 'google',    url: 'https://www.google.com' },
+  { label: 'bestbuy',   url: 'https://www.bestbuy.com' },
+  { label: 'lowes',     url: 'https://www.lowes.com' },
+  { label: 'homedepot', url: 'https://www.homedepot.com' },
+  { label: 'walmart',   url: 'https://www.walmart.com' },
+];
+
+async function httpProbe(agent, { label, url }) {
+  const start = Date.now();
   return new Promise((resolve) => {
-    const req = https.get('https://api.ipify.org?format=json',
-      { agent, timeout: 15000, rejectUnauthorized: false },
-      (res) => {
-        let data = '';
-        res.on('data', c => data += c);
-        res.on('end', () => {
-          try {
-            const ip = JSON.parse(data).ip || data.slice(0, 80);
-            resolve({ ok: true, status: res.statusCode, exitIp: ip, host, port, user });
-          } catch {
-            resolve({ ok: true, status: res.statusCode, body: data.slice(0, 80), host, port, user });
-          }
+    const reqOpts = {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
+      timeout: 20000,
+      rejectUnauthorized: false,
+    };
+    if (agent) reqOpts.agent = agent;
+    const req = https.get(url, reqOpts, (res) => {
+      let data = '';
+      res.on('data', c => { data += c; if (data.length > 3000) res.destroy(); });
+      res.on('close', () => {
+        const elapsed = Date.now() - start;
+        let exitIp = null;
+        if (label === 'ipify') { try { exitIp = JSON.parse(data).ip; } catch {} }
+        const preview = data.slice(0, 300).replace(/\s+/g, ' ');
+        resolve({
+          label, ok: true, status: res.statusCode, elapsed,
+          htmlLen: data.length, exitIp, preview,
+          akamai:  /akamai|edgesuite|reference #[0-9a-f.]+/i.test(preview),
+          captcha: /captcha|verify.*human|robot/i.test(preview),
+          denied:  /access denied|403 forbidden/i.test(preview),
         });
-        res.on('error', e => resolve({ ok: false, error: e.message, host, port, user }));
-      }
-    );
-    req.on('error', e => resolve({ ok: false, error: e.message, host, port, user }));
-    req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'probe_timeout_15s', host, port, user }); });
+      });
+      res.on('error', e => resolve({ label, ok: false, error: e.message, elapsed: Date.now() - start }));
+    });
+    req.on('error', e => resolve({ label, ok: false, error: e.message, elapsed: Date.now() - start }));
+    req.on('timeout', () => { req.destroy(); resolve({ label, ok: false, error: 'timeout_20s', elapsed: 20000 }); });
   });
+}
+
+async function playwrightProbe(url, label) {
+  const { safeGoto: sg } = require('./baseRetailerDiscovery');
+  let ctx, page;
+  const start = Date.now();
+  try {
+    ctx  = await newIspContext();
+    page = await ctx.newPage();
+    const nav = await sg(page, url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+    return {
+      label, ok: nav.ok, elapsed: Date.now() - start,
+      status:   nav.blockType || 'ok',
+      htmlLen:  nav.htmlLen  || 0,
+      title:    nav.title    || '',
+      preview:  (nav.bodyText || '').slice(0, 200).replace(/\s+/g, ' '),
+      captcha:  /captcha|verify.*human/i.test((nav.bodyText || '') + (nav.title || '')),
+      akamai:   /akamai|edgesuite/i.test(nav.bodyText || ''),
+      error:    nav.error    || null,
+    };
+  } catch (err) {
+    return { label, ok: false, error: err.message, elapsed: Date.now() - start };
+  } finally {
+    if (page) await page.close().catch(() => {});
+    if (ctx)  await ctx.close().catch(() => {});
+  }
+}
+
+async function runFullDiagnostic() {
+  const agent   = buildIspHttpProxyAgent('Walmart-diag');
+  const proxyMeta = {
+    host: process.env.ISP_PROXY_HOST || '(not set)',
+    port: process.env.ISP_PROXY_PORT || '33335(default)',
+    user: process.env.ISP_PROXY_USER ? '***set***' : '(not set)',
+    agentBuilt: !!agent,
+  };
+
+  logger.info(`[Diag:Walmart] === FULL PROXY DIAGNOSTIC === proxy=${JSON.stringify(proxyMeta)}`);
+
+  // Phase 1: HTTP probe all 6 URLs (Node.js https module + HttpsProxyAgent)
+  const httpResults = [];
+  for (const entry of DIAG_URLS) {
+    const r = await httpProbe(agent, entry);
+    httpResults.push(r);
+    logger.info(`[Diag:HTTP] ${r.label}: ok=${r.ok} status=${r.status||'N/A'} htmlLen=${r.htmlLen||0} elapsed=${r.elapsed}ms exitIp=${r.exitIp||'N/A'} err=${r.error||'none'} akamai=${r.akamai||false}`);
+  }
+
+  // Phase 2: Playwright probe — google (simple site) and lowes (Akamai site)
+  const pwGoogle = await playwrightProbe('https://www.google.com', 'pw:google');
+  logger.info(`[Diag:PW] google: ok=${pwGoogle.ok} htmlLen=${pwGoogle.htmlLen} elapsed=${pwGoogle.elapsed}ms status=${pwGoogle.status} err=${pwGoogle.error||'none'}`);
+
+  const pwLowes  = await playwrightProbe('https://www.lowes.com', 'pw:lowes');
+  logger.info(`[Diag:PW] lowes:  ok=${pwLowes.ok} htmlLen=${pwLowes.htmlLen} elapsed=${pwLowes.elapsed}ms status=${pwLowes.status} err=${pwLowes.error||'none'}`);
+
+  // Classify
+  const ipifyOk  = httpResults.find(r => r.label === 'ipify')?.ok && httpResults.find(r => r.label === 'ipify')?.status < 400;
+  const googleOk = httpResults.find(r => r.label === 'google')?.ok && httpResults.find(r => r.label === 'google')?.status < 400;
+  const exitIp   = httpResults.find(r => r.label === 'ipify')?.exitIp || null;
+
+  let caseClassification;
+  if (!ipifyOk && !googleOk) {
+    caseClassification = 'A:proxy_not_working_even_for_simple_sites';
+  } else if (ipifyOk && pwLowes && !pwLowes.ok) {
+    caseClassification = 'B:proxy_works_http_but_akamai_sites_block_browser';
+  } else if (ipifyOk && pwLowes && pwLowes.ok) {
+    caseClassification = 'C:pages_load_check_selectors';
+  } else {
+    caseClassification = 'unknown';
+  }
+
+  logger.info(`[Diag:Walmart] CASE=${caseClassification} exitIp=${exitIp}`);
+
+  return { proxyMeta, httpResults, playwright: { google: pwGoogle, lowes: pwLowes }, exitIp, case: caseClassification };
 }
 
 const STORE_SLUG  = 'walmart';
@@ -245,9 +340,8 @@ async function runWalmartDiscovery(options = {}) {
   logger.info(`🏪 ${STORE_LABEL.toUpperCase()} DISCOVERY`);
   logger.info('═'.repeat(60));
 
-  // Probe ISP proxy connectivity before attempting Playwright navigation
-  const probeResult = await probeIspProxy();
-  logger.info(`[Diag:${STORE_LABEL}] ISP proxy probe: ${JSON.stringify(probeResult)}`);
+  // Full proxy diagnostic before Playwright navigation
+  const probeResult = await runFullDiagnostic();
 
   // Phase 1: collect product URLs
   let allRaw, collectDiag;
@@ -263,7 +357,7 @@ async function runWalmartDiscovery(options = {}) {
 
   stats.pages_visited   = DISCOVERY_PAGES.length;
   stats.urls_discovered = allRaw.length;
-  stats.last_error      = JSON.stringify({ probe: probeResult, pages: collectDiag }).slice(0, 8000);
+  stats.last_error      = JSON.stringify({ diag: probeResult, pages: collectDiag }).slice(0, 8000);
 
   if (!allRaw.length) {
     logger.warn(`[Discovery:${STORE_LABEL}] No URLs found across all pages`);

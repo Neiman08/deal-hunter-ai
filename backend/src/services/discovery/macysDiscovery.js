@@ -315,7 +315,7 @@ async function runMacysDiscovery(options = {}) {
     logger.error(`[Discovery:${STORE_LABEL}] Fatal: ${err.message}`);
     stats.blocked    = true;
     stats.blockType  = 'fatal_error';
-    stats.last_error = err.message.slice(0, 500);
+    stats.last_error = (err?.message || String(err) || 'unknown_error').slice(0, 500);
   } finally {
     if (session?.browser) {
       await session.browser.close().catch(() => {});

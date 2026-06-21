@@ -849,23 +849,36 @@ async function logStartup() {
     }
   }
 
-  // Write proxy diag to DB so it's queryable without Render log access
-  if (proxyDiagResults.length > 0) {
-    try {
-      const { writeStoreRun } = require('./src/utils/storeRunStats');
-      await writeStoreRun('proxy-diag', Date.now(), {
-        pages_visited: proxyDiagResults.length,
-        urls_discovered: proxyDiagResults.filter(r => r.ok).length,
-        blocked: proxyDiagResults.every(r => !r.ok),
-        blockType: proxyDiagResults.every(r => !r.ok) ? 'all_ports_failed' : null,
-        last_error: JSON.stringify({
-          isp_host: process.env.ISP_PROXY_HOST || '(not set)',
-          isp_port_configured: process.env.ISP_PROXY_PORT || '(not set)',
-          isp_user_masked: ispUser ? ispUser.slice(0, 40) + '...' : '(not set)',
-          results: proxyDiagResults,
-        }).slice(0, 8000),
-      });
-    } catch (e) { /* non-critical */ }
+  // Write proxy diag to DB ALWAYS — even with no results, so we can see what
+  // env vars are configured on the worker (queryable without Render log access).
+  try {
+    const { writeStoreRun } = require('./src/utils/storeRunStats');
+    const diagPayload = {
+      env: {
+        PROXY_ENABLED:    process.env.PROXY_ENABLED    || '(not set)',
+        PROXY_HOST:       process.env.PROXY_HOST        ? 'set' : '(not set)',
+        PROXY_PORT:       process.env.PROXY_PORT        || '(not set)',
+        PROXY_USER:       pUser                         ? pUser.slice(0, 40) : '(not set)',
+        PROXY_PASS:       process.env.PROXY_PASS        ? 'set' : '(not set)',
+        ISP_PROXY_ENABLED:process.env.ISP_PROXY_ENABLED || '(not set)',
+        ISP_PROXY_HOST:   process.env.ISP_PROXY_HOST   ? 'set' : '(not set)',
+        ISP_PROXY_PORT:   process.env.ISP_PROXY_PORT   || '(not set)',
+        ISP_PROXY_USER:   ispUser                       ? ispUser.slice(0, 40) : '(not set)',
+        ISP_PROXY_PASS:   process.env.ISP_PROXY_PASS   ? 'set' : '(not set)',
+      },
+      results: proxyDiagResults,
+      working_ports: proxyDiagResults.filter(r => r.ok).map(r => `${r.type}:${r.port}`),
+    };
+    await writeStoreRun('proxy-diag', Date.now(), {
+      pages_visited:    proxyDiagResults.length,
+      urls_discovered:  proxyDiagResults.filter(r => r.ok).length,
+      blocked:          proxyDiagResults.length === 0 || proxyDiagResults.every(r => !r.ok),
+      blockType:        proxyDiagResults.length === 0 ? 'no_proxy_vars_configured'
+                      : proxyDiagResults.every(r => !r.ok) ? 'all_ports_failed' : null,
+      last_error:       JSON.stringify(diagPayload).slice(0, 8000),
+    });
+  } catch (e) {
+    console.error('[ProxyDiag] writeStoreRun failed:', e.message);
   }
 
   console.log('╠' + '═'.repeat(58) + '╣');

@@ -749,18 +749,123 @@ async function logStartup() {
     }
   }
 
-  // ISP proxy test
+  // ── ISP proxy: multi-port detection ──────────────────────────────────────────
+  // Tests ISP credentials against all candidate ports. If the configured port
+  // fails (407) but another port works, overrides ISP_PROXY_PORT in memory so
+  // all Playwright ISP browser launches use the correct port this session.
+  const proxyDiagResults = [];
   if (ispUser && process.env.ISP_PROXY_PASS) {
-    try {
-      const HttpsProxyAgent = require('https-proxy-agent');
-      const Ctor = typeof HttpsProxyAgent === 'function' ? HttpsProxyAgent : HttpsProxyAgent.HttpsProxyAgent;
-      const url = `http://${ispUser}:${process.env.ISP_PROXY_PASS}@${process.env.ISP_PROXY_HOST}:${process.env.ISP_PROXY_PORT}`;
-      const agent = new Ctor(url, { rejectUnauthorized: false });
-      const r = await testIp(`ISP ${process.env.ISP_PROXY_PORT}`, { agent });
-      console.log(`║  ${r.padEnd(55)}║`);
-    } catch (e) {
-      console.log(`║  ISP_PROXY: AGENT_INIT_FAIL ${e.message.slice(0, 27).padEnd(27)}║`);
+    const ispHost = process.env.ISP_PROXY_HOST || process.env.PROXY_HOST || '';
+    const ispPass = process.env.ISP_PROXY_PASS;
+    const configuredPort = parseInt(process.env.ISP_PROXY_PORT) || 0;
+    // Always test: configured port, ISP port (33335), residential port (22225)
+    const candidatePorts = [...new Set([configuredPort, 33335, 22225].filter(Boolean))];
+
+    console.log('╠' + '═'.repeat(58) + '╣');
+    console.log('║  ── ISP PROXY MULTI-PORT DETECTION ──────────────────────║');
+
+    const HPA = require('https-proxy-agent');
+    const HACtor = typeof HPA === 'function' ? HPA : HPA.HttpsProxyAgent;
+
+    let workingIspPort = null;
+    for (const port of candidatePorts) {
+      const t0 = Date.now();
+      const tag = `ISP:${port}${port === configuredPort ? '(cfg)' : ''}`.padEnd(16);
+      try {
+        const agent = new HACtor(`http://${ispUser}:${ispPass}@${ispHost}:${port}`, { rejectUnauthorized: false });
+        const res = await new Promise(resolve => {
+          const req = https.get('https://api.ipify.org?format=json',
+            { agent, timeout: 12000, rejectUnauthorized: false }, (r) => {
+              const chunks = [];
+              r.on('data', c => chunks.push(c));
+              r.on('end', () => {
+                const body = Buffer.concat(chunks).toString();
+                let ip = null;
+                try { ip = JSON.parse(body).ip; } catch {}
+                resolve({ ok: r.statusCode === 200, status: r.statusCode, ip, elapsed: Date.now() - t0 });
+              });
+              r.on('error', e => resolve({ ok: false, error: e.message, status: null, elapsed: Date.now() - t0 }));
+            });
+          req.on('error', e => resolve({ ok: false, error: e.message, status: null, elapsed: Date.now() - t0 }));
+          req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'timeout_12s', status: null, elapsed: 12000 }); });
+        });
+        const msg = res.ok
+          ? `✅ ip=${res.ip} (${res.elapsed}ms)`
+          : `❌ HTTP ${res.status || res.error} (${res.elapsed}ms)`;
+        console.log(`║  ${tag} ${msg}`.padEnd(59) + '║');
+        proxyDiagResults.push({ type: 'isp', port, ...res });
+        if (res.ok && !workingIspPort) workingIspPort = port;
+      } catch (e) {
+        console.log(`║  ${tag} ❌ INIT_FAIL ${e.message.slice(0, 30)}`.padEnd(59) + '║');
+        proxyDiagResults.push({ type: 'isp', port, ok: false, error: e.message });
+      }
     }
+
+    if (workingIspPort && workingIspPort !== configuredPort) {
+      process.env.ISP_PROXY_PORT = String(workingIspPort);
+      console.log(`║  ⚡ ISP_PROXY_PORT ${configuredPort} → ${workingIspPort} (runtime override)`.padEnd(59) + '║');
+      console.log(`║  ⚠️  ACTION: set ISP_PROXY_PORT=${workingIspPort} in Render env vars`.padEnd(59) + '║');
+    } else if (!workingIspPort) {
+      console.log(`║  ❌ ISP proxy FAILED on all tested ports (${candidatePorts.join(',')})`.padEnd(59) + '║');
+    } else {
+      console.log(`║  ✅ ISP proxy OK on configured port ${workingIspPort}`.padEnd(59) + '║');
+    }
+  }
+
+  // ── Residential PROXY credentials test (even when PROXY_ENABLED=false) ────────
+  if (pUser && process.env.PROXY_PASS) {
+    const resHost = process.env.PROXY_HOST || '';
+    const resPass = process.env.PROXY_PASS;
+    const resPort = parseInt(process.env.PROXY_PORT) || 22225;
+    const t0 = Date.now();
+    try {
+      const HPA = require('https-proxy-agent');
+      const HACtor = typeof HPA === 'function' ? HPA : HPA.HttpsProxyAgent;
+      const agent = new HACtor(`http://${pUser}:${resPass}@${resHost}:${resPort}`, { rejectUnauthorized: false });
+      const res = await new Promise(resolve => {
+        const req = https.get('https://api.ipify.org?format=json',
+          { agent, timeout: 12000, rejectUnauthorized: false }, (r) => {
+            const chunks = [];
+            r.on('data', c => chunks.push(c));
+            r.on('end', () => {
+              const body = Buffer.concat(chunks).toString();
+              let ip = null;
+              try { ip = JSON.parse(body).ip; } catch {}
+              resolve({ ok: r.statusCode === 200, status: r.statusCode, ip, elapsed: Date.now() - t0 });
+            });
+            r.on('error', e => resolve({ ok: false, error: e.message, status: null, elapsed: Date.now() - t0 }));
+          });
+        req.on('error', e => resolve({ ok: false, error: e.message, status: null, elapsed: Date.now() - t0 }));
+        req.on('timeout', () => { req.destroy(); resolve({ ok: false, error: 'timeout_12s', status: null, elapsed: 12000 }); });
+      });
+      const msg = res.ok
+        ? `✅ ip=${res.ip} (${res.elapsed}ms)`
+        : `❌ HTTP ${res.status || res.error} (${res.elapsed}ms)`;
+      console.log(`║  RES:${resPort}(cfg)       ${msg}`.padEnd(59) + '║');
+      proxyDiagResults.push({ type: 'residential', port: resPort, ...res });
+    } catch (e) {
+      console.log(`║  RES:${resPort}: ❌ INIT_FAIL ${e.message.slice(0, 30)}`.padEnd(59) + '║');
+      proxyDiagResults.push({ type: 'residential', port: resPort, ok: false, error: e.message });
+    }
+  }
+
+  // Write proxy diag to DB so it's queryable without Render log access
+  if (proxyDiagResults.length > 0) {
+    try {
+      const { writeStoreRun } = require('./src/utils/storeRunStats');
+      await writeStoreRun('proxy-diag', Date.now(), {
+        pages_visited: proxyDiagResults.length,
+        urls_discovered: proxyDiagResults.filter(r => r.ok).length,
+        blocked: proxyDiagResults.every(r => !r.ok),
+        blockType: proxyDiagResults.every(r => !r.ok) ? 'all_ports_failed' : null,
+        last_error: JSON.stringify({
+          isp_host: process.env.ISP_PROXY_HOST || '(not set)',
+          isp_port_configured: process.env.ISP_PROXY_PORT || '(not set)',
+          isp_user_masked: ispUser ? ispUser.slice(0, 40) + '...' : '(not set)',
+          results: proxyDiagResults,
+        }).slice(0, 8000),
+      });
+    } catch (e) { /* non-critical */ }
   }
 
   console.log('╠' + '═'.repeat(58) + '╣');

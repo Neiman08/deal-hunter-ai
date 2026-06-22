@@ -13,6 +13,7 @@
  */
 
 const { saveDiscoveryCard, sleep } = require('./baseRetailerDiscovery');
+const { newMacysContext } = require('../browserEngine');
 const { shouldSkipStore } = require('../proxyManager');
 const { writeStoreRun } = require('../../utils/storeRunStats');
 const logger = require('../../utils/logger');
@@ -81,44 +82,41 @@ function parsePricing(pricing) {
 }
 
 // ─── Session management ───────────────────────────────────────────────────────
-// One session per discovery run — closed at end of runMacysDiscovery.
+// Uses newMacysContext from browserEngine — real Chrome + minimal args for Akamai bypass.
 async function createSession() {
-  logger.info(`[Discovery:${STORE_LABEL}] Launching browser on homepage...`);
+  logger.info(`[Discovery:${STORE_LABEL}] Launching browser on homepage (via newMacysContext)...`);
 
-  const { chromium } = require('playwright-core');
-
-  const browser = await chromium.launch({
-    headless: true,
-    executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH || undefined,
-    args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-dev-shm-usage',
-    ],
-  });
-  const ctx = await browser.newContext({
-    ignoreHTTPSErrors: true,
-    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    viewport:   { width: 1440, height: 900 },
-    locale:     'en-US',
-    timezoneId: 'America/New_York',
-    extraHTTPHeaders: {
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Accept-Encoding': 'gzip, deflate, br',
-    },
-  });
+  const ctx  = await newMacysContext();
   const page = await ctx.newPage();
 
-  await page.goto(BASE_URL + '/', { waitUntil: 'domcontentloaded', timeout: 45000 });
-  const title = await page.title().catch(() => '');
-  if (/access denied/i.test(title)) {
-    await browser.close().catch(() => {});
-    throw new Error(`Homepage Akamai block: "${title}"`);
+  // Try to load the homepage. If blocked, try a sale landing page directly.
+  let title = '';
+  try {
+    await page.goto(BASE_URL + '/', { waitUntil: 'domcontentloaded', timeout: 45000 });
+    title = await page.title().catch(() => '');
+  } catch (err) {
+    title = await page.title().catch(() => '');
+    logger.warn(`[Discovery:${STORE_LABEL}] Homepage nav error: ${err.message.slice(0, 80)}`);
+  }
+
+  if (/access denied|sorry|blocked/i.test(title)) {
+    logger.warn(`[Discovery:${STORE_LABEL}] Homepage blocked ("${title}") — retrying via sale page...`);
+    try {
+      await page.goto(BASE_URL + '/shop/sale?id=3536', { waitUntil: 'domcontentloaded', timeout: 45000 });
+      title = await page.title().catch(() => '');
+      logger.info(`[Discovery:${STORE_LABEL}] Sale page title: "${title}"`);
+    } catch (err2) {
+      await ctx.close().catch(() => {});
+      throw new Error(`Both homepage and sale page blocked: ${err2.message.slice(0, 80)}`);
+    }
+    if (/access denied|sorry|blocked/i.test(title)) {
+      await ctx.close().catch(() => {});
+      throw new Error(`Akamai block on both homepage and sale page: "${title}"`);
+    }
   }
 
   logger.info(`[Discovery:${STORE_LABEL}] Session ready: "${title}"`);
-  return { browser, page };
+  return { ctx, page };
 }
 
 // ─── Category guesser ─────────────────────────────────────────────────────────
@@ -382,8 +380,8 @@ async function runMacysDiscovery(options = {}) {
     });
     return stats;
   } finally {
-    if (session?.browser) {
-      await session.browser.close().catch(() => {});
+    if (session?.ctx) {
+      await session.ctx.close().catch(() => {});
     }
   }
 

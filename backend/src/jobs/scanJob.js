@@ -56,6 +56,9 @@ const STORE_SCRAPERS = {
 const ALL_STORES = 'walmart,best-buy,home-depot,target,lowes,macys,tj-maxx,marshalls,kohls,costco,gamestop,office-depot,staples,nordstrom-rack';
 const ACTIVE_STORES = (process.env.ACTIVE_STORES || ALL_STORES).split(',').map(s => s.trim());
 
+// Emergency kill-switch: skip all proxy-dependent scans when BrightData is suspended/off-budget
+const PROXY_KILL_SWITCH = process.env.PROXY_KILL_SWITCH === 'true';
+
 let isRunning = false;
 
 // ─── Category inference by store + product name ───────────────────────────────
@@ -113,6 +116,14 @@ async function runScan(storeSlug = null) {
   logger.info('\n' + '█'.repeat(60));
   logger.info(`[ScanJob] STARTING | stores: ${stores.join(', ')}`);
   logger.info('█'.repeat(60));
+
+  // PROXY_KILL_SWITCH: all scrapers use BrightData (residential or ISP).
+  // When the kill-switch is active, abort before browser launch or any proxy call.
+  if (PROXY_KILL_SWITCH) {
+    stores.forEach(s => logger.warn(`[ScanJob] PROXY_KILL_SWITCH active — skipping scan job for ${s}`));
+    isRunning = false;
+    return { stores_run: 0, skipped_proxy_kill_switch: true };
+  }
 
   // Create a single scan_log row covering this run
   let logId = null;
@@ -285,6 +296,11 @@ async function runScan(storeSlug = null) {
 
 // ─── Single-product scan (for debug routes) ───────────────────────────────────
 async function scanSingleProduct(storeSlug, urlOrId) {
+  if (PROXY_KILL_SWITCH) {
+    logger.warn(`[ScanJob] PROXY_KILL_SWITCH active — skipping scan job for ${storeSlug}`);
+    return { skipped: true, reason: 'proxy_kill_switch' };
+  }
+
   const scrapers = {
     'walmart':        () => getWalmartScraper().scrapeWalmartProduct(urlOrId),
     'best-buy':       () => getBestBuyScraper().scrapeBestBuyProduct(urlOrId),

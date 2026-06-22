@@ -311,6 +311,7 @@ async function extractCardsFromSearchPage(keyword, maxCards = 20) {
       return [];
     }
 
+
     // Cerrar overlays
     await dismissOverlays(page);
 
@@ -716,7 +717,14 @@ async function extractCardsFromSearchPage(keyword, maxCards = 20) {
     logger.info(`[Discovery:BB]   Total: ${cards.length} cards para "${keyword}" (${cards.filter(c => c.currentPrice).length} con precio)`);
 
   } catch (err) {
-    logger.error(`[Discovery:BB]   Error en "${keyword}": ${err.message}`);
+    const msg = err.message || '';
+    // Proxy failure (ERR_HTTP_RESPONSE_CODE_FAILURE = 407/suspended, or net errors)
+    if (/ERR_HTTP_RESPONSE_CODE_FAILURE|407|net::ERR_EMPTY_RESPONSE|net::ERR_CONNECTION_RESET/i.test(msg)) {
+      logger.error(`[Discovery:BB]   Proxy failure on "${keyword}": ${msg.slice(0, 80)}`);
+      // Return sentinel to signal proxy error (not just empty results)
+      return null;
+    }
+    logger.error(`[Discovery:BB]   Error en "${keyword}": ${msg.slice(0, 120)}`);
   } finally {
     await page.close().catch(() => {});
     await ctx.close().catch(() => {});
@@ -912,12 +920,13 @@ async function runBestBuyDiscovery(options = {}) {
   logger.info('═'.repeat(60));
 
   const stats = {
-    searches_run:    0,
-    cards_found:     0,
-    cards_new:       0,
-    saved:           0,
-    no_price:        0,
-    errors:          0,
+    searches_run:       0,
+    cards_found:        0,
+    cards_new:          0,
+    saved:              0,
+    no_price:           0,
+    errors:             0,
+    proxy_requests_est: 0,
   };
 
   // Obtener storeId de Best Buy
@@ -930,6 +939,8 @@ async function runBestBuyDiscovery(options = {}) {
 
   // ── Fase 1: recolectar cards desde search pages ──────────────────────────
   const allCards = [];
+  let consecutiveProxyErrors = 0;
+  let proxyBailed = false;
 
   for (const { label, kw } of keywords) {
     if (allCards.length >= maxTotal * 2) break;
@@ -938,23 +949,53 @@ async function runBestBuyDiscovery(options = {}) {
 
     const cards = await extractCardsFromSearchPage(kw, maxPerSearch);
     stats.searches_run++;
+    stats.proxy_requests_est++;
+
+    // null = proxy failure (ERR_HTTP/407); [] = blocked or empty page
+    if (cards === null) {
+      consecutiveProxyErrors++;
+      logger.warn(`[Discovery:BB] Proxy error #${consecutiveProxyErrors} on "${label}"`);
+      if (consecutiveProxyErrors >= 2) {
+        logger.error('[Discovery:BB] 2 consecutive proxy failures — cutting cycle immediately (circuit breaker)');
+        proxyBailed = true;
+        break;
+      }
+      await sleep(2000);
+      continue;
+    }
+
+    consecutiveProxyErrors = 0; // reset on non-proxy result
     stats.cards_found += cards.length;
     allCards.push(...cards);
 
     await sleep(2500);
   }
 
+  if (proxyBailed) {
+    await writeStoreRun('best-buy', startedAt, {
+      pages_visited:      stats.searches_run,
+      urls_discovered:    stats.cards_found,
+      saved:              0,
+      errors:             stats.errors,
+      blocked:            true,
+      blockType:          'proxy_failure',
+      reason_for_stop:    'bb_proxy_or_0_cards_circuit_breaker',
+      proxy_requests_est: stats.proxy_requests_est,
+    });
+    return stats;
+  }
+
   if (!allCards.length) {
     logger.warn('[Discovery:BB] 0 cards encontrados. Revisar si searchpage.jsp sigue funcionando.');
     await writeStoreRun('best-buy', startedAt, {
-      pages_visited:     stats.searches_run,
-      urls_discovered:   0,
-      saved:             0,
-      errors:            stats.errors,
-      blocked:           true,
-      blockType:         'searchpage_0_cards',
-      reason_for_stop:   'searchpage.jsp returned 0 product cards',
-      proxy_requests_est: stats.searches_run * 2,
+      pages_visited:      stats.searches_run,
+      urls_discovered:    0,
+      saved:              0,
+      errors:             stats.errors,
+      blocked:            true,
+      blockType:          'searchpage_0_cards',
+      reason_for_stop:    'searchpage.jsp returned 0 product cards',
+      proxy_requests_est: stats.proxy_requests_est,
     });
     return stats;
   }
@@ -976,14 +1017,14 @@ async function runBestBuyDiscovery(options = {}) {
   if (!toProcess.length) {
     logger.info('[Discovery:BB] Todos los cards ya están en DB.');
     await writeStoreRun('best-buy', startedAt, {
-      pages_visited:     stats.searches_run,
-      urls_discovered:   stats.cards_found,
-      urls_new:          0,
-      saved:             0,
-      errors:            stats.errors,
-      blocked:           false,
-      reason_for_stop:   'all_cards_already_in_db',
-      proxy_requests_est: stats.searches_run * 2,
+      pages_visited:      stats.searches_run,
+      urls_discovered:    stats.cards_found,
+      urls_new:           0,
+      saved:              0,
+      errors:             stats.errors,
+      blocked:            false,
+      reason_for_stop:    'all_cards_already_in_db',
+      proxy_requests_est: stats.proxy_requests_est,
     });
     return stats;
   }
@@ -1009,12 +1050,14 @@ async function runBestBuyDiscovery(options = {}) {
   logger.info('═'.repeat(60) + '\n');
 
   await writeStoreRun('best-buy', startedAt, {
-    pages_visited: stats.searches_run,
-    urls_discovered: stats.cards_found,
-    urls_new: stats.cards_new,
-    saved: stats.saved,
-    errors: stats.errors,
-    blocked: false,
+    pages_visited:      stats.searches_run,
+    urls_discovered:    stats.cards_found,
+    urls_new:           stats.cards_new,
+    saved:              stats.saved,
+    errors:             stats.errors,
+    blocked:            false,
+    proxy_requests_est: stats.proxy_requests_est,
+    reason_for_stop:    stats.saved > 0 ? 'completed_normally' : 'no_savings',
   });
   return stats;
 }

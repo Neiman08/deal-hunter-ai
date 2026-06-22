@@ -256,6 +256,13 @@ async function runMacysDiscovery(options = {}) {
     blockType: null,
   };
 
+  if (process.env.PROXY_KILL_SWITCH === 'true') {
+    logger.warn(`[Discovery:${STORE_LABEL}] Skipping — PROXY_KILL_SWITCH=true`);
+    stats.blocked   = true;
+    stats.blockType = 'proxy_kill_switch';
+    return stats;
+  }
+
   if (shouldSkipStore(STORE_SLUG)) {
     logger.warn(`[Discovery:${STORE_LABEL}] Skipping — too many recent failures`);
     stats.blocked   = true;

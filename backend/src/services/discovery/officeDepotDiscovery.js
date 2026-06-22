@@ -131,7 +131,15 @@ async function runOfficeDepotDiscovery(options = {}) {
   const stats = {
     store: STORE_SLUG, pages_visited: 0, urls_discovered: 0,
     urls_new: 0, saved: 0, no_price: 0, errors: 0, blocked: false, blockType: null,
+    proxy_requests_est: 0,
   };
+
+  // Global proxy kill switch
+  if (process.env.PROXY_KILL_SWITCH === 'true') {
+    logger.warn(`[Discovery:${STORE_LABEL}] Skipping — PROXY_KILL_SWITCH=true`);
+    stats.blocked = true; stats.blockType = 'proxy_kill_switch';
+    return stats;
+  }
 
   if (shouldSkipStore(STORE_SLUG)) {
     logger.warn(`[Discovery:${STORE_LABEL}] Skipping — too many recent failures`);
@@ -249,6 +257,7 @@ async function runOfficeDepotDiscovery(options = {}) {
   async function scanOneOd(url, idx) {
     if (bail402) return;
     logger.info(`[Discovery:${STORE_LABEL}] [${idx + 1}/${toProcess.length}] ${url}`);
+    stats.proxy_requests_est++;
     try {
       const scraped = await scrapeOfficeDepotProduct(url);
 
@@ -319,10 +328,13 @@ async function runOfficeDepotDiscovery(options = {}) {
         stats.od_402_count = (stats.od_402_count || 0) + 1;
         logger.warn(`[Discovery:${STORE_LABEL}]   ⚠️  402 Payment Required (${consec402} consecutive) | ${url.slice(-60)}`);
         if (consec402 >= 10) {
-          logger.error(`[Discovery:${STORE_LABEL}]   ❌ 10 consecutive 402s — proxy billing issue on product pages. Cutting scan early.`);
-          stats.blockType = 'proxy_402_billing';
-          stats.blocked   = true;
+          logger.error(`[Discovery:${STORE_LABEL}]   ❌ 10 consecutive 402s — proxy billing issue. Cutting scan early (circuit breaker).`);
+          stats.blockType     = 'proxy_402_billing';
+          stats.blocked       = true;
+          stats.reason_for_stop = 'od_402_circuit_breaker';
           bail402 = true;
+          // Write immediately so the next cycle's checkStorePause sees blocked=true (6h auto-pause)
+          await writeStoreRun(STORE_SLUG, startedAt, stats).catch(() => {});
         }
         return;
       }

@@ -98,7 +98,7 @@ function httpRequest({ method = 'GET', hostname, path, headers = {}, body = null
 // ─── Session: fetch JWT from OD page HTML ────────────────────────────────────
 
 async function refreshSession() {
-  const agent = buildHttpProxyAgent('OfficeDept');
+  const agent = process.env.PROXY_KILL_SWITCH === 'true' ? null : buildHttpProxyAgent('OfficeDept');
   const res = await httpRequest({
     hostname: 'www.officedepot.com',
     path:     '/a/products/100512/',   // lightweight known-good page for JWT
@@ -153,7 +153,7 @@ async function scrapeOfficeDepotProduct(url) {
   const sku = skuMatch[1];
 
   const session = await getSession();
-  const agent   = buildHttpProxyAgent('OfficeDept');
+  const agent   = process.env.PROXY_KILL_SWITCH === 'true' ? null : buildHttpProxyAgent('OfficeDept');
   const payload = JSON.stringify({ query: buildGqlQuery(sku, session.visitorId), variables: null });
 
   const res = await httpRequest({

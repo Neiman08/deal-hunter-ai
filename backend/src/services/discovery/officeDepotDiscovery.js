@@ -28,8 +28,9 @@ const STORE_SLUG  = 'office-depot';
 const STORE_LABEL = 'Office Depot';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// Proxy auto-corrected by buildHttpProxyAgent (residential→22225, ISP→33335)
+// Returns null (no proxy) when PROXY_KILL_SWITCH=true — OD HTTP is accessible directly
 function makeProxyAgent() {
+  if (process.env.PROXY_KILL_SWITCH === 'true') return null;
   return buildHttpProxyAgent('OfficeDept');
 }
 
@@ -134,11 +135,9 @@ async function runOfficeDepotDiscovery(options = {}) {
     proxy_requests_est: 0,
   };
 
-  // Global proxy kill switch
+  // PROXY_KILL_SWITCH=true → run without proxy (OD HTTP API is accessible directly)
   if (process.env.PROXY_KILL_SWITCH === 'true') {
-    logger.warn(`[Discovery:${STORE_LABEL}] Skipping — PROXY_KILL_SWITCH=true`);
-    stats.blocked = true; stats.blockType = 'proxy_kill_switch';
-    return stats;
+    logger.info(`[Discovery:${STORE_LABEL}] PROXY_KILL_SWITCH=true — running without proxy (HTTP-safe)`);
   }
 
   if (shouldSkipStore(STORE_SLUG)) {
@@ -257,7 +256,7 @@ async function runOfficeDepotDiscovery(options = {}) {
   async function scanOneOd(url, idx) {
     if (bail402) return;
     logger.info(`[Discovery:${STORE_LABEL}] [${idx + 1}/${toProcess.length}] ${url}`);
-    stats.proxy_requests_est++;
+    if (process.env.PROXY_KILL_SWITCH !== 'true') stats.proxy_requests_est++;
     try {
       const scraped = await scrapeOfficeDepotProduct(url);
 

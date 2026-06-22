@@ -1,4 +1,5 @@
 services:
+  # ── Frontend (Static Site) ────────────────────────────────────────────────
   - type: web
     name: deal-hunter-ai-frontend
     env: static
@@ -9,44 +10,113 @@ services:
         source: /*
         destination: /index.html
 
+  # ── Backend API ────────────────────────────────────────────────────────────
   - type: web
     name: deal-hunter-ai
     env: node
+    region: oregon
+    plan: starter
     buildCommand: cd backend && npm ci
-    startCommand: cd backend && node src/db/add-missing-stores.js ; node src/db/add-effective-price-columns.js ; node src/db/seed-illinois-stores.js ; node src/db/v5-phase1-migration.js ; node src/db/v5-fase1-community.js ; node src/db/fix-macys-urls.js ; node src/index.js
+    startCommand: cd backend && bash scripts/render-migrate.sh && node src/index.js
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PORT
-        value: 3001
-      - key: ACTIVE_STORES
-        value: discovery-only
-      - key: SCAN_INTERVAL_MINUTES
-        value: "90"
+      - key: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD
+        value: "1"
+      - key: SCAN_ON_START
+        value: "false"
+      - key: PROXY_KILL_SWITCH
+        value: "false"
       - key: PROXY_ENABLED
         value: "false"
-      - key: KEEPA_DOMAIN
-        value: "1"
       - key: KEEPA_ENABLED
         value: "true"
+      - key: KEEPA_DOMAIN
+        value: "1"
       - key: KEEPA_CACHE_HOURS
         value: "24"
       - key: EBAY_ENABLED
         value: "true"
       - key: EBAY_CACHE_HOURS
         value: "24"
+      # Secrets — set these manually in the Render dashboard
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: FRONTEND_URL
+        sync: false
+      - key: KEEPA_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_PRO_PRICE_ID
+        sync: false
+      - key: STRIPE_ELITE_PRICE_ID
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
 
+  # ── Discovery Worker ───────────────────────────────────────────────────────
   - type: worker
     name: deal-hunter-worker
     env: node
+    region: oregon
+    plan: starter
     buildCommand: cd backend && npm ci
-    startCommand: cd backend && node src/db/add-missing-stores.js ; node run-discovery-live.js
+    startCommand: cd backend && bash scripts/render-migrate.sh && node run-discovery-live.js
     envVars:
       - key: NODE_ENV
         value: production
-      - key: PROXY_ENABLED
+      - key: PROXY_KILL_SWITCH
         value: "false"
+      - key: SAFE_PROXY_MODE
+        value: "true"
+      - key: CYCLE_MAX_PROXY_REQ
+        value: "50"
+      - key: PROXY_ENABLED
+        value: "true"
+      - key: PLAYWRIGHT_BROWSERS_PATH
+        value: "./pw-browsers"
+      - key: PLAYWRIGHT_HEADLESS
+        value: "true"
+      - key: KEEPA_ENABLED
+        value: "true"
       - key: EBAY_ENABLED
         value: "true"
       - key: EBAY_CACHE_HOURS
         value: "24"
+      # Secrets — set these manually in the Render dashboard
+      - key: DATABASE_URL
+        sync: false
+      - key: PROXY_HOST
+        sync: false
+      - key: PROXY_PORT
+        sync: false
+      - key: PROXY_USER
+        sync: false
+      - key: PROXY_PASS
+        sync: false
+      - key: ISP_PROXY_HOST
+        sync: false
+      - key: ISP_PROXY_PORT
+        sync: false
+      - key: ISP_PROXY_USER
+        sync: false
+      - key: ISP_PROXY_PASS
+        sync: false
+      - key: KEEPA_API_KEY
+        sync: false
+      - key: GOOGLE_MAPS_API_KEY
+        sync: false

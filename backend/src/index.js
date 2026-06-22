@@ -183,6 +183,14 @@ app.listen(PORT, async () => {
   // Running it here caused OOM crashes on the web service.
   const { startWorkerMonitor } = require('./services/workerMonitor');
   startWorkerMonitor();
+
+  // Alert engine — runs every 15 min, sends email+WhatsApp for new high-score deals
+  const cron = require('node-cron');
+  const { processAlerts } = require('./services/notificationService');
+  cron.schedule('*/15 * * * *', async () => {
+    try { await processAlerts(); }
+    catch (err) { logger.error('Alert cron error:', err.message); }
+  });
 });
 
 module.exports = app; // for testing

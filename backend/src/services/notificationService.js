@@ -180,6 +180,7 @@ async function processAlerts() {
     WHERE d.detected_at > NOW() - INTERVAL '35 minutes'
       AND d.is_active = true
       AND d.opportunity_score >= 70
+      AND (d.is_error_price IS NOT TRUE)
     ORDER BY d.opportunity_score DESC
     LIMIT 50
   `);

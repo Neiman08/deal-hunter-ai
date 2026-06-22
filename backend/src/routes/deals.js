@@ -36,7 +36,8 @@ router.get('/', async (req, res) => {
 
     let conditions = [
       'd.is_active = true',
-      `d.discount_percent >= $1`
+      `d.discount_percent >= $1`,
+      '(d.is_error_price IS NOT TRUE)',  // exclude suspicious/inflated prices from public feed
     ];
     let params = [parseFloat(min_discount)];
     let p = 2;
@@ -60,7 +61,11 @@ router.get('/', async (req, res) => {
     if (freshness === 'fresh')  conditions.push(`d.last_seen_at > NOW() - INTERVAL '24 hours'`);
     if (freshness === 'recent') conditions.push(`d.last_seen_at > NOW() - INTERVAL '7 days' AND d.last_seen_at <= NOW() - INTERVAL '24 hours'`);
     if (freshness === 'aging')  conditions.push(`d.last_seen_at <= NOW() - INTERVAL '7 days'`);
-    if (is_error_price === 'true') { conditions.push(`d.is_error_price = true`); }
+    // Admin view: replace exclusion with inclusion when is_error_price=true
+    if (is_error_price === 'true') {
+      conditions = conditions.filter(c => !c.includes('is_error_price'));
+      conditions.push('d.is_error_price = true');
+    }
 
     const sortMap = {
       score:     'd.opportunity_score DESC, d.discount_percent DESC, d.id ASC',

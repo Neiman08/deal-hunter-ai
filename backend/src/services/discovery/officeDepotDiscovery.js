@@ -28,10 +28,9 @@ const STORE_SLUG  = 'office-depot';
 const STORE_LABEL = 'Office Depot';
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
-// Returns null (no proxy) when PROXY_KILL_SWITCH=true — OD HTTP is accessible directly
+// OD GraphQL API is accessible directly without proxy — BrightData IPs get 402 billing errors
 function makeProxyAgent() {
-  if (process.env.PROXY_KILL_SWITCH === 'true') return null;
-  return buildHttpProxyAgent('OfficeDept');
+  return null;
 }
 
 const SITEMAPS = [

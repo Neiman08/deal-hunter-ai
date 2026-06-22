@@ -26,7 +26,7 @@ router.post('/', authenticate, async (req, res) => {
   try {
     const {
       name, store_id, category_id, product_keyword,
-      min_discount_percent = 30, min_profit = 0,
+      min_discount_percent = 30, min_profit = 0, min_score = 0,
       max_distance_miles = 25, zip_code,
       notify_email = true, notify_whatsapp = false, notify_push = true
     } = req.body;
@@ -37,7 +37,7 @@ router.post('/', authenticate, async (req, res) => {
       [req.user.id]
     );
 
-    const limits = { free: 3, pro: 50, elite: 999 };
+    const limits = { free: 3, pro: 50, elite: 999, beta: 50 };
     const limit = limits[req.user.plan] || 3;
 
     if (parseInt(countResult.rows[0].count) >= limit) {
@@ -50,13 +50,13 @@ router.post('/', authenticate, async (req, res) => {
     const result = await query(`
       INSERT INTO user_alerts (
         user_id, name, store_id, category_id, product_keyword,
-        min_discount_percent, min_profit, max_distance_miles, zip_code,
+        min_discount_percent, min_profit, min_score, max_distance_miles, zip_code,
         notify_email, notify_whatsapp, notify_push
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *
     `, [
       req.user.id, name || product_keyword, store_id, category_id, product_keyword,
-      min_discount_percent, min_profit, max_distance_miles, zip_code || req.user.zip_code,
+      min_discount_percent, min_profit, min_score, max_distance_miles, zip_code || req.user.zip_code,
       notify_email, notify_whatsapp, notify_push
     ]);
 

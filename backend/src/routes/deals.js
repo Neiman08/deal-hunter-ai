@@ -218,7 +218,7 @@ router.get('/stats', async (req, res) => {
           COUNT(DISTINCT d.id) FILTER (WHERE d.last_seen_at > NOW() - INTERVAL '24 hours') as fresh_deal_count,
           MAX(d.last_seen_at) as last_seen_at
         FROM deals d JOIN stores s ON d.store_id = s.id
-        WHERE d.is_active = true
+        WHERE d.is_active = true AND d.discount_percent >= 20
         GROUP BY s.id, s.name, s.slug, s.color
         ORDER BY deal_count DESC
       `),
@@ -227,7 +227,7 @@ router.get('/stats', async (req, res) => {
           ROUND(AVG(d.estimated_profit) FILTER (WHERE d.estimated_profit > 0), 2) as avg_profit
         FROM deals d JOIN products p ON d.product_id = p.id
         LEFT JOIN categories c ON p.category_id = c.id
-        WHERE d.is_active = true AND c.name IS NOT NULL
+        WHERE d.is_active = true AND d.discount_percent >= 20 AND c.name IS NOT NULL
         GROUP BY c.id, c.name, c.slug
         ORDER BY deal_count DESC
       `),

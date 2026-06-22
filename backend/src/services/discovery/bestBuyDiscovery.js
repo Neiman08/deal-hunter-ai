@@ -519,7 +519,14 @@ async function extractCardsFromSearchPage(keyword, maxCards = 20) {
 
           // ── Imagen ───────────────────────────────────────────────────────
           const imgEl   = card.querySelector('img');
-          const imageUrl = imgEl?.src?.startsWith('http') ? imgEl.src : (imgEl?.dataset?.src || null);
+          // Try multiple lazy-load patterns: data-src, srcset, and protocol-relative src
+          const _dataSrc  = imgEl?.dataset?.src || imgEl?.dataset?.lazy || '';
+          const _rawSrc   = imgEl?.src || '';
+          const _srcset   = (imgEl?.srcset || imgEl?.dataset?.srcset || '').split(',')[0].trim().split(' ')[0];
+          const _best     = _dataSrc || (_rawSrc.startsWith('data:') ? '' : _rawSrc) || _srcset || '';
+          const imageUrl  = _best.startsWith('http') ? _best
+                          : _best.startsWith('//') ? 'https:' + _best
+                          : null;
 
           // ── Stock ────────────────────────────────────────────────────────
           const addBtn  = card.querySelector('button[data-button-state="ADD_TO_CART"], button[data-testid*="add-to-cart"]');

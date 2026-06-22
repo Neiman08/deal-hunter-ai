@@ -741,6 +741,16 @@ async function checkStorePause(slug) {
       }
     }
 
+    // Soft-block patterns → 2h auto-pause (API throttle — shorter cooldown)
+    const SOFT = ['od_api_throttled'];
+    const TWO_H = 2 * 3600 * 1000;
+    if (a.blocked && SOFT.some(t => (a.block_type || '').includes(t))) {
+      if (ageMs < TWO_H) {
+        const remainMin = Math.round((TWO_H - ageMs) / 60000);
+        return `${a.block_type} — auto-paused ${remainMin}min more (cooldown)`;
+      }
+    }
+
     // saved=0 × 2 consecutive real cycles (pages_visited>0 = actually tried)
     if (b && a.saved === 0 && b.saved === 0
         && (a.pages_visited || 0) > 0 && (b.pages_visited || 0) > 0) {

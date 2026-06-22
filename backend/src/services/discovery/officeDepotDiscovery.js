@@ -248,8 +248,9 @@ async function runOfficeDepotDiscovery(options = {}) {
 
   logger.info(`\n[Discovery:${STORE_LABEL}] Scanning ${toProcess.length} candidates (all prices)...`);
 
-  let consec402 = 0;
-  let bail402   = false;
+  let consec402     = 0;
+  let bail402       = false;
+  let consecNoPrice = 0;  // circuit breaker for OD API throttle / IP block
   stats.od_402_count = 0;
 
   async function scanOneOd(url, idx) {
@@ -266,7 +267,8 @@ async function runOfficeDepotDiscovery(options = {}) {
         return;
       }
 
-      consec402 = 0; // successful fetch resets counter
+      consec402 = 0;
+      consecNoPrice = 0; // successful fetch resets both counters
 
       if (!scraped.regularPrice) {
         stats.no_price++;
@@ -336,7 +338,23 @@ async function runOfficeDepotDiscovery(options = {}) {
         }
         return;
       }
+      // OD API throttled / IP blocked — consecutive failures mean whole session is dead
+      if (/OD API throttled|OD API error|getData null|No price in API/.test(err.message)) {
+        consecNoPrice++;
+        stats.errors++;
+        logger.warn(`[Discovery:${STORE_LABEL}]   ⚠️  OD API dead (${consecNoPrice} consecutive) | ${err.message.slice(0, 80)}`);
+        if (consecNoPrice >= 6) {
+          logger.error(`[Discovery:${STORE_LABEL}]   ❌ 6 consecutive OD API failures — IP throttled. Cutting scan early.`);
+          stats.blockType     = 'od_api_throttled';
+          stats.blocked       = true;
+          stats.reason_for_stop = 'od_api_throttle_circuit_breaker';
+          bail402 = true;
+          await writeStoreRun(STORE_SLUG, startedAt, stats).catch(() => {});
+        }
+        return;
+      }
       consec402 = 0;
+      consecNoPrice = 0;
       stats.errors++;
       logger.error(`[Discovery:${STORE_LABEL}]   ❌ ${err.message.slice(0, 100)}`);
     }

@@ -193,8 +193,15 @@ async function scrapeOfficeDepotProduct(url) {
     throw new Error(`OD API error: ${data?.errorResponse?.errorMessage || 'unknown'}`);
   }
 
-  const catalog    = data?.data?.getData?.catalog    || {};
-  const skuDetails = data?.data?.getData?.skuDetails || {};
+  const getData    = data?.data?.getData;
+  // Null getData = session invalid or OD API throttling this IP — clear cache so next SKU retries fresh
+  if (!getData) {
+    _sessionCache = null;
+    throw new Error('OD API throttled or session invalid (getData null)');
+  }
+
+  const catalog    = getData.catalog    || {};
+  const skuDetails = getData.skuDetails || {};
   const price      = skuDetails?.price               || {};
 
   const currentPrice = price?.sellPrice?.price    ?? null;

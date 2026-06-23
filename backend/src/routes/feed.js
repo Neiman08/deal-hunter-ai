@@ -4,6 +4,95 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
+// ── AI auto-comment templates ─────────────────────────────────────────────────
+const AI_COMMENT_TEMPLATES = {
+  fba_roi: [
+    'Este producto parece interesante para FBA. Antes de comprar, verifica el sales rank y la competencia en Amazon. Si el ROI supera 40%, vale la pena.',
+    'Buen hallazgo. Revisa el historial de precio en Keepa — busca al menos 90 días de estabilidad antes de comprar muchas unidades.',
+    'Si hay ROI positivo aquí, asegúrate de verificar los fees de Amazon FBA. Para productos < 1 lb, FBA suele ser la mejor opción.',
+  ],
+  clearance: [
+    'Gracias por compartir. Esta publicación suma puntos para tu ranking semanal. ¡Que la comunidad lo verifique rápido!',
+    '¡Buen descuento! Si tienes foto de la etiqueta de precio en tienda, súbela — aumenta la confianza de la oferta y acelera la verificación.',
+    'Reto del día cumplido si esto supera 30% de descuento. Sigue buscando — los mejores clearance aparecen al final del día.',
+  ],
+  general: [
+    'Buen hallazgo. Si tienes foto de la etiqueta o precio en tienda, súbela para aumentar la confianza de la oferta.',
+    'Gracias por publicar. Cada oferta verificada por la comunidad suma puntos a tu wallet. Sigue escaneando.',
+    'Esta oferta fue revisada por nuestro sistema. Recuerda confirmar el precio en tienda antes de comprar.',
+  ],
+};
+
+async function getSetting(key, defaultVal = 'true') {
+  try {
+    const r = await query('SELECT value FROM ai_leader_settings WHERE key=$1', [key]);
+    return r.rows[0]?.value ?? defaultVal;
+  } catch { return defaultVal; }
+}
+
+async function maybeAutoComment(postId, post) {
+  try {
+    const enabled = await getSetting('AI_AUTO_COMMENTS_ENABLED');
+    if (enabled !== 'true') return;
+
+    const leadersEnabled = await getSetting('AI_LEADERS_ENABLED');
+    if (leadersEnabled !== 'true') return;
+
+    // Check daily comment count
+    const maxStr = await getSetting('AI_MAX_COMMENTS_PER_DAY', '20');
+    const max = parseInt(maxStr) || 20;
+    const todayCount = await query(`
+      SELECT COUNT(*) FROM deal_post_comments
+      WHERE is_ai_comment = true AND created_at >= CURRENT_DATE
+    `);
+    if (parseInt(todayCount.rows[0].count) >= max) return;
+
+    // Check post is not already commented by AI
+    const alreadyCommented = await query(
+      `SELECT id FROM deal_post_comments WHERE post_id=$1 AND is_ai_comment=true`,
+      [postId]
+    );
+    if (alreadyCommented.rows.length > 0) return;
+
+    // Choose leader + template based on post content
+    let role = 'clearance_mentor';
+    let templateKey = 'general';
+
+    const profit = parseFloat(post.estimated_profit || 0);
+    const discount = parseFloat(post.discount_percent || 0);
+
+    if (profit > 5) {
+      role = 'resale_expert_amazon';
+      templateKey = 'fba_roi';
+    } else if (discount >= 25) {
+      role = 'clearance_mentor';
+      templateKey = 'clearance';
+    } else {
+      role = 'scanner_coach';
+      templateKey = 'general';
+    }
+
+    const leaderRes = await query(
+      `SELECT id, name, ai_disclosure_label FROM users WHERE ai_role=$1 AND is_ai_leader=true AND is_active=true LIMIT 1`,
+      [role]
+    );
+    if (!leaderRes.rows[0]) return;
+    const leader = leaderRes.rows[0];
+
+    const templates = AI_COMMENT_TEMPLATES[templateKey];
+    const comment = templates[Math.floor(Math.random() * templates.length)];
+
+    await query(`
+      INSERT INTO deal_post_comments
+        (post_id, user_id, comment, is_ai_comment, ai_leader_id, ai_commenter_name, ai_commenter_label)
+      VALUES ($1, $2, $3, true, $2, $4, $5)
+    `, [postId, leader.id, comment, leader.name, leader.ai_disclosure_label || 'AI Leader']);
+  } catch (err) {
+    // Fire-and-forget: never throw
+    console.error('[feed] auto-comment error:', err.message);
+  }
+}
+
 // ── Scoring helper ────────────────────────────────────────────────────────────
 function calcAiScore(post) {
   let score = 0;
@@ -43,6 +132,7 @@ const POST_SELECT = `
   SELECT
     dp.*,
     u.name AS user_name,
+    u.is_ai_leader, u.ai_disclosure_label AS user_ai_label, u.avatar_url AS user_avatar_url,
     cp.display_name, cp.level, cp.points AS collaborator_points,
     t.name AS team_name, t.slug AS team_slug,
     s.name AS store_chain, s.color AS store_color, s.logo_url AS store_logo,
@@ -80,7 +170,7 @@ router.get('/', async (req, res) => {
     const result = await query(
       `${POST_SELECT}
        WHERE dp.status = $1
-       GROUP BY dp.id, u.name, cp.display_name, cp.level, cp.points, t.name, t.slug, s.name, s.color, s.logo_url
+       GROUP BY dp.id, u.name, u.is_ai_leader, u.ai_disclosure_label, u.avatar_url, cp.display_name, cp.level, cp.points, t.name, t.slug, s.name, s.color, s.logo_url
        ORDER BY dp.created_at DESC
        LIMIT $2 OFFSET $3`,
       [status, parseInt(limit), parseInt(offset)]
@@ -104,7 +194,7 @@ router.get('/trending', async (req, res) => {
     const result = await query(
       `${POST_SELECT}
        WHERE dp.status = 'active' AND dp.created_at > NOW() - INTERVAL '48 hours'
-       GROUP BY dp.id, u.name, cp.display_name, cp.level, cp.points, t.name, t.slug, s.name, s.color, s.logo_url
+       GROUP BY dp.id, u.name, u.is_ai_leader, u.ai_disclosure_label, u.avatar_url, cp.display_name, cp.level, cp.points, t.name, t.slug, s.name, s.color, s.logo_url
        HAVING COUNT(DISTINCT dpr.id) > 0 OR COUNT(DISTINCT dpc.id) > 0
        ORDER BY
          (COUNT(DISTINCT dpr.id) FILTER (WHERE dpr.reaction IN ('hot','verified')) * 3
@@ -133,7 +223,7 @@ router.get('/latest', async (req, res) => {
     const result = await query(
       `${POST_SELECT}
        WHERE dp.status = 'active'
-       GROUP BY dp.id, u.name, cp.display_name, cp.level, cp.points, t.name, t.slug, s.name, s.color, s.logo_url
+       GROUP BY dp.id, u.name, u.is_ai_leader, u.ai_disclosure_label, u.avatar_url, cp.display_name, cp.level, cp.points, t.name, t.slug, s.name, s.color, s.logo_url
        ORDER BY dp.created_at DESC
        LIMIT $1`,
       [parseInt(limit)]
@@ -156,7 +246,7 @@ router.get('/store/:slug', async (req, res) => {
     const result = await query(
       `${POST_SELECT}
        WHERE dp.status = 'active' AND s.slug = $1
-       GROUP BY dp.id, u.name, cp.display_name, cp.level, cp.points, t.name, t.slug, s.name, s.color, s.logo_url
+       GROUP BY dp.id, u.name, u.is_ai_leader, u.ai_disclosure_label, u.avatar_url, cp.display_name, cp.level, cp.points, t.name, t.slug, s.name, s.color, s.logo_url
        ORDER BY dp.created_at DESC
        LIMIT $2 OFFSET $3`,
       [req.params.slug, parseInt(limit), parseInt(offset)]
@@ -179,7 +269,7 @@ router.get('/zip/:zip', async (req, res) => {
     const result = await query(
       `${POST_SELECT}
        WHERE dp.status = 'active' AND dp.zip_code = $1
-       GROUP BY dp.id, u.name, cp.display_name, cp.level, cp.points, t.name, t.slug, s.name, s.color, s.logo_url
+       GROUP BY dp.id, u.name, u.is_ai_leader, u.ai_disclosure_label, u.avatar_url, cp.display_name, cp.level, cp.points, t.name, t.slug, s.name, s.color, s.logo_url
        ORDER BY dp.created_at DESC
        LIMIT $2 OFFSET $3`,
       [req.params.zip, parseInt(limit), parseInt(offset)]
@@ -195,13 +285,54 @@ router.get('/zip/:zip', async (req, res) => {
   }
 });
 
+// ── GET /api/feed/missions ────────────────────────────────────────────────────
+router.get('/missions', async (req, res) => {
+  try {
+    const uid = req.user?.id;
+    const r = await query(`
+      SELECT m.id, m.slug, m.title, m.description, m.type, m.action, m.target, m.xp_reward,
+             COALESCE(mp.progress, 0) AS progress,
+             COALESCE(mp.completed, false) AS completed
+      FROM business_missions m
+      LEFT JOIN business_mission_progress mp
+        ON mp.mission_id = m.id AND mp.user_id = $1
+        AND (
+          (m.type = 'daily'  AND mp.period = CURRENT_DATE) OR
+          (m.type = 'weekly' AND mp.period >= date_trunc('week', CURRENT_DATE)::date)
+        )
+      WHERE m.is_active = true AND m.type IN ('daily','weekly')
+      ORDER BY m.type ASC, m.xp_reward DESC
+    `, [uid || null]);
+    res.json({ missions: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/feed/ai-leaders ──────────────────────────────────────────────────
+router.get('/ai-leaders', async (req, res) => {
+  try {
+    const r = await query(`
+      SELECT id, name, ai_role, ai_persona, ai_specialty, ai_disclosure_label, avatar_url,
+             (SELECT COUNT(*) FROM deal_posts WHERE user_id=u.id AND is_ai_post=true) AS post_count,
+             (SELECT COUNT(*) FROM deal_post_comments WHERE ai_leader_id=u.id AND is_ai_comment=true) AS comment_count
+      FROM users u
+      WHERE is_ai_leader = true AND is_active = true
+      ORDER BY name
+    `);
+    res.json({ leaders: r.rows });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/feed/:id ─────────────────────────────────────────────────────────
 router.get('/:id', async (req, res) => {
   try {
     const result = await query(
       `${POST_SELECT}
        WHERE dp.id = $1
-       GROUP BY dp.id, u.name, cp.display_name, cp.level, cp.points, t.name, t.slug, s.name, s.color, s.logo_url`,
+       GROUP BY dp.id, u.name, u.is_ai_leader, u.ai_disclosure_label, u.avatar_url, cp.display_name, cp.level, cp.points, t.name, t.slug, s.name, s.color, s.logo_url`,
       [req.params.id]
     );
     if (!result.rows[0]) return res.status(404).json({ error: 'Post not found' });
@@ -212,7 +343,11 @@ router.get('/:id', async (req, res) => {
 
     // Get comments
     const comments = await query(
-      `SELECT dpc.*, u.name AS user_name FROM deal_post_comments dpc
+      `SELECT dpc.*,
+        COALESCE(dpc.ai_commenter_name, u.name) AS user_name,
+        dpc.is_ai_comment, dpc.ai_commenter_label,
+        u.avatar_url AS user_avatar_url
+       FROM deal_post_comments dpc
        LEFT JOIN users u ON dpc.user_id = u.id
        WHERE dpc.post_id = $1 ORDER BY dpc.created_at ASC`,
       [post.id]
@@ -277,6 +412,11 @@ router.post('/', authenticate, async (req, res) => {
           );
         }
       }
+    }
+
+    // Trigger AI auto-comment (fire-and-forget, only for human posts)
+    if (!req.user.is_ai_leader) {
+      maybeAutoComment(post.id, post).catch(() => {});
     }
 
     res.status(201).json({ post });

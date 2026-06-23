@@ -2276,4 +2276,97 @@ router.get('/data-health', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+// ── GET /api/admin/ai-leaders ─────────────────────────────────────────────────
+router.get('/ai-leaders', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const [leadersRes, settingsRes, todayComments, todayPosts] = await Promise.all([
+      query(`
+        SELECT u.id, u.name, u.email, u.ai_role, u.ai_persona, u.ai_specialty,
+               u.ai_disclosure_label, u.avatar_url, u.is_active,
+               (SELECT COUNT(*) FROM deal_posts WHERE user_id=u.id AND is_ai_post=true)         AS post_count,
+               (SELECT COUNT(*) FROM deal_post_comments WHERE ai_leader_id=u.id AND is_ai_comment=true) AS comment_count,
+               (SELECT COUNT(*) FROM deal_posts WHERE user_id=u.id AND is_ai_post=true AND created_at>=CURRENT_DATE) AS posts_today,
+               (SELECT COUNT(*) FROM deal_post_comments WHERE ai_leader_id=u.id AND is_ai_comment=true AND created_at>=CURRENT_DATE) AS comments_today
+        FROM users u WHERE is_ai_leader=true ORDER BY u.name
+      `),
+      query('SELECT key, value FROM ai_leader_settings ORDER BY key').catch(() => ({ rows: [] })),
+      query(`SELECT COUNT(*) FROM deal_post_comments WHERE is_ai_comment=true AND created_at>=CURRENT_DATE`),
+      query(`SELECT COUNT(*) FROM deal_posts WHERE is_ai_post=true AND created_at>=CURRENT_DATE`),
+    ]);
+
+    const settings = {};
+    for (const row of settingsRes.rows) settings[row.key] = row.value;
+
+    res.json({
+      leaders: leadersRes.rows,
+      settings,
+      today: {
+        comments: parseInt(todayComments.rows[0].count),
+        posts:    parseInt(todayPosts.rows[0].count),
+      },
+    });
+  } catch (err) {
+    logger.error(`[Admin] ai-leaders: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/admin/ai-leaders/settings ──────────────────────────────────────
+router.post('/ai-leaders/settings', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const ALLOWED = [
+      'AI_LEADERS_ENABLED', 'AI_AUTO_POSTS_ENABLED', 'AI_AUTO_COMMENTS_ENABLED',
+      'AI_MAX_COMMENTS_PER_DAY', 'AI_MAX_POSTS_PER_DAY',
+    ];
+    const updates = [];
+    for (const [key, value] of Object.entries(req.body)) {
+      if (!ALLOWED.includes(key)) continue;
+      await query(`
+        INSERT INTO ai_leader_settings (key, value, updated_at)
+        VALUES ($1,$2,NOW())
+        ON CONFLICT (key) DO UPDATE SET value=$2, updated_at=NOW()
+      `, [key, String(value)]);
+      updates.push(key);
+    }
+    res.json({ updated: updates });
+  } catch (err) {
+    logger.error(`[Admin] ai-leaders/settings POST: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/admin/ai-leaders/:id/toggle ────────────────────────────────────
+router.post('/ai-leaders/:id/toggle', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const r = await query(
+      `UPDATE users SET is_active=NOT is_active, updated_at=NOW()
+       WHERE id=$1 AND is_ai_leader=true RETURNING id, name, is_active`,
+      [req.params.id]
+    );
+    if (!r.rows[0]) return res.status(404).json({ error: 'AI leader not found' });
+    res.json({ leader: r.rows[0] });
+  } catch (err) {
+    logger.error(`[Admin] ai-leaders toggle: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/admin/ai-leaders/recent-posts ───────────────────────────────────
+router.get('/ai-leaders/recent-posts', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const r = await query(`
+      SELECT dp.id, dp.title, dp.created_at, u.name AS leader_name, u.ai_disclosure_label
+      FROM deal_posts dp
+      JOIN users u ON dp.user_id=u.id
+      WHERE dp.is_ai_post=true
+      ORDER BY dp.created_at DESC
+      LIMIT 20
+    `);
+    res.json({ posts: r.rows });
+  } catch (err) {
+    logger.error(`[Admin] ai-leaders recent-posts: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

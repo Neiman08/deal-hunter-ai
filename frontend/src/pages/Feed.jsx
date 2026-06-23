@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Flame, MessageCircle, CheckCircle, XCircle, ChevronDown, Loader, MapPin, Tag, Clock, Users } from 'lucide-react';
+import { Flame, MessageCircle, CheckCircle, XCircle, ChevronDown, Loader, MapPin, Tag, Clock, Users, Bot, Target } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -94,23 +94,48 @@ function PostCard({ post: initialPost }) {
   const discount = post.discount_percent ? Math.round(post.discount_percent) : null;
   const levelColor = LEVEL_COLOR[post.level] || '#6b7280';
 
+  const isAI = post.is_ai_leader || post.is_ai_post;
+  const aiLabel = post.user_ai_label || (isAI ? 'AI Leader' : null);
+  const displayName = post.display_name || post.user_name || (isAI ? 'AI Leader' : 'Anonymous');
+
   return (
-    <div className="card space-y-4">
+    <div className="card space-y-4" style={isAI ? { borderColor: 'rgba(139,92,246,0.25)', background: 'rgba(139,92,246,0.03)' } : {}}>
       {/* Header */}
       <div className="flex items-start gap-3">
-        <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0"
-          style={{ background: 'rgba(74,222,128,0.1)', color: '#4ADE80' }}>
-          {(post.display_name || post.user_name || 'U')[0].toUpperCase()}
-        </div>
+        {/* Avatar */}
+        {isAI && post.user_avatar_url ? (
+          <img src={post.user_avatar_url} alt={displayName}
+            className="w-10 h-10 rounded-full flex-shrink-0"
+            style={{ background: 'rgba(139,92,246,0.15)' }}
+            onError={e => { e.target.style.display='none'; }}
+          />
+        ) : isAI ? (
+          <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0"
+            style={{ background: 'rgba(139,92,246,0.15)', color: '#8B5CF6' }}>
+            <Bot size={18} />
+          </div>
+        ) : (
+          <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0"
+            style={{ background: 'rgba(74,222,128,0.1)', color: '#4ADE80' }}>
+            {displayName[0].toUpperCase()}
+          </div>
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-white font-semibold text-sm">{post.display_name || post.user_name || 'Anonymous'}</span>
-            {post.level && (
+            <span className="text-white font-semibold text-sm">{displayName}</span>
+            {/* AI disclosure badge — always visible, always first */}
+            {aiLabel && (
+              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold flex items-center gap-1"
+                style={{ color: '#8B5CF6', background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.3)' }}>
+                <Bot size={8} /> {aiLabel}
+              </span>
+            )}
+            {!isAI && post.level && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style={{ color: levelColor, background: `${levelColor}20` }}>
                 {post.level}
               </span>
             )}
-            {post.team_name && (
+            {!isAI && post.team_name && (
               <span className="text-[10px] text-dark-400 flex items-center gap-1">
                 <Users size={9} /> {post.team_name}
               </span>
@@ -235,12 +260,27 @@ function PostCard({ post: initialPost }) {
         <div className="space-y-3 pt-2 border-t" style={{ borderColor: '#273449' }}>
           {comments.map((c, i) => (
             <div key={i} className="flex gap-2">
-              <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
-                style={{ background: 'rgba(74,222,128,0.1)', color: '#4ADE80' }}>
-                {(c.user_name || 'U')[0].toUpperCase()}
-              </div>
-              <div className="flex-1 rounded-xl p-2.5" style={{ background: '#0F172A' }}>
-                <p className="text-xs font-semibold text-white">{c.user_name || 'User'}</p>
+              {c.is_ai_comment ? (
+                <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0"
+                  style={{ background: 'rgba(139,92,246,0.15)', color: '#8B5CF6' }}>
+                  <Bot size={13} />
+                </div>
+              ) : (
+                <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+                  style={{ background: 'rgba(74,222,128,0.1)', color: '#4ADE80' }}>
+                  {(c.user_name || 'U')[0].toUpperCase()}
+                </div>
+              )}
+              <div className="flex-1 rounded-xl p-2.5" style={{ background: c.is_ai_comment ? 'rgba(139,92,246,0.05)' : '#0F172A' }}>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-xs font-semibold text-white">{c.user_name || 'User'}</p>
+                  {c.is_ai_comment && c.ai_commenter_label && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full font-bold"
+                      style={{ color: '#8B5CF6', background: 'rgba(139,92,246,0.12)', border: '1px solid rgba(139,92,246,0.2)' }}>
+                      {c.ai_commenter_label}
+                    </span>
+                  )}
+                </div>
                 <p className="text-sm mt-0.5" style={{ color: '#CBD5E1' }}>{c.comment}</p>
               </div>
             </div>
@@ -261,6 +301,49 @@ function PostCard({ post: initialPost }) {
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+function MissionsWidget() {
+  const [missions, setMissions] = useState([]);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (!user) return;
+    api.get('/feed/missions').then(r => setMissions(r.data.missions || [])).catch(() => {});
+  }, [user]);
+
+  if (!user || !missions.length) return null;
+
+  const daily = missions.filter(m => m.type === 'daily');
+  const weekly = missions.filter(m => m.type === 'weekly');
+  const display = [...daily.filter(m => !m.completed), ...weekly.filter(m => !m.completed)].slice(0, 3);
+  if (!display.length) return null;
+
+  return (
+    <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(74,222,128,0.05)', border: '1px solid rgba(74,222,128,0.15)' }}>
+      <div className="flex items-center gap-2">
+        <Target size={14} className="text-neon-green" />
+        <span className="text-xs font-bold text-neon-green">Misiones Activas</span>
+      </div>
+      {display.map(m => {
+        const pct = m.target > 0 ? Math.min(100, Math.round((m.progress / m.target) * 100)) : 0;
+        return (
+          <div key={m.id} className="space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-white">{m.title}</span>
+              <span className="text-xs font-bold text-neon-green">+{m.xp_reward} XP</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 rounded-full" style={{ background: '#273449' }}>
+                <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: '#4ADE80' }} />
+              </div>
+              <span className="text-[10px]" style={{ color: '#94A3B8' }}>{m.progress}/{m.target}</span>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -330,6 +413,7 @@ export default function Feed() {
         ))}
       </div>
 
+      <MissionsWidget />
       <FeedSection posts={posts} loading={loading && posts.length === 0} />
 
       {!loading && hasMore && posts.length > 0 && (

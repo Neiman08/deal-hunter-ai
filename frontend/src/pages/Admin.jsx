@@ -3,7 +3,7 @@ import {
   Shield, RefreshCw, Users, Activity, AlertCircle,
   CheckCircle, Play, Trash2, TrendingUp, DollarSign, Bell,
   Package, Star, Clock, Zap, Database, BarChart2,
-  Link2Off, ImageOff, FileText, ScanLine, HeartPulse
+  Link2Off, ImageOff, FileText, ScanLine, HeartPulse, Bot, ToggleLeft, ToggleRight
 } from 'lucide-react';
 import api from '../utils/api';
 import StatCard from '../components/StatCard';
@@ -39,6 +39,28 @@ function nextScanCountdown(isoStr) {
   return 'in ' + formatMinutes(ms);
 }
 
+function RecentAiPosts() {
+  const [posts, setPosts] = useState([]);
+  useEffect(() => {
+    api.get('/admin/ai-leaders/recent-posts').then(r => setPosts(r.data.posts || [])).catch(() => {});
+  }, []);
+  if (!posts.length) return null;
+  return (
+    <div className="card space-y-3">
+      <h3 className="text-white font-semibold flex items-center gap-2"><FileText size={14} className="text-blue-400" /> Recent AI Posts</h3>
+      {posts.map(p => (
+        <div key={p.id} className="flex items-start gap-3 py-2 border-b last:border-0" style={{ borderColor: '#273449' }}>
+          <Bot size={14} className="flex-shrink-0 mt-0.5" style={{ color: '#8B5CF6' }} />
+          <div className="flex-1 min-w-0">
+            <p className="text-white text-sm truncate">{p.title}</p>
+            <p className="text-xs" style={{ color: '#94A3B8' }}>{p.leader_name} · {p.ai_disclosure_label} · {new Date(p.created_at).toLocaleDateString()}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function Admin() {
   const [tab, setTab] = useState('overview');
   const [stats, setStats] = useState(null);
@@ -49,6 +71,9 @@ export default function Admin() {
   const [healthLoading, setHealthLoading] = useState(false);
   const [dataHealth, setDataHealth] = useState(null);
   const [dataHealthLoading, setDataHealthLoading] = useState(false);
+  const [aiLeaders, setAiLeaders] = useState(null);
+  const [aiLeadersLoading, setAiLeadersLoading] = useState(false);
+  const [aiSaveMsg, setAiSaveMsg] = useState('');
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState('');
   const [msg, setMsg] = useState('');
@@ -69,6 +94,14 @@ export default function Admin() {
       .finally(() => setDataHealthLoading(false));
   }, []);
 
+  const loadAiLeaders = useCallback(() => {
+    setAiLeadersLoading(true);
+    api.get('/admin/ai-leaders')
+      .then(r => setAiLeaders(r.data))
+      .catch(() => {})
+      .finally(() => setAiLeadersLoading(false));
+  }, []);
+
   useEffect(() => {
     setLoading(true);
     Promise.all([
@@ -84,7 +117,8 @@ export default function Admin() {
     }).catch(() => {}).finally(() => setLoading(false));
     loadHealth();
     loadDataHealth();
-  }, [loadHealth, loadDataHealth]);
+    loadAiLeaders();
+  }, [loadHealth, loadDataHealth, loadAiLeaders]);
 
   async function scan(store) {
     setScanning(store);
@@ -126,14 +160,34 @@ export default function Admin() {
   }
 
   const mrr = stats ? (stats.revenue?.mrr_cents || 0) / 100 : 0;
+  async function toggleAiLeader(id) {
+    try {
+      const r = await api.post(`/admin/ai-leaders/${id}/toggle`);
+      setAiLeaders(prev => prev ? {
+        ...prev,
+        leaders: prev.leaders.map(l => l.id === id ? { ...l, is_active: r.data.leader.is_active } : l),
+      } : prev);
+    } catch {}
+  }
+
+  async function saveAiSettings(key, value) {
+    try {
+      await api.post('/admin/ai-leaders/settings', { [key]: value });
+      setAiLeaders(prev => prev ? { ...prev, settings: { ...prev.settings, [key]: String(value) } } : prev);
+      setAiSaveMsg('Saved');
+      setTimeout(() => setAiSaveMsg(''), 2000);
+    } catch {}
+  }
+
   const TABS = [
-    { id: 'overview', label: 'Overview' },
+    { id: 'overview',    label: 'Overview' },
     { id: 'data-health', label: 'Data Health' },
-    { id: 'health', label: 'Scanner Health' },
-    { id: 'revenue', label: 'Revenue' },
-    { id: 'scans', label: 'Scan Logs' },
-    { id: 'users', label: 'Users' },
-    { id: 'actions', label: 'Actions' },
+    { id: 'ai-leaders',  label: '🤖 AI Leaders' },
+    { id: 'health',      label: 'Scanner Health' },
+    { id: 'revenue',     label: 'Revenue' },
+    { id: 'scans',       label: 'Scan Logs' },
+    { id: 'users',       label: 'Users' },
+    { id: 'actions',     label: 'Actions' },
   ];
 
   if (loading) return (
@@ -402,6 +456,104 @@ export default function Admin() {
           ) : (
             <div className="card text-center text-gray-500 py-8 text-sm">No se pudo cargar el dashboard de salud.</div>
           )}
+        </div>
+      )}
+
+      {/* ── AI LEADERS ── */}
+      {tab === 'ai-leaders' && (
+        <div className="space-y-5">
+          {aiLeadersLoading && <p className="text-gray-400 text-sm">Loading...</p>}
+          {aiSaveMsg && <div className="bg-neon-green/10 border border-neon-green/30 text-neon-green rounded-xl px-4 py-2 text-sm">{aiSaveMsg}</div>}
+
+          {/* Today stats */}
+          {aiLeaders && (
+            <div className="grid grid-cols-2 gap-3">
+              <StatCard icon={<Bot size={16} />} title="AI Comments Today" value={aiLeaders.today?.comments ?? '—'} sub={`Max: ${aiLeaders.settings?.AI_MAX_COMMENTS_PER_DAY ?? 20}/day`} color="purple" />
+              <StatCard icon={<FileText size={16} />} title="AI Posts Today" value={aiLeaders.today?.posts ?? '—'} sub={`Max: ${aiLeaders.settings?.AI_MAX_POSTS_PER_DAY ?? 10}/day`} color="blue" />
+            </div>
+          )}
+
+          {/* Global toggles */}
+          {aiLeaders?.settings && (
+            <div className="card space-y-3">
+              <h3 className="text-white font-semibold flex items-center gap-2"><Zap size={14} className="text-yellow-400" /> Global Controls</h3>
+              {[
+                { key: 'AI_LEADERS_ENABLED',       label: 'AI Leaders Enabled',        desc: 'Show AI leaders in the feed' },
+                { key: 'AI_AUTO_POSTS_ENABLED',    label: 'Auto Posts Enabled',         desc: 'AI leaders publish seed posts' },
+                { key: 'AI_AUTO_COMMENTS_ENABLED', label: 'Auto Comments Enabled',      desc: 'AI leaders auto-comment on new deals' },
+              ].map(({ key, label, desc }) => {
+                const isOn = aiLeaders.settings[key] === 'true';
+                return (
+                  <div key={key} className="flex items-center justify-between py-2 border-b last:border-0" style={{ borderColor: '#273449' }}>
+                    <div>
+                      <p className="text-white text-sm font-medium">{label}</p>
+                      <p className="text-xs" style={{ color: '#94A3B8' }}>{desc}</p>
+                    </div>
+                    <button onClick={() => saveAiSettings(key, isOn ? 'false' : 'true')}
+                      className="flex items-center gap-1.5 text-sm font-semibold transition-colors"
+                      style={{ color: isOn ? '#4ADE80' : '#6B7280' }}>
+                      {isOn ? <ToggleRight size={24} /> : <ToggleLeft size={24} />}
+                      {isOn ? 'ON' : 'OFF'}
+                    </button>
+                  </div>
+                );
+              })}
+              <div className="flex items-center justify-between py-2">
+                <div>
+                  <p className="text-white text-sm font-medium">Max Comments / Day</p>
+                  <p className="text-xs" style={{ color: '#94A3B8' }}>AI total comments per calendar day</p>
+                </div>
+                <select
+                  value={aiLeaders.settings.AI_MAX_COMMENTS_PER_DAY ?? '20'}
+                  onChange={e => saveAiSettings('AI_MAX_COMMENTS_PER_DAY', e.target.value)}
+                  className="rounded-lg px-2 py-1 text-sm text-white"
+                  style={{ background: '#1E293B', border: '1px solid #334155' }}>
+                  {['5','10','20','50','100'].map(v => <option key={v} value={v}>{v}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* AI Leaders list */}
+          {aiLeaders?.leaders?.length > 0 && (
+            <div className="card space-y-3">
+              <h3 className="text-white font-semibold flex items-center gap-2"><Bot size={14} className="text-purple-400" /> AI Leaders ({aiLeaders.leaders.length})</h3>
+              {aiLeaders.leaders.map(l => (
+                <div key={l.id} className="flex items-start gap-3 py-3 border-b last:border-0" style={{ borderColor: '#273449' }}>
+                  {l.avatar_url ? (
+                    <img src={l.avatar_url} alt={l.name} className="w-10 h-10 rounded-full flex-shrink-0" style={{ background: '#1E293B' }} onError={e => { e.target.style.display='none'; }} />
+                  ) : (
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(139,92,246,0.15)', color: '#8B5CF6' }}>
+                      <Bot size={16} />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-white font-semibold text-sm">{l.name}</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold" style={{ color: '#8B5CF6', background: 'rgba(139,92,246,0.12)' }}>{l.ai_disclosure_label}</span>
+                      <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${l.is_active ? 'text-neon-green bg-neon-green/10' : 'text-gray-400 bg-gray-700/30'}`}>
+                        {l.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </div>
+                    <p className="text-xs mt-0.5" style={{ color: '#94A3B8' }}>{l.ai_specialty}</p>
+                    <div className="flex gap-3 mt-1 text-[11px]" style={{ color: '#64748B' }}>
+                      <span>Posts: {l.post_count}</span>
+                      <span>Comments: {l.comment_count}</span>
+                      <span>Today: {l.posts_today}p / {l.comments_today}c</span>
+                    </div>
+                  </div>
+                  <button onClick={() => toggleAiLeader(l.id)}
+                    className="text-xs px-2 py-1 rounded-lg flex-shrink-0 transition-colors"
+                    style={{ background: l.is_active ? 'rgba(248,113,113,0.1)' : 'rgba(74,222,128,0.1)', color: l.is_active ? '#F87171' : '#4ADE80', border: `1px solid ${l.is_active ? 'rgba(248,113,113,0.2)' : 'rgba(74,222,128,0.2)'}` }}>
+                    {l.is_active ? 'Disable' : 'Enable'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Recent AI posts */}
+          <RecentAiPosts />
         </div>
       )}
 

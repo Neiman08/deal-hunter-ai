@@ -264,7 +264,7 @@ async function scanOfficeDepotDeals() {
       AND NOT EXISTS (
         SELECT 1 FROM prices pr
         WHERE pr.product_id = p.id
-          AND pr.recorded_at > NOW() - INTERVAL '30 minutes'
+          AND pr.recorded_at > NOW() - INTERVAL '60 minutes'
       )
     ORDER BY d.opportunity_score DESC NULLS LAST
     LIMIT $1

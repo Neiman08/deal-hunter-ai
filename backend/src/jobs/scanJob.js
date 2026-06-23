@@ -370,13 +370,14 @@ async function runScan(storeSlug = null) {
 
   const duration = Math.round((Date.now() - startTime) / 1000);
 
-  // Determine final status:
-  //   error   — no products scanned and at least one store errored
-  //   partial — some stores succeeded, some failed
-  //   success — all ran without errors (or no errors at all)
+  // Determine final status based on store-level exceptions only.
+  // Product-level errors within a successful store scan (e.g. OD API throttling
+  // 3 of 15 products) don't degrade the overall status — the store ran fine.
+  // storeErrors entries with status='error' = store threw an uncaught exception.
+  const storeExceptions = Object.values(storeErrors).filter(r => r.status === 'error').length;
   const finalStatus =
-    totals.errors > 0 && totals.scanned === 0 ? 'error' :
-    totals.errors > 0 && totals.scanned > 0   ? 'partial' :
+    storeExceptions > 0 && totals.scanned === 0 ? 'error' :
+    storeExceptions > 0 && totals.scanned > 0   ? 'partial' :
     'success';
 
   // Update scan_log with per-store details

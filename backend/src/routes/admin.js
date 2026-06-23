@@ -191,12 +191,98 @@ router.get('/scanner-stats', async (req, res) => {
 // GET /admin/scan-logs
 router.get('/scan-logs', async (req, res) => {
   try {
+    const limit = Math.min(parseInt(req.query.limit) || 50, 200);
     const r = await query(`
-      SELECT sl.*, s.name as store_name, s.slug as store_slug
+      SELECT sl.id, sl.status, sl.products_scanned, sl.deals_found, sl.errors_count,
+             sl.duration_seconds, sl.started_at, sl.completed_at,
+             sl.store_name AS cycle_label,
+             sl.error_details,
+             s.name AS store_name, s.slug AS store_slug
       FROM scan_logs sl LEFT JOIN stores s ON sl.store_id = s.id
-      ORDER BY sl.started_at DESC LIMIT 50
+      ORDER BY sl.started_at DESC LIMIT $1
+    `, [limit]);
+    const logs = r.rows.map(row => ({
+      ...row,
+      error_details: (() => {
+        if (!row.error_details) return null;
+        try { return JSON.parse(row.error_details); } catch { return row.error_details; }
+      })(),
+    }));
+    // Aggregate stats
+    const total = logs.length;
+    const success  = logs.filter(l => l.status === 'success').length;
+    const partial  = logs.filter(l => l.status === 'partial').length;
+    const errored  = logs.filter(l => l.status === 'error').length;
+    const running  = logs.filter(l => l.status === 'running').length;
+    res.json({
+      logs,
+      summary: { total, success, partial, errored, running,
+        success_rate_pct: total > 0 ? Math.round((success + partial) / total * 100) : null },
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /admin/scan-health — scan success rate, circuit breaker state, proxy check
+router.get('/scan-health', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { _circuit, checkProxyConnectivity } = require('../jobs/scanJob');
+
+    // Last 48 scans stats
+    const statsR = await query(`
+      SELECT
+        COUNT(*)                                              AS total,
+        COUNT(*) FILTER (WHERE status = 'success')           AS success,
+        COUNT(*) FILTER (WHERE status = 'partial')           AS partial,
+        COUNT(*) FILTER (WHERE status = 'error')             AS errored,
+        COUNT(*) FILTER (WHERE status = 'running')           AS running,
+        MAX(CASE WHEN status IN ('success','partial') THEN started_at END) AS last_success_at,
+        MAX(CASE WHEN status = 'error' THEN started_at END)  AS last_error_at,
+        ROUND(AVG(duration_seconds) FILTER (WHERE status IN ('success','partial','error')), 0) AS avg_duration_s,
+        SUM(products_scanned)                                AS total_products_scanned,
+        SUM(deals_found)                                     AS total_deals_found
+      FROM scan_logs
+      WHERE started_at > NOW() - INTERVAL '24 hours'
     `);
-    res.json({ logs: r.rows });
+
+    // Proxy check
+    let proxyStatus = { ok: null, note: 'not checked' };
+    if (checkProxyConnectivity) {
+      proxyStatus = await checkProxyConnectivity().catch(e => ({ ok: false, error: e.message }));
+    }
+
+    // Circuit breaker state
+    const circuitState = {};
+    if (_circuit) {
+      for (const [store, c] of _circuit.entries()) {
+        if (c.failures > 0 || c.pausedUntil) {
+          circuitState[store] = {
+            failures: c.failures,
+            open: c.pausedUntil ? Date.now() < c.pausedUntil : false,
+            resumes_at: c.pausedUntil ? new Date(c.pausedUntil).toISOString() : null,
+          };
+        }
+      }
+    }
+
+    const s = statsR.rows[0];
+    const total = parseInt(s.total) || 0;
+    res.json({
+      ok: true,
+      period: '24h',
+      scans: {
+        total, success: parseInt(s.success), partial: parseInt(s.partial),
+        errored: parseInt(s.errored), running: parseInt(s.running),
+        success_rate_pct: total > 0 ? Math.round((parseInt(s.success) + parseInt(s.partial)) / total * 100) : null,
+        last_success_at: s.last_success_at, last_error_at: s.last_error_at,
+        avg_duration_s: parseInt(s.avg_duration_s) || null,
+        total_products_scanned: parseInt(s.total_products_scanned) || 0,
+        total_deals_found: parseInt(s.total_deals_found) || 0,
+      },
+      proxy: proxyStatus,
+      circuit_breaker: Object.keys(circuitState).length ? circuitState : { note: 'no open circuits' },
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

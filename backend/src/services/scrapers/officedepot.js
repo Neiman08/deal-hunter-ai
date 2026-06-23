@@ -240,8 +240,56 @@ async function scrapeOfficeDepotProduct(url) {
 }
 
 async function scanOfficeDepotDeals() {
-  const { runOfficeDepotDiscovery } = require('../discovery/officeDepotDiscovery');
-  return runOfficeDepotDiscovery();
+  // Re-check existing active OD deals for price changes.
+  // Full discovery runs in the background worker — this only refreshes prices.
+  const { query }          = require('../../config/database');
+  const { saveProductData } = require('../scraperBase');
+  const logger              = require('../../utils/logger');
+  const BATCH               = parseInt(process.env.SCAN_BATCH_SIZE) || 15;
+
+  logger.info('\n' + '═'.repeat(55));
+  logger.info('🏪 OFFICE DEPOT PRICE REFRESH SCAN');
+  logger.info('═'.repeat(55));
+
+  const rows = await query(`
+    SELECT p.id, p.name, p.brand, p.sku, p.product_url,
+           p.category_id, c.slug AS cat_slug
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.id
+    JOIN stores s ON p.store_id = s.id
+    JOIN deals d ON d.product_id = p.id AND d.is_active = true
+    WHERE s.slug = 'office-depot'
+      AND p.product_url IS NOT NULL
+      AND p.product_url ~ '/a/products/[0-9]+'
+      AND NOT EXISTS (
+        SELECT 1 FROM prices pr
+        WHERE pr.product_id = p.id
+          AND pr.recorded_at > NOW() - INTERVAL '30 minutes'
+      )
+    ORDER BY d.opportunity_score DESC NULLS LAST
+    LIMIT $1
+  `, [BATCH]);
+
+  logger.info(`[OD Scan] ${rows.rows.length} active deals queued for price refresh`);
+  const stats = { scanned: 0, deals: 0, errors: 0 };
+
+  for (const p of rows.rows) {
+    if (!p.product_url) continue;
+    try {
+      const scraped = await scrapeOfficeDepotProduct(p.product_url);
+      if (!scraped?.currentPrice) { stats.errors++; continue; }
+      stats.scanned++;
+      const r = await saveProductData(p, scraped, STORE_SLUG);
+      if (r?.discountPct >= 20) stats.deals++;
+    } catch (err) {
+      if (err.message === 'product_not_found') continue;
+      logger.error(`[OD Scan] FAIL "${p.name?.slice(0, 50)}": ${err.message}`);
+      stats.errors++;
+    }
+  }
+
+  logger.info(`[OD Scan] COMPLETE | scanned:${stats.scanned} deals:${stats.deals} errors:${stats.errors}`);
+  return { products_scanned: stats.scanned, deals_found: stats.deals, errors: stats.errors };
 }
 
 // Pre-warm the session once per discovery cycle to avoid 150 individual session fetches

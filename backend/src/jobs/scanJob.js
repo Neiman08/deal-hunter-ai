@@ -61,6 +61,56 @@ const PROXY_KILL_SWITCH = process.env.PROXY_KILL_SWITCH === 'true';
 
 let isRunning = false;
 
+// ─── Per-store circuit breaker ────────────────────────────────────────────────
+// Tracks consecutive failures. After CIRCUIT_THRESHOLD failures the store is
+// paused for CIRCUIT_PAUSE_MS so it doesn't burn every 30-min cron slot.
+const _circuit = new Map(); // store → { failures: number, pausedUntil: number|null }
+const CIRCUIT_THRESHOLD = 5;
+const CIRCUIT_PAUSE_MS  = 90 * 60 * 1000; // 90 min = 3 cron cycles
+
+function isCircuitOpen(store) {
+  const c = _circuit.get(store);
+  if (!c) return false;
+  if (c.pausedUntil && Date.now() < c.pausedUntil) return true;
+  if (c.pausedUntil && Date.now() >= c.pausedUntil) {
+    _circuit.set(store, { failures: 0, pausedUntil: null }); // auto-reset
+  }
+  return false;
+}
+
+function recordStoreFailure(store, errMsg) {
+  const c = _circuit.get(store) || { failures: 0, pausedUntil: null };
+  c.failures++;
+  if (c.failures >= CIRCUIT_THRESHOLD && !c.pausedUntil) {
+    c.pausedUntil = Date.now() + CIRCUIT_PAUSE_MS;
+    logger.warn(`[ScanJob] Circuit TRIPPED for ${store} (${c.failures} consecutive failures) — pausing 90 min`);
+  }
+  _circuit.set(store, c);
+}
+
+function recordStoreSuccess(store) {
+  _circuit.set(store, { failures: 0, pausedUntil: null });
+}
+
+// ─── Proxy connectivity pre-check ─────────────────────────────────────────────
+// Quick test before launching browsers. Returns { ok, error }.
+async function checkProxyConnectivity() {
+  if (process.env.PROXY_ENABLED !== 'true') return { ok: true, skipped: true };
+  const host = process.env.PROXY_HOST;
+  const port = process.env.PROXY_PORT || '22225';
+  const user = process.env.PROXY_USER;
+  const pass = process.env.PROXY_PASS;
+  if (!host || !user || !pass) return { ok: false, error: 'PROXY_HOST/USER/PASS not set' };
+
+  return new Promise(resolve => {
+    const net = require('net');
+    const sock = net.connect({ host, port: parseInt(port), timeout: 5000 });
+    sock.on('connect', () => { sock.destroy(); resolve({ ok: true }); });
+    sock.on('timeout', () => { sock.destroy(); resolve({ ok: false, error: `TCP timeout connecting to ${host}:${port}` }); });
+    sock.on('error',   e  => resolve({ ok: false, error: `TCP error: ${e.message}` }));
+  });
+}
+
 // ─── Category inference by store + product name ───────────────────────────────
 // Returns a category slug from the categories table, or null to use DB default.
 function inferCategorySlug(storeSlug, name = '') {
@@ -154,22 +204,52 @@ async function runScan(storeSlug = null) {
     return { stores_run: 0 };
   }
 
+  // ── Proxy connectivity pre-check ──────────────────────────────────────────
+  // Fail-fast before launching browsers if the proxy TCP port is unreachable.
+  // OD (HTTP-based, no browser) is allowed to run even when proxy is down.
+  let proxyOk = true;
+  if (process.env.PROXY_ENABLED === 'true') {
+    const proxyCheck = await checkProxyConnectivity();
+    proxyOk = proxyCheck.ok;
+    if (!proxyOk) {
+      logger.warn(`[ScanJob] Proxy pre-check FAILED: ${proxyCheck.error}`);
+      logger.warn('[ScanJob] Playwright scrapers will be skipped — proxy unreachable. OD (HTTP) will still run.');
+    } else {
+      logger.info('[ScanJob] Proxy pre-check OK');
+    }
+  }
+
   // Fast browser availability check — if Playwright can't launch in 20s, abort cleanly
   // instead of letting each store hang for 12 min (which caused 1565s error scans).
-  const BROWSER_CHECK_MS = 20000;
-  try {
-    await Promise.race([
-      getBrowser(),
-      new Promise((_, rej) => setTimeout(() => rej(new Error('Browser launch timeout (20s)')), BROWSER_CHECK_MS)),
-    ]);
-    logger.info('[ScanJob] Playwright browser ready');
-  } catch (browserErr) {
-    logger.warn(`[ScanJob] Playwright browser unavailable: ${browserErr.message}`);
-    logger.warn('[ScanJob] Skipping Playwright scan — HTTP discovery worker handles deals');
+  // Skip this check if proxy is already known to be down (browsers would fail anyway).
+  let browserReady = false;
+  if (proxyOk) {
+    const BROWSER_CHECK_MS = 20000;
+    try {
+      await Promise.race([
+        getBrowser(),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('Browser launch timeout (20s)')), BROWSER_CHECK_MS)),
+      ]);
+      logger.info('[ScanJob] Playwright browser ready');
+      browserReady = true;
+    } catch (browserErr) {
+      logger.warn(`[ScanJob] Playwright browser unavailable: ${browserErr.message}`);
+      logger.warn('[ScanJob] Playwright scrapers will be skipped — OD (HTTP) may still run');
+    }
+  }
+
+  // If neither browser nor proxy is available, only HTTP-only scrapers (OD) can run.
+  // If nothing can run at all, abort early.
+  const hasHttpOnlyStores = scrapableStores.includes('office-depot');
+  if (!browserReady && !hasHttpOnlyStores) {
+    logger.warn('[ScanJob] No browser and no HTTP-only stores — aborting scan');
     if (logId) {
       await query(
-        `UPDATE scan_logs SET status='error', completed_at=NOW(), duration_seconds=$1 WHERE id=$2`,
-        [Math.round((Date.now() - startTime) / 1000), logId]
+        `UPDATE scan_logs SET status='error', completed_at=NOW(), duration_seconds=$1,
+         error_details=$2 WHERE id=$3`,
+        [Math.round((Date.now() - startTime) / 1000),
+         JSON.stringify({ _reason: proxyOk ? 'browser_unavailable' : 'proxy_unreachable' }),
+         logId]
       ).catch(() => {});
     }
     isRunning = false;
@@ -178,6 +258,7 @@ async function runScan(storeSlug = null) {
 
   const totals = { scanned: 0, deals: 0, errors: 0 };
   const storeResults = {};
+  const storeErrors  = {}; // per-store details written to error_details column
 
   for (const store of scrapableStores) {
     const scraper = STORE_SCRAPERS[store];
@@ -186,10 +267,28 @@ async function runScan(storeSlug = null) {
       continue;
     }
 
+    // Circuit breaker — skip stores that have failed too many times recently
+    if (isCircuitOpen(store)) {
+      const c = _circuit.get(store);
+      const resumeIn = Math.round((c.pausedUntil - Date.now()) / 60000);
+      logger.warn(`[ScanJob] ${store} circuit OPEN — skipping (resumes in ~${resumeIn} min)`);
+      storeErrors[store] = { status: 'circuit_breaker', resumes_in_min: resumeIn };
+      continue;
+    }
+
+    // Skip Playwright-dependent scrapers when browser is unavailable
+    // OD is HTTP-only and can always run. All other scrapers need a browser.
+    const isHttpOnly = (store === 'office-depot');
+    if (!browserReady && !isHttpOnly) {
+      logger.warn(`[ScanJob] ${store} skipped — browser unavailable`);
+      storeErrors[store] = { status: 'skipped_no_browser' };
+      continue;
+    }
+
     const storeStart = Date.now();
     logger.info(`\n[ScanJob] ── Starting ${store} ──`);
 
-    const STORE_TIMEOUT_MS = 3 * 60 * 1000; // 3 min per store (was 12 — caused 26-min hangs)
+    const STORE_TIMEOUT_MS = 3 * 60 * 1000; // 3 min per store
     const totalElapsed = Date.now() - startTime;
     const TOTAL_SCAN_CAP_MS = 8 * 60 * 1000; // 8 min total hard cap
     if (totalElapsed > TOTAL_SCAN_CAP_MS) {
@@ -209,10 +308,21 @@ async function runScan(storeSlug = null) {
         duration_ms: Date.now() - storeStart,
         status: 'success',
       };
+      storeErrors[store] = {
+        status: 'success',
+        products_scanned: result.products_scanned || 0,
+        deals_found: result.deals_found || 0,
+        errors: result.errors || 0,
+        duration_s: Math.round((Date.now() - storeStart) / 1000),
+      };
+      recordStoreSuccess(store);
       logger.info(`[ScanJob] ${store} done in ${((Date.now() - storeStart) / 1000).toFixed(1)}s`);
     } catch (err) {
-      logger.error(`[ScanJob] ${store} FAILED: ${err.message}`);
+      const durS = Math.round((Date.now() - storeStart) / 1000);
+      logger.error(`[ScanJob] ${store} FAILED (${durS}s): ${err.message}`);
       totals.errors++;
+      recordStoreFailure(store, err.message);
+      storeErrors[store] = { status: 'error', error: err.message, duration_s: durS };
       storeResults[store] = { status: 'error', error: err.message, duration_ms: Date.now() - storeStart };
     }
   }
@@ -260,7 +370,16 @@ async function runScan(storeSlug = null) {
 
   const duration = Math.round((Date.now() - startTime) / 1000);
 
-  // Update scan_log
+  // Determine final status:
+  //   error   — no products scanned and at least one store errored
+  //   partial — some stores succeeded, some failed
+  //   success — all ran without errors (or no errors at all)
+  const finalStatus =
+    totals.errors > 0 && totals.scanned === 0 ? 'error' :
+    totals.errors > 0 && totals.scanned > 0   ? 'partial' :
+    'success';
+
+  // Update scan_log with per-store details
   if (logId) {
     try {
       await query(`
@@ -270,11 +389,14 @@ async function runScan(storeSlug = null) {
           deals_found      = $3,
           errors_count     = $4,
           duration_seconds = $5,
+          error_details    = $6,
           completed_at     = NOW()
-        WHERE id = $6
+        WHERE id = $7
       `, [
-        totals.errors > 0 && totals.scanned === 0 ? 'error' : 'success',
-        totals.scanned, totals.deals, totals.errors, duration, logId,
+        finalStatus,
+        totals.scanned, totals.deals, totals.errors, duration,
+        JSON.stringify(storeErrors),
+        logId,
       ]);
     } catch (err) {
       logger.warn(`[ScanJob] Could not update scan_log: ${err.message}`);
@@ -282,16 +404,19 @@ async function runScan(storeSlug = null) {
   }
 
   logger.info('\n' + '█'.repeat(60));
-  logger.info(`[ScanJob] COMPLETE in ${duration}s`);
+  logger.info(`[ScanJob] COMPLETE in ${duration}s | status=${finalStatus}`);
   logger.info(`  Scanned: ${totals.scanned} | Deals: ${totals.deals} | Errors: ${totals.errors}`);
-  Object.entries(storeResults).forEach(([store, r]) => {
-    const icon = r.status === 'success' ? '✅' : '❌';
-    logger.info(`  ${icon} ${store}: scanned=${r.products_scanned||0} deals=${r.deals_found||0} (${(r.duration_ms/1000).toFixed(1)}s)`);
+  Object.entries(storeErrors).forEach(([store, r]) => {
+    const icon = r.status === 'success' ? '✅' : r.status === 'circuit_breaker' ? '🔴' : r.status === 'skipped_no_browser' ? '⏭️ ' : '❌';
+    const detail = r.status === 'success'
+      ? `scanned=${r.products_scanned} deals=${r.deals_found} (${r.duration_s}s)`
+      : r.error || r.status;
+    logger.info(`  ${icon} ${store}: ${detail}`);
   });
   logger.info('█'.repeat(60) + '\n');
 
   isRunning = false;
-  return { duration_seconds: duration, ...totals, stores: storeResults };
+  return { duration_seconds: duration, status: finalStatus, ...totals, stores: storeResults };
 }
 
 // ─── Single-product scan (for debug routes) ───────────────────────────────────
@@ -437,4 +562,4 @@ function startScanJob() {
 process.on('SIGINT',  async () => { await closeBrowser(); process.exit(0); });
 process.on('SIGTERM', async () => { await closeBrowser(); process.exit(0); });
 
-module.exports = { startScanJob, runScan, scanSingleProduct };
+module.exports = { startScanJob, runScan, scanSingleProduct, _circuit, checkProxyConnectivity };

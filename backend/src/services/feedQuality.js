@@ -16,9 +16,9 @@
  */
 
 const PLACEHOLDER_PATTERNS = [
-  /^gamestop product\s+\d+$/i,
-  /^product\s+\d+$/i,
-  /^\d{5,}$/,                     // pure numeric ID as name
+  /^gamestop product\s+\d+$/i,   // "GameStop Product 477018"
+  /^product\s+\d+$/i,            // "Product 123456"
+  /^\d{5,}$/,                    // pure numeric ID as name
 ];
 
 /**

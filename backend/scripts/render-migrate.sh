@@ -23,5 +23,6 @@ node src/db/add_bestbuy_sku.js       || echo "[render-migrate] add_bestbuy_sku s
 node src/db/add-beta-plan.js         || echo "[render-migrate] add-beta-plan skipped"
 node src/db/add-scanner-unknown.js   || echo "[render-migrate] add-scanner-unknown skipped"
 node src/db/add-quality-gate.js      || echo "[render-migrate] add-quality-gate skipped"
+node src/db/quality-classify.js      || echo "[render-migrate] quality-classify skipped"
 
 echo "=== [render-migrate] All migrations complete ==="

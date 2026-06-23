@@ -1458,11 +1458,11 @@ router.post('/run-quality-backfill', async (req, res) => {
         quality_status = CASE
           WHEN trim(COALESCE(p.name, '')) = '' OR length(trim(COALESCE(p.name, ''))) < 5
             THEN 'MISSING_TITLE'
-          WHEN trim(p.name) ~* '^gamestop product\\s+\\d+$'
+          WHEN trim(p.name) ~* '^gamestop product[[:space:]]+[0-9]+$'
             THEN 'PLACEHOLDER_TITLE'
-          WHEN trim(p.name) ~* '^product\\s+\\d+$'
+          WHEN trim(p.name) ~* '^product[[:space:]]+[0-9]+$'
             THEN 'PLACEHOLDER_TITLE'
-          WHEN trim(p.name) ~ '^\\d{5,}$'
+          WHEN trim(p.name) ~ '^[0-9]{5,}$'
             THEN 'PLACEHOLDER_TITLE'
           WHEN (p.product_url LIKE '%macys.com%')
                AND (p.product_url NOT LIKE '%?ID=%')
@@ -1475,11 +1475,11 @@ router.post('/run-quality-backfill', async (req, res) => {
         is_public_visible = CASE
           WHEN trim(COALESCE(p.name, '')) = '' OR length(trim(COALESCE(p.name, ''))) < 5
             THEN false
-          WHEN trim(p.name) ~* '^gamestop product\\s+\\d+$'
+          WHEN trim(p.name) ~* '^gamestop product[[:space:]]+[0-9]+$'
             THEN false
-          WHEN trim(p.name) ~* '^product\\s+\\d+$'
+          WHEN trim(p.name) ~* '^product[[:space:]]+[0-9]+$'
             THEN false
-          WHEN trim(p.name) ~ '^\\d{5,}$'
+          WHEN trim(p.name) ~ '^[0-9]{5,}$'
             THEN false
           WHEN (p.product_url LIKE '%macys.com%')
                AND (p.product_url NOT LIKE '%?ID=%')
@@ -1492,9 +1492,9 @@ router.post('/run-quality-backfill', async (req, res) => {
         quality_reason = CASE
           WHEN trim(COALESCE(p.name, '')) = '' OR length(trim(COALESCE(p.name, ''))) < 5
             THEN 'Empty or too-short product name'
-          WHEN trim(p.name) ~* '^(gamestop )?product\\s+\\d+$'
+          WHEN trim(p.name) ~* '^(gamestop )?product[[:space:]]+[0-9]+$'
             THEN 'Placeholder name: ' || trim(p.name)
-          WHEN trim(p.name) ~ '^\\d{5,}$'
+          WHEN trim(p.name) ~ '^[0-9]{5,}$'
             THEN 'Numeric-only name: ' || trim(p.name)
           WHEN (p.product_url LIKE '%macys.com%')
                AND (p.product_url NOT LIKE '%?ID=%')

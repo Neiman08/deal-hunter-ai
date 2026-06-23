@@ -22,6 +22,7 @@ const BASE_DEAL_QUERY = `
   LEFT JOIN categories c ON p.category_id = c.id
   LEFT JOIN store_locations sl ON d.store_location_id = sl.id
   WHERE d.is_active = true
+  AND (p.is_public_visible IS NOT FALSE)
 `;
 
 // GET /deals
@@ -37,7 +38,8 @@ router.get('/', async (req, res) => {
     let conditions = [
       'd.is_active = true',
       `d.discount_percent >= $1`,
-      '(d.is_error_price IS NOT TRUE)',  // exclude suspicious/inflated prices from public feed
+      '(d.is_error_price IS NOT TRUE)',        // exclude suspicious/inflated prices
+      '(p.is_public_visible IS NOT FALSE)',    // quality gate: hide placeholders + broken URLs
     ];
     let params = [parseFloat(min_discount)];
     let p = 2;
@@ -183,6 +185,7 @@ router.get('/live', async (req, res) => {
       JOIN stores s ON d.store_id = s.id
       LEFT JOIN categories c ON p.category_id = c.id
       WHERE d.is_active = true
+        AND (p.is_public_visible IS NOT FALSE)
       ORDER BY d.opportunity_score DESC NULLS LAST, d.discount_percent DESC
       LIMIT $1
     `, [limit]);

@@ -13,10 +13,9 @@ let _qualityFilter = '';
     await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS quality_reason    TEXT        DEFAULT NULL`);
     await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS is_public_visible BOOLEAN     DEFAULT NULL`);
 
-    // Run classification only for unchecked products (quality_status IS NULL).
-    // This is a one-time cost on the first deploy; subsequent restarts update nothing.
-    const unchecked = await query(`SELECT COUNT(*) AS n FROM products WHERE quality_status IS NULL`);
-    if (parseInt(unchecked.rows[0].n) > 0) {
+    // Re-classify all products (idempotent UPDATE — same result every run).
+    // Running on every restart ensures correctness even if a prior run used wrong regex.
+    {
       await query(`
         UPDATE products p SET
           quality_status = CASE
@@ -50,7 +49,7 @@ let _qualityFilter = '';
             ELSE NULL
           END,
           updated_at = NOW()
-        FROM stores s WHERE p.store_id = s.id AND p.quality_status IS NULL
+        FROM stores s WHERE p.store_id = s.id
       `);
     }
     _qualityFilter = '(p.is_public_visible IS NOT FALSE)';

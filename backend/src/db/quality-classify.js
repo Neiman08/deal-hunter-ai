@@ -64,6 +64,7 @@ async function classify() {
       updated_at = NOW()
     FROM stores s
     WHERE p.store_id = s.id
+    -- always re-classify (idempotent — corrects prior wrong regex runs)
   `);
   console.log(`[quality-classify] ${result.rowCount} products classified`);
 

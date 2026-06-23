@@ -279,6 +279,7 @@ router.get('/:slug', async (req, res) => {
       SELECT d.*, p.name AS product_name, p.image_url
       FROM deals d JOIN products p ON d.product_id = p.id
       WHERE d.store_id = $1 AND d.is_active = true
+        AND p.is_public_visible = true AND p.quality_status IN ('PASS', 'NEEDS_IMAGE')
       ORDER BY d.opportunity_score DESC LIMIT 20
     `, [store.id]);
 

@@ -70,14 +70,15 @@ router.get('/alerts', authenticate, async (req, res) => {
       let params = [item.min_discount || 20];
       let p = 2;
 
+      const QUALITY = `p.is_public_visible = true AND p.quality_status IN ('PASS', 'NEEDS_IMAGE')`;
       if (item.type === 'brand') {
-        dealQuery = `SELECT d.*, p.name, p.brand, s.name as store_name FROM deals d JOIN products p ON d.product_id = p.id JOIN stores s ON d.store_id = s.id WHERE d.is_active = true AND d.discount_percent >= $1 AND LOWER(p.brand) = LOWER($${p++}) ORDER BY d.opportunity_score DESC LIMIT 5`;
+        dealQuery = `SELECT d.*, p.name, p.brand, s.name as store_name FROM deals d JOIN products p ON d.product_id = p.id JOIN stores s ON d.store_id = s.id WHERE d.is_active = true AND d.discount_percent >= $1 AND ${QUALITY} AND LOWER(p.brand) = LOWER($${p++}) ORDER BY d.opportunity_score DESC LIMIT 5`;
         params.push(item.value);
       } else if (item.type === 'upc') {
-        dealQuery = `SELECT d.*, p.name, p.brand, s.name as store_name FROM deals d JOIN products p ON d.product_id = p.id JOIN stores s ON d.store_id = s.id WHERE d.is_active = true AND d.discount_percent >= $1 AND p.upc = $${p++} ORDER BY d.opportunity_score DESC LIMIT 5`;
+        dealQuery = `SELECT d.*, p.name, p.brand, s.name as store_name FROM deals d JOIN products p ON d.product_id = p.id JOIN stores s ON d.store_id = s.id WHERE d.is_active = true AND d.discount_percent >= $1 AND ${QUALITY} AND p.upc = $${p++} ORDER BY d.opportunity_score DESC LIMIT 5`;
         params.push(item.value);
       } else if (item.type === 'keyword') {
-        dealQuery = `SELECT d.*, p.name, p.brand, s.name as store_name FROM deals d JOIN products p ON d.product_id = p.id JOIN stores s ON d.store_id = s.id WHERE d.is_active = true AND d.discount_percent >= $1 AND (LOWER(p.name) LIKE LOWER($${p}) OR LOWER(p.brand) LIKE LOWER($${p})) ORDER BY d.opportunity_score DESC LIMIT 5`;
+        dealQuery = `SELECT d.*, p.name, p.brand, s.name as store_name FROM deals d JOIN products p ON d.product_id = p.id JOIN stores s ON d.store_id = s.id WHERE d.is_active = true AND d.discount_percent >= $1 AND ${QUALITY} AND (LOWER(p.name) LIKE LOWER($${p}) OR LOWER(p.brand) LIKE LOWER($${p})) ORDER BY d.opportunity_score DESC LIMIT 5`;
         params.push(`%${item.value}%`);
       } else {
         continue;

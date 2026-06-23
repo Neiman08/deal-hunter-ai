@@ -116,9 +116,66 @@ async function scrapeGameStopProduct(url) {
 }
 
 async function scanGameStopDeals() {
-  // Delegate to discovery engine
-  const { runGameStopDiscovery } = require('../discovery/gamestopDiscovery');
-  return runGameStopDiscovery();
+  // Re-scan existing active GameStop deals for price changes.
+  // Full discovery runs in the background worker — this only refreshes prices.
+  const { query }           = require('../../config/database');
+  const { saveProductData } = require('../scraperBase');
+  const logger              = require('../../utils/logger');
+  const BATCH               = parseInt(process.env.SCAN_BATCH_SIZE) || 10;
+
+  logger.info('\n' + '═'.repeat(55));
+  logger.info('🎮 GAMESTOP PRICE REFRESH SCAN');
+  logger.info('═'.repeat(55));
+
+  const rows = await query(`
+    SELECT p.id, p.name, p.brand, p.sku, p.product_url,
+           p.category_id, c.slug AS cat_slug
+    FROM products p
+    LEFT JOIN categories c ON p.category_id = c.id
+    JOIN stores s ON p.store_id = s.id
+    JOIN deals d ON d.product_id = p.id AND d.is_active = true
+    WHERE s.slug = 'gamestop'
+      AND p.product_url IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM prices pr
+        WHERE pr.product_id = p.id
+          AND pr.recorded_at > NOW() - INTERVAL '60 minutes'
+      )
+    ORDER BY d.opportunity_score DESC NULLS LAST
+    LIMIT $1
+  `, [BATCH]);
+
+  logger.info(`[GS Scan] ${rows.rows.length} active deals queued for price refresh`);
+  const stats = { scanned: 0, deals: 0, errors: 0 };
+  let consecutiveFails = 0;
+  const ABORT_THRESHOLD = 3;
+
+  for (const p of rows.rows) {
+    if (!p.product_url) continue;
+    try {
+      const scraped = await scrapeGameStopProduct(p.product_url);
+      if (!scraped?.currentPrice || scraped.currentPrice <= 3) {
+        consecutiveFails++;
+        stats.errors++;
+        continue;
+      }
+      consecutiveFails = 0;
+      stats.scanned++;
+      const r = await saveProductData(p, scraped, STORE_SLUG);
+      if (r?.discountPct >= 20) stats.deals++;
+    } catch (err) {
+      consecutiveFails++;
+      logger.error(`[GS Scan] FAIL "${p.name?.slice(0, 50)}": ${err.message}`);
+      stats.errors++;
+      if (consecutiveFails >= ABORT_THRESHOLD) {
+        logger.warn(`[GS Scan] ${consecutiveFails} consecutive failures — aborting early`);
+        break;
+      }
+    }
+  }
+
+  logger.info(`[GS Scan] COMPLETE | scanned:${stats.scanned} deals:${stats.deals} errors:${stats.errors}`);
+  return { products_scanned: stats.scanned, deals_found: stats.deals, errors: stats.errors };
 }
 
 module.exports = { scrapeGameStopProduct, scanGameStopDeals };

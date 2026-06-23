@@ -1693,6 +1693,116 @@ router.post('/run-image-enrichment', async (req, res) => {
   }
 });
 
+// POST /admin/run-url-image-enrichment
+// Extracts og:image from product URLs for NEEDS_IMAGE products that have no UPC.
+// Optional body: { limit: 20, store: "target", delay_ms: 800 }
+// Best Buy pages are Akamai-protected and will likely return blocked_or_no_og_image.
+router.post('/run-url-image-enrichment', authenticate, requireAdmin, async (req, res) => {
+  const limit    = Math.min(parseInt(req.body?.limit) || 20, 50);
+  const store    = req.body?.store || null;
+  const delayMs  = Math.max(parseInt(req.body?.delay_ms) || 800, 300);
+  const https    = require('https');
+  const http     = require('http');
+  const sleep    = ms => new Promise(r => setTimeout(r, ms));
+
+  function fetchOgImage(url, redirects = 0) {
+    if (redirects > 3) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      const client  = url.startsWith('https') ? https : http;
+      const options = {
+        headers: {
+          'User-Agent':      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+          'Accept':          'text/html,application/xhtml+xml',
+          'Accept-Language': 'en-US,en;q=0.9',
+        },
+        timeout: 12000,
+      };
+      try {
+        const req = client.get(url, options, (response) => {
+          const { statusCode, headers } = response;
+          if (statusCode >= 300 && statusCode < 400 && headers.location) {
+            response.resume();
+            return fetchOgImage(headers.location, redirects + 1).then(resolve);
+          }
+          if (statusCode !== 200) { response.resume(); return resolve(null); }
+          let html = '';
+          response.setEncoding('utf8');
+          response.on('data', chunk => {
+            html += chunk;
+            if (html.length > 60000) response.destroy();
+          });
+          response.on('end', () => {
+            const m = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i)
+                   || html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+            resolve(m ? m[1] : null);
+          });
+          response.on('error', () => resolve(null));
+        });
+        req.on('error', () => resolve(null));
+        req.on('timeout', () => { req.destroy(); resolve(null); });
+      } catch { resolve(null); }
+    });
+  }
+
+  try {
+    const params = [limit];
+    const storeFilter = store ? `AND s.slug = $2` : '';
+    if (store) params.push(store);
+
+    const candidates = await query(`
+      SELECT p.id, p.name, p.product_url, s.slug AS store_slug
+      FROM products p
+      JOIN stores s ON p.store_id = s.id
+      WHERE p.quality_status = 'NEEDS_IMAGE'
+        AND p.product_url IS NOT NULL AND trim(p.product_url) != ''
+        ${storeFilter}
+      ORDER BY p.updated_at ASC
+      LIMIT $1
+    `, params);
+
+    if (!candidates.rows.length) {
+      return res.json({ ok: true, processed: 0, enriched: 0, message: 'No eligible products' });
+    }
+
+    let enriched = 0;
+    const results = [];
+
+    for (const prod of candidates.rows) {
+      const r = { id: prod.id, store: prod.store_slug, name: prod.name.slice(0, 60), outcome: 'no_image' };
+      try {
+        const imgUrl = await fetchOgImage(prod.product_url);
+        if (imgUrl && imgUrl.startsWith('http')) {
+          await query(`
+            UPDATE products SET
+              image_url             = $2,
+              quality_status        = 'PASS',
+              is_public_visible     = TRUE,
+              quality_reason        = NULL,
+              last_quality_check_at = NOW(),
+              updated_at            = NOW()
+            WHERE id = $1
+          `, [prod.id, imgUrl]);
+          r.outcome = 'enriched';
+          r.image   = imgUrl;
+          enriched++;
+        } else {
+          r.outcome = 'blocked_or_no_og_image';
+        }
+      } catch (err) {
+        r.outcome = `error: ${err.message.slice(0, 60)}`;
+      }
+      results.push(r);
+      await sleep(delayMs);
+    }
+
+    logger.info(`[Admin] run-url-image-enrichment: ${enriched}/${candidates.rows.length} enriched`);
+    res.json({ ok: true, processed: candidates.rows.length, enriched, results });
+  } catch (err) {
+    logger.error(`[Admin] run-url-image-enrichment error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /admin/community-reports
 // Lists community-submitted product corrections (recovery_source = 'community').
 router.get('/community-reports', async (req, res) => {

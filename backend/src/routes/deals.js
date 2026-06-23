@@ -3,6 +3,19 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { authenticate, requirePlan } = require('../middleware/auth');
 
+// Check once at startup whether the quality_gate column exists.
+// Returns '' until confirmed — keeps the feed working even if the migration hasn't run yet.
+let _qualityFilter = '';
+(async () => {
+  try {
+    const r = await query(`
+      SELECT 1 FROM information_schema.columns
+      WHERE table_name = 'products' AND column_name = 'is_public_visible'
+    `);
+    if (r.rows.length > 0) _qualityFilter = '(p.is_public_visible IS NOT FALSE)';
+  } catch { /* ignore — column check failed, filter stays disabled */ }
+})();
+
 const BASE_DEAL_QUERY = `
   SELECT
     d.id, d.regular_price, d.deal_price, d.discount_percent, d.savings_amount,
@@ -22,7 +35,6 @@ const BASE_DEAL_QUERY = `
   LEFT JOIN categories c ON p.category_id = c.id
   LEFT JOIN store_locations sl ON d.store_location_id = sl.id
   WHERE d.is_active = true
-  AND (p.is_public_visible IS NOT FALSE)
 `;
 
 // GET /deals
@@ -38,8 +50,8 @@ router.get('/', async (req, res) => {
     let conditions = [
       'd.is_active = true',
       `d.discount_percent >= $1`,
-      '(d.is_error_price IS NOT TRUE)',        // exclude suspicious/inflated prices
-      '(p.is_public_visible IS NOT FALSE)',    // quality gate: hide placeholders + broken URLs
+      '(d.is_error_price IS NOT TRUE)',
+      ...(  _qualityFilter ? [_qualityFilter] : []),
     ];
     let params = [parseFloat(min_discount)];
     let p = 2;
@@ -185,7 +197,7 @@ router.get('/live', async (req, res) => {
       JOIN stores s ON d.store_id = s.id
       LEFT JOIN categories c ON p.category_id = c.id
       WHERE d.is_active = true
-        AND (p.is_public_visible IS NOT FALSE)
+        ${_qualityFilter ? `AND ${_qualityFilter}` : ''}
       ORDER BY d.opportunity_score DESC NULLS LAST, d.discount_percent DESC
       LIMIT $1
     `, [limit]);

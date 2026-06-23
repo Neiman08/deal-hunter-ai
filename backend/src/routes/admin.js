@@ -1625,6 +1625,74 @@ router.get('/feed-quality', async (req, res) => {
   }
 });
 
+// POST /admin/run-image-enrichment
+// Processes up to `limit` NEEDS_IMAGE products that have a UPC.
+// Calls upcitemdb to fetch image_url, brand, category. Re-classifies each product after update.
+// Safe to call repeatedly — skips products with no UPC, respects rate limits via delay.
+router.post('/run-image-enrichment', async (req, res) => {
+  const limit = Math.min(parseInt(req.body?.limit) || 20, 50);
+  const delayMs = parseInt(req.body?.delay_ms) || 1200; // ~50 req/min, stays within upcitemdb trial
+  const { lookupUpc } = require('../services/external/upcRecovery');
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+  try {
+    const candidates = await query(`
+      SELECT p.id, p.upc, p.name, p.brand, p.image_url
+      FROM products p
+      WHERE p.quality_status = 'NEEDS_IMAGE'
+        AND p.upc IS NOT NULL
+        AND trim(p.upc) != ''
+      ORDER BY p.updated_at ASC
+      LIMIT $1
+    `, [limit]);
+
+    if (!candidates.rows.length) {
+      return res.json({ ok: true, processed: 0, enriched: 0, message: 'No eligible products found' });
+    }
+
+    let enriched = 0;
+    const results = [];
+
+    for (const prod of candidates.rows) {
+      const r = { id: prod.id, upc: prod.upc, name: prod.name, outcome: 'no_data' };
+      try {
+        const data = await lookupUpc(prod.upc);
+        if (data?.found && data.image_url) {
+          await query(`
+            UPDATE products SET
+              image_url  = COALESCE(NULLIF(trim($2), ''), image_url),
+              brand      = CASE WHEN brand IS NULL AND $3::text IS NOT NULL THEN $3 ELSE brand END,
+              quality_status  = 'PASS',
+              is_public_visible = TRUE,
+              quality_reason  = NULL,
+              last_quality_check_at = NOW(),
+              updated_at = NOW()
+            WHERE id = $1
+          `, [prod.id, data.image_url, data.brand || null]);
+          r.outcome  = 'enriched';
+          r.image    = data.image_url;
+          r.source   = data.source;
+          enriched++;
+        } else {
+          r.outcome = data?.found ? 'found_no_image' : 'not_found';
+        }
+      } catch (err) {
+        r.outcome = `error: ${err.message.slice(0, 80)}`;
+        logger.warn(`[Admin] enrichment error for product ${prod.id}: ${err.message}`);
+      }
+      results.push(r);
+      await sleep(delayMs);
+    }
+
+    logger.info(`[Admin] run-image-enrichment: ${enriched}/${candidates.rows.length} enriched`);
+    res.json({ ok: true, processed: candidates.rows.length, enriched, results });
+  } catch (err) {
+    logger.error(`[Admin] run-image-enrichment error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /admin/community-reports
 // Lists community-submitted product corrections (recovery_source = 'community').
 router.get('/community-reports', async (req, res) => {

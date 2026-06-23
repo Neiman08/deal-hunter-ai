@@ -174,8 +174,17 @@ async function filterNewUrls(urls, storeLabel = '') {
  *                     clearance, pageText, source }
  * Returns the saveProductData result or null on error.
  */
+const PLACEHOLDER_NAME_RE = /^(gamestop |[a-z]{2,12} )?product\s+\d+$/i;
+
 async function saveDiscoveryCard(card, storeSlug) {
   if (!card?.currentPrice || !card?.productUrl) return null;
+  // Block saving a product with a placeholder name — it will be hidden by quality gate
+  // but never recovered because we have no real name to work from.
+  const cardName = (card.name || '').trim();
+  if (!cardName || cardName.length < 5 || PLACEHOLDER_NAME_RE.test(cardName) || /^\d{5,}$/.test(cardName)) {
+    logger.warn(`[Discovery:${storeSlug}] Rejected — placeholder/empty name: "${cardName}" url: ${card.productUrl}`);
+    return null;
+  }
 
   try {
     // Lookup or create store

@@ -3,60 +3,110 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { authenticate, requirePlan } = require('../middleware/auth');
 
-// Quality gate: add the column if missing, run initial classification if needed.
-// Self-healing — works even if the migration script failed.
+// Public feed quality gate.
+// Rule: ONLY products with is_public_visible = true AND quality_status = 'PASS' are shown.
+// NULLs (unclassified) are NEVER shown. This is strict by design.
 let _qualityFilter = '';
-(async () => {
-  try {
-    // Ensure the column exists (ALTER TABLE IF NOT EXISTS is idempotent)
-    await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS quality_status    VARCHAR(30) DEFAULT NULL`);
-    await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS quality_reason    TEXT        DEFAULT NULL`);
-    await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS is_public_visible BOOLEAN     DEFAULT NULL`);
 
-    // Re-classify all products (idempotent UPDATE — same result every run).
-    // Running on every restart ensures correctness even if a prior run used wrong regex.
-    {
-      await query(`
-        UPDATE products p SET
-          quality_status = CASE
-            WHEN trim(COALESCE(p.name,''))='' OR length(trim(COALESCE(p.name,''))) < 5 THEN 'MISSING_TITLE'
-            WHEN p.name ~* '^gamestop product[[:space:]]+[0-9]+$'   THEN 'PLACEHOLDER_TITLE'
-            WHEN p.name ~* '^product[[:space:]]+[0-9]+$'            THEN 'PLACEHOLDER_TITLE'
-            WHEN p.name ~ '^[0-9]{5,}$'                             THEN 'PLACEHOLDER_TITLE'
-            WHEN p.product_url LIKE '%macys.com%'
-              AND p.product_url NOT LIKE '%?ID=%'
-              AND p.product_url NOT LIKE '%/ID/%'                   THEN 'BROKEN_URL'
-            WHEN p.product_url IS NULL OR trim(p.product_url)=''    THEN 'INCOMPLETE_PRODUCT'
-            ELSE 'PASS'
-          END,
-          is_public_visible = CASE
-            WHEN trim(COALESCE(p.name,''))='' OR length(trim(COALESCE(p.name,''))) < 5 THEN false
-            WHEN p.name ~* '^gamestop product[[:space:]]+[0-9]+$'   THEN false
-            WHEN p.name ~* '^product[[:space:]]+[0-9]+$'            THEN false
-            WHEN p.name ~ '^[0-9]{5,}$'                             THEN false
-            WHEN p.product_url LIKE '%macys.com%'
-              AND p.product_url NOT LIKE '%?ID=%'
-              AND p.product_url NOT LIKE '%/ID/%'                   THEN false
-            WHEN p.product_url IS NULL OR trim(p.product_url)=''    THEN false
-            ELSE true
-          END,
-          quality_reason = CASE
-            WHEN p.name ~* '^(gamestop )?product[[:space:]]+[0-9]+$' THEN 'Placeholder name: ' || trim(p.name)
-            WHEN p.product_url LIKE '%macys.com%'
-              AND p.product_url NOT LIKE '%?ID=%'
-              AND p.product_url NOT LIKE '%/ID/%'                    THEN 'Macy''s URL missing product ID'
-            WHEN p.product_url IS NULL OR trim(p.product_url)=''     THEN 'No product URL'
-            ELSE NULL
-          END,
-          updated_at = NOW()
-        WHERE true
-      `);
-    }
-    _qualityFilter = '(p.is_public_visible IS NOT FALSE)';
-  } catch (err) {
-    // Non-fatal — quality filter stays disabled, feed still works
-    console.warn('[deals] quality gate setup failed (non-fatal):', err.message);
+async function runQualityClassification() {
+  // Ensure columns exist (idempotent)
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS quality_status         VARCHAR(30)  DEFAULT NULL`);
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS quality_reason         TEXT         DEFAULT NULL`);
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS is_public_visible      BOOLEAN      DEFAULT NULL`);
+  await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS last_quality_check_at  TIMESTAMPTZ  DEFAULT NULL`);
+
+  const { rowCount } = await query(`
+    UPDATE products p SET
+      quality_status = CASE
+        WHEN trim(COALESCE(p.name,''))='' OR length(trim(COALESCE(p.name,''))) < 5
+          THEN 'HIDDEN_MISSING_TITLE'
+        WHEN p.name ~* '^gamestop product[[:space:]]+[0-9]+$'
+          OR p.name ~* '^product[[:space:]]+[0-9]+$'
+          OR p.name ~* '^[a-z]{2,12}[[:space:]]+product[[:space:]]+[0-9]+$'
+          OR p.name ~ '^[0-9]{5,}$'
+          THEN 'HIDDEN_GENERIC_TITLE'
+        WHEN p.product_url LIKE '%macys.com%'
+          AND p.product_url NOT LIKE '%?ID=%'
+          AND p.product_url NOT LIKE '%/ID/%'
+          THEN 'HIDDEN_BROKEN_URL'
+        WHEN p.product_url IS NULL OR trim(p.product_url)=''
+          THEN 'INCOMPLETE_PRODUCT'
+        WHEN p.image_url IS NULL OR trim(p.image_url)=''
+          THEN 'HIDDEN_MISSING_IMAGE'
+        ELSE 'PASS'
+      END,
+      is_public_visible = CASE
+        WHEN trim(COALESCE(p.name,''))='' OR length(trim(COALESCE(p.name,''))) < 5 THEN false
+        WHEN p.name ~* '^gamestop product[[:space:]]+[0-9]+$'
+          OR p.name ~* '^product[[:space:]]+[0-9]+$'
+          OR p.name ~* '^[a-z]{2,12}[[:space:]]+product[[:space:]]+[0-9]+$'
+          OR p.name ~ '^[0-9]{5,}$'
+          THEN false
+        WHEN p.product_url LIKE '%macys.com%'
+          AND p.product_url NOT LIKE '%?ID=%'
+          AND p.product_url NOT LIKE '%/ID/%'
+          THEN false
+        WHEN p.product_url IS NULL OR trim(p.product_url)='' THEN false
+        WHEN p.image_url IS NULL OR trim(p.image_url)='' THEN false
+        ELSE true
+      END,
+      quality_reason = CASE
+        WHEN trim(COALESCE(p.name,''))='' OR length(trim(COALESCE(p.name,''))) < 5
+          THEN 'Empty or too-short product name'
+        WHEN p.name ~* '^gamestop product[[:space:]]+[0-9]+$'
+          OR p.name ~* '^product[[:space:]]+[0-9]+$'
+          OR p.name ~* '^[a-z]{2,12}[[:space:]]+product[[:space:]]+[0-9]+$'
+          THEN 'Placeholder name: ' || trim(p.name)
+        WHEN p.name ~ '^[0-9]{5,}$'
+          THEN 'Numeric-only name: ' || trim(p.name)
+        WHEN p.product_url LIKE '%macys.com%'
+          AND p.product_url NOT LIKE '%?ID=%'
+          AND p.product_url NOT LIKE '%/ID/%'
+          THEN 'Macy''s URL missing product ID — will 404 in browser'
+        WHEN p.product_url IS NULL OR trim(p.product_url)=''
+          THEN 'No product URL'
+        WHEN p.image_url IS NULL OR trim(p.image_url)=''
+          THEN 'No product image'
+        ELSE NULL
+      END,
+      last_quality_check_at = NOW(),
+      updated_at = NOW()
+  `);
+
+  console.log(`[quality-gate] classified ${rowCount} products`);
+
+  // Log summary for Render logs / diagnosis
+  const summary = await query(`
+    SELECT quality_status, is_public_visible,
+           COUNT(*) AS n
+    FROM products
+    GROUP BY quality_status, is_public_visible
+    ORDER BY n DESC
+    LIMIT 20
+  `);
+  for (const r of summary.rows) {
+    const vis = r.is_public_visible === true ? 'VISIBLE' : r.is_public_visible === false ? 'HIDDEN' : 'NULL';
+    console.log(`  [quality-gate] ${(r.quality_status || 'NULL').padEnd(25)} ${vis.padEnd(8)} n=${r.n}`);
   }
+
+  return rowCount;
+}
+
+// Run classification at startup with one retry to handle cold pool timeouts
+(async () => {
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const n = await runQualityClassification();
+      _qualityFilter = `(p.is_public_visible = true AND p.quality_status = 'PASS')`;
+      console.log(`[quality-gate] ACTIVE — filter set after ${n} products classified (attempt ${attempt})`);
+      return;
+    } catch (err) {
+      console.error(`[quality-gate] attempt ${attempt} FAILED: ${err.message}`);
+      if (attempt < 2) await sleep(5000);
+    }
+  }
+  console.error('[quality-gate] FAILED both attempts — public feed unfiltered (degraded mode)');
 })();
 
 const BASE_DEAL_QUERY = `
@@ -94,6 +144,7 @@ router.get('/', async (req, res) => {
       'd.is_active = true',
       `d.discount_percent >= $1`,
       '(d.is_error_price IS NOT TRUE)',
+      'd.deal_price > 0',
       ...(  _qualityFilter ? [_qualityFilter] : []),
     ];
     let params = [parseFloat(min_discount)];
@@ -240,6 +291,7 @@ router.get('/live', async (req, res) => {
       JOIN stores s ON d.store_id = s.id
       LEFT JOIN categories c ON p.category_id = c.id
       WHERE d.is_active = true
+        AND d.deal_price > 0
         ${_qualityFilter ? `AND ${_qualityFilter}` : ''}
       ORDER BY d.opportunity_score DESC NULLS LAST, d.discount_percent DESC
       LIMIT $1

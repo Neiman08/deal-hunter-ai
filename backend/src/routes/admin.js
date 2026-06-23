@@ -1453,33 +1453,39 @@ router.post('/run-quality-backfill', async (req, res) => {
   try {
     logger.info('[Admin] run-quality-backfill triggered');
 
+    // Ensure columns exist first
+    await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS quality_status        VARCHAR(30)  DEFAULT NULL`);
+    await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS quality_reason        TEXT         DEFAULT NULL`);
+    await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS is_public_visible     BOOLEAN      DEFAULT NULL`);
+    await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS last_quality_check_at TIMESTAMPTZ  DEFAULT NULL`);
+
     const result = await query(`
       UPDATE products p SET
         quality_status = CASE
           WHEN trim(COALESCE(p.name, '')) = '' OR length(trim(COALESCE(p.name, ''))) < 5
-            THEN 'MISSING_TITLE'
+            THEN 'HIDDEN_MISSING_TITLE'
           WHEN trim(p.name) ~* '^gamestop product[[:space:]]+[0-9]+$'
-            THEN 'PLACEHOLDER_TITLE'
-          WHEN trim(p.name) ~* '^product[[:space:]]+[0-9]+$'
-            THEN 'PLACEHOLDER_TITLE'
-          WHEN trim(p.name) ~ '^[0-9]{5,}$'
-            THEN 'PLACEHOLDER_TITLE'
+            OR trim(p.name) ~* '^product[[:space:]]+[0-9]+$'
+            OR trim(p.name) ~* '^[a-z]{2,12}[[:space:]]+product[[:space:]]+[0-9]+$'
+            OR trim(p.name) ~ '^[0-9]{5,}$'
+            THEN 'HIDDEN_GENERIC_TITLE'
           WHEN (p.product_url LIKE '%macys.com%')
                AND (p.product_url NOT LIKE '%?ID=%')
                AND (p.product_url NOT LIKE '%/ID/%')
-            THEN 'BROKEN_URL'
+            THEN 'HIDDEN_BROKEN_URL'
           WHEN p.product_url IS NULL OR trim(p.product_url) = ''
             THEN 'INCOMPLETE_PRODUCT'
+          WHEN p.image_url IS NULL OR trim(p.image_url) = ''
+            THEN 'HIDDEN_MISSING_IMAGE'
           ELSE 'PASS'
         END,
         is_public_visible = CASE
           WHEN trim(COALESCE(p.name, '')) = '' OR length(trim(COALESCE(p.name, ''))) < 5
             THEN false
           WHEN trim(p.name) ~* '^gamestop product[[:space:]]+[0-9]+$'
-            THEN false
-          WHEN trim(p.name) ~* '^product[[:space:]]+[0-9]+$'
-            THEN false
-          WHEN trim(p.name) ~ '^[0-9]{5,}$'
+            OR trim(p.name) ~* '^product[[:space:]]+[0-9]+$'
+            OR trim(p.name) ~* '^[a-z]{2,12}[[:space:]]+product[[:space:]]+[0-9]+$'
+            OR trim(p.name) ~ '^[0-9]{5,}$'
             THEN false
           WHEN (p.product_url LIKE '%macys.com%')
                AND (p.product_url NOT LIKE '%?ID=%')
@@ -1487,12 +1493,14 @@ router.post('/run-quality-backfill', async (req, res) => {
             THEN false
           WHEN p.product_url IS NULL OR trim(p.product_url) = ''
             THEN false
+          WHEN p.image_url IS NULL OR trim(p.image_url) = ''
+            THEN false
           ELSE true
         END,
         quality_reason = CASE
           WHEN trim(COALESCE(p.name, '')) = '' OR length(trim(COALESCE(p.name, ''))) < 5
             THEN 'Empty or too-short product name'
-          WHEN trim(p.name) ~* '^(gamestop )?product[[:space:]]+[0-9]+$'
+          WHEN trim(p.name) ~* '^(gamestop |[a-z]{2,12} )?product[[:space:]]+[0-9]+$'
             THEN 'Placeholder name: ' || trim(p.name)
           WHEN trim(p.name) ~ '^[0-9]{5,}$'
             THEN 'Numeric-only name: ' || trim(p.name)
@@ -1502,15 +1510,15 @@ router.post('/run-quality-backfill', async (req, res) => {
             THEN 'Macy''s URL missing product ID — will 404 in browser'
           WHEN p.product_url IS NULL OR trim(p.product_url) = ''
             THEN 'No product URL'
+          WHEN p.image_url IS NULL OR trim(p.image_url) = ''
+            THEN 'No product image'
           ELSE NULL
         END,
+        last_quality_check_at = NOW(),
         updated_at = NOW()
-      FROM stores s
-      WHERE p.store_id = s.id
       RETURNING p.id, p.quality_status, p.is_public_visible
     `);
 
-    // Summarize
     const rows = result.rows;
     const summary = {};
     for (const r of rows) {
@@ -1537,19 +1545,20 @@ router.get('/feed-quality', async (req, res) => {
     const [overview, byStore, topIssues] = await Promise.all([
       query(`
         SELECT
-          COUNT(*)                                                                    AS total_products,
-          COUNT(*) FILTER (WHERE d.is_active)                                        AS total_deals,
-          COUNT(DISTINCT d.id) FILTER (WHERE d.is_active AND (p.is_public_visible IS NOT FALSE)) AS public_visible_deals,
-          COUNT(DISTINCT d.id) FILTER (WHERE d.is_active AND p.is_public_visible = false)        AS hidden_by_quality,
-          COUNT(*) FILTER (WHERE p.quality_status IS NULL)                           AS unchecked,
-          COUNT(*) FILTER (WHERE p.quality_status = 'PASS')                         AS pass,
-          COUNT(*) FILTER (WHERE p.quality_status = 'PLACEHOLDER_TITLE')            AS placeholder_title,
-          COUNT(*) FILTER (WHERE p.quality_status = 'MISSING_TITLE')                AS missing_title,
-          COUNT(*) FILTER (WHERE p.quality_status = 'BROKEN_URL')                   AS broken_url,
-          COUNT(*) FILTER (WHERE p.quality_status = 'MISSING_IMAGE')                AS missing_image,
-          COUNT(*) FILTER (WHERE p.quality_status = 'INVALID_PRICE')                AS invalid_price,
-          COUNT(*) FILTER (WHERE p.quality_status = 'SUSPICIOUS_PRICE')             AS suspicious_price,
-          COUNT(*) FILTER (WHERE p.quality_status = 'INCOMPLETE_PRODUCT')           AS incomplete_product
+          COUNT(*)                                                                          AS total_products,
+          COUNT(*) FILTER (WHERE d.is_active)                                              AS total_deals,
+          COUNT(DISTINCT d.id) FILTER (WHERE d.is_active AND p.is_public_visible = true
+                                       AND p.quality_status = 'PASS')                      AS public_visible_deals,
+          COUNT(DISTINCT d.id) FILTER (WHERE d.is_active AND p.is_public_visible = false)  AS hidden_by_quality,
+          COUNT(*) FILTER (WHERE p.quality_status IS NULL)                                 AS unchecked,
+          COUNT(*) FILTER (WHERE p.quality_status = 'PASS')                               AS pass,
+          COUNT(*) FILTER (WHERE p.quality_status = 'HIDDEN_GENERIC_TITLE')               AS generic_title,
+          COUNT(*) FILTER (WHERE p.quality_status = 'HIDDEN_MISSING_TITLE')               AS missing_title,
+          COUNT(*) FILTER (WHERE p.quality_status = 'HIDDEN_BROKEN_URL')                  AS broken_url,
+          COUNT(*) FILTER (WHERE p.quality_status = 'HIDDEN_MISSING_IMAGE')               AS missing_image,
+          COUNT(*) FILTER (WHERE p.quality_status = 'INCOMPLETE_PRODUCT')                 AS incomplete_product,
+          COUNT(*) FILTER (WHERE p.quality_status = 'NEEDS_RECOVERY')                     AS needs_recovery,
+          COUNT(*) FILTER (WHERE p.quality_status = 'MANUAL_REVIEW')                      AS manual_review
         FROM products p
         LEFT JOIN deals d ON d.product_id = p.id
       `),
@@ -1557,13 +1566,15 @@ router.get('/feed-quality', async (req, res) => {
         SELECT
           s.name AS store,
           s.slug AS store_slug,
-          COUNT(DISTINCT p.id)                                                                   AS total_products,
-          COUNT(DISTINCT d.id) FILTER (WHERE d.is_active)                                        AS active_deals,
-          COUNT(DISTINCT d.id) FILTER (WHERE d.is_active AND (p.is_public_visible IS NOT FALSE)) AS public_deals,
-          COUNT(DISTINCT p.id) FILTER (WHERE p.is_public_visible = false)                        AS hidden_products,
-          COUNT(DISTINCT p.id) FILTER (WHERE p.quality_status = 'PLACEHOLDER_TITLE')             AS placeholder,
-          COUNT(DISTINCT p.id) FILTER (WHERE p.quality_status = 'BROKEN_URL')                    AS broken_url,
-          COUNT(DISTINCT p.id) FILTER (WHERE p.quality_status = 'MISSING_TITLE')                 AS missing_title
+          COUNT(DISTINCT p.id)                                                                          AS total_products,
+          COUNT(DISTINCT d.id) FILTER (WHERE d.is_active)                                              AS active_deals,
+          COUNT(DISTINCT d.id) FILTER (WHERE d.is_active AND p.is_public_visible = true
+                                       AND p.quality_status = 'PASS')                                  AS public_deals,
+          COUNT(DISTINCT p.id) FILTER (WHERE p.is_public_visible = false)                              AS hidden_products,
+          COUNT(DISTINCT p.id) FILTER (WHERE p.quality_status = 'HIDDEN_GENERIC_TITLE')               AS generic_title,
+          COUNT(DISTINCT p.id) FILTER (WHERE p.quality_status = 'HIDDEN_BROKEN_URL')                  AS broken_url,
+          COUNT(DISTINCT p.id) FILTER (WHERE p.quality_status = 'HIDDEN_MISSING_TITLE')               AS missing_title,
+          COUNT(DISTINCT p.id) FILTER (WHERE p.quality_status = 'HIDDEN_MISSING_IMAGE')               AS missing_image
         FROM products p
         JOIN stores s ON p.store_id = s.id
         LEFT JOIN deals d ON d.product_id = p.id
@@ -1575,35 +1586,37 @@ router.get('/feed-quality', async (req, res) => {
           p.id AS product_id,
           p.name,
           p.product_url,
+          p.image_url,
           p.quality_status,
           p.quality_reason,
+          p.last_quality_check_at,
           s.name AS store
         FROM products p
         JOIN stores s ON p.store_id = s.id
-        WHERE p.is_public_visible = false
-        ORDER BY p.quality_status, s.slug, p.name
-        LIMIT 20
+        WHERE p.is_public_visible = false OR p.quality_status IS NULL
+        ORDER BY p.quality_status NULLS FIRST, s.slug, p.name
+        LIMIT 30
       `),
     ]);
 
     const o = overview.rows[0];
     res.json({
       summary: {
-        total_products:       parseInt(o.total_products)      || 0,
-        total_deals:          parseInt(o.total_deals)         || 0,
-        public_visible_deals: parseInt(o.public_visible_deals)|| 0,
-        hidden_by_quality:    parseInt(o.hidden_by_quality)   || 0,
-        unchecked:            parseInt(o.unchecked)           || 0,
-        pass:                 parseInt(o.pass)                || 0,
+        total_products:       parseInt(o.total_products)       || 0,
+        total_deals:          parseInt(o.total_deals)          || 0,
+        public_visible_deals: parseInt(o.public_visible_deals) || 0,
+        hidden_by_quality:    parseInt(o.hidden_by_quality)    || 0,
+        unchecked:            parseInt(o.unchecked)            || 0,
+        pass:                 parseInt(o.pass)                 || 0,
       },
       by_status: {
-        PLACEHOLDER_TITLE:    parseInt(o.placeholder_title)   || 0,
-        MISSING_TITLE:        parseInt(o.missing_title)        || 0,
-        BROKEN_URL:           parseInt(o.broken_url)           || 0,
-        MISSING_IMAGE:        parseInt(o.missing_image)        || 0,
-        INVALID_PRICE:        parseInt(o.invalid_price)        || 0,
-        SUSPICIOUS_PRICE:     parseInt(o.suspicious_price)     || 0,
+        HIDDEN_GENERIC_TITLE: parseInt(o.generic_title)        || 0,
+        HIDDEN_MISSING_TITLE: parseInt(o.missing_title)        || 0,
+        HIDDEN_BROKEN_URL:    parseInt(o.broken_url)           || 0,
+        HIDDEN_MISSING_IMAGE: parseInt(o.missing_image)        || 0,
         INCOMPLETE_PRODUCT:   parseInt(o.incomplete_product)   || 0,
+        NEEDS_RECOVERY:       parseInt(o.needs_recovery)       || 0,
+        MANUAL_REVIEW:        parseInt(o.manual_review)        || 0,
       },
       by_store: byStore.rows,
       top_issues: topIssues.rows,

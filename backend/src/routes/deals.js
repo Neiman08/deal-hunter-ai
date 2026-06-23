@@ -3,17 +3,61 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { authenticate, requirePlan } = require('../middleware/auth');
 
-// Check once at startup whether the quality_gate column exists.
-// Returns '' until confirmed — keeps the feed working even if the migration hasn't run yet.
+// Quality gate: add the column if missing, run initial classification if needed.
+// Self-healing — works even if the migration script failed.
 let _qualityFilter = '';
 (async () => {
   try {
-    const r = await query(`
-      SELECT 1 FROM information_schema.columns
-      WHERE table_name = 'products' AND column_name = 'is_public_visible'
-    `);
-    if (r.rows.length > 0) _qualityFilter = '(p.is_public_visible IS NOT FALSE)';
-  } catch { /* ignore — column check failed, filter stays disabled */ }
+    // Ensure the column exists (ALTER TABLE IF NOT EXISTS is idempotent)
+    await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS quality_status    VARCHAR(30) DEFAULT NULL`);
+    await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS quality_reason    TEXT        DEFAULT NULL`);
+    await query(`ALTER TABLE products ADD COLUMN IF NOT EXISTS is_public_visible BOOLEAN     DEFAULT NULL`);
+
+    // Run classification only for unchecked products (quality_status IS NULL).
+    // This is a one-time cost on the first deploy; subsequent restarts update nothing.
+    const unchecked = await query(`SELECT COUNT(*) AS n FROM products WHERE quality_status IS NULL`);
+    if (parseInt(unchecked.rows[0].n) > 0) {
+      await query(`
+        UPDATE products p SET
+          quality_status = CASE
+            WHEN trim(COALESCE(p.name,''))='' OR length(trim(COALESCE(p.name,''))) < 5 THEN 'MISSING_TITLE'
+            WHEN p.name ~* '^gamestop product[[:space:]]+[0-9]+$'   THEN 'PLACEHOLDER_TITLE'
+            WHEN p.name ~* '^product[[:space:]]+[0-9]+$'            THEN 'PLACEHOLDER_TITLE'
+            WHEN p.name ~ '^[0-9]{5,}$'                             THEN 'PLACEHOLDER_TITLE'
+            WHEN p.product_url LIKE '%macys.com%'
+              AND p.product_url NOT LIKE '%?ID=%'
+              AND p.product_url NOT LIKE '%/ID/%'                   THEN 'BROKEN_URL'
+            WHEN p.product_url IS NULL OR trim(p.product_url)=''    THEN 'INCOMPLETE_PRODUCT'
+            ELSE 'PASS'
+          END,
+          is_public_visible = CASE
+            WHEN trim(COALESCE(p.name,''))='' OR length(trim(COALESCE(p.name,''))) < 5 THEN false
+            WHEN p.name ~* '^gamestop product[[:space:]]+[0-9]+$'   THEN false
+            WHEN p.name ~* '^product[[:space:]]+[0-9]+$'            THEN false
+            WHEN p.name ~ '^[0-9]{5,}$'                             THEN false
+            WHEN p.product_url LIKE '%macys.com%'
+              AND p.product_url NOT LIKE '%?ID=%'
+              AND p.product_url NOT LIKE '%/ID/%'                   THEN false
+            WHEN p.product_url IS NULL OR trim(p.product_url)=''    THEN false
+            ELSE true
+          END,
+          quality_reason = CASE
+            WHEN p.name ~* '^(gamestop )?product[[:space:]]+[0-9]+$' THEN 'Placeholder name: ' || trim(p.name)
+            WHEN p.product_url LIKE '%macys.com%'
+              AND p.product_url NOT LIKE '%?ID=%'
+              AND p.product_url NOT LIKE '%/ID/%'                    THEN 'Macy''s URL missing product ID'
+            WHEN p.product_url IS NULL OR trim(p.product_url)=''     THEN 'No product URL'
+            ELSE NULL
+          END,
+          updated_at = NOW()
+        FROM stores s WHERE p.store_id = s.id AND p.quality_status IS NULL
+      `);
+    }
+    _qualityFilter = '(p.is_public_visible IS NOT FALSE)';
+  } catch (err) {
+    // Non-fatal — quality filter stays disabled, feed still works
+    console.warn('[deals] quality gate setup failed (non-fatal):', err.message);
+  }
 })();
 
 const BASE_DEAL_QUERY = `

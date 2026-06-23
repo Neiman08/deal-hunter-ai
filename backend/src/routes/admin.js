@@ -1803,6 +1803,55 @@ router.post('/run-url-image-enrichment', authenticate, requireAdmin, async (req,
   }
 });
 
+// POST /admin/push-product-images
+// Accepts pre-fetched images and applies them directly to products.
+// Use this when the server-side og:image fetch is blocked by the target site's CDN
+// (e.g. Target.com blocks datacenter IPs). Run the og:image fetch locally, then push here.
+// Body: { updates: [{ product_url: "https://...", image_url: "https://..." }] }
+router.post('/push-product-images', authenticate, requireAdmin, async (req, res) => {
+  const updates = req.body?.updates;
+  if (!Array.isArray(updates) || updates.length === 0) {
+    return res.status(400).json({ error: 'updates array required' });
+  }
+  if (updates.length > 100) {
+    return res.status(400).json({ error: 'max 100 updates per call' });
+  }
+
+  let applied = 0;
+  const results = [];
+
+  for (const { product_url, image_url } of updates) {
+    if (!product_url || !image_url || !image_url.startsWith('http')) {
+      results.push({ product_url, outcome: 'skipped_invalid' });
+      continue;
+    }
+    try {
+      const r = await query(`
+        UPDATE products SET
+          image_url             = $2,
+          quality_status        = 'PASS',
+          is_public_visible     = TRUE,
+          quality_reason        = NULL,
+          last_quality_check_at = NOW(),
+          updated_at            = NOW()
+        WHERE product_url = $1
+          AND quality_status = 'NEEDS_IMAGE'
+      `, [product_url, image_url]);
+      if (r.rowCount > 0) {
+        applied++;
+        results.push({ product_url: product_url.slice(-40), outcome: 'applied' });
+      } else {
+        results.push({ product_url: product_url.slice(-40), outcome: 'not_found_or_already_pass' });
+      }
+    } catch (err) {
+      results.push({ product_url: product_url.slice(-40), outcome: `error: ${err.message.slice(0, 60)}` });
+    }
+  }
+
+  logger.info(`[Admin] push-product-images: ${applied}/${updates.length} applied`);
+  res.json({ ok: true, submitted: updates.length, applied, results });
+});
+
 // GET /admin/community-reports
 // Lists community-submitted product corrections (recovery_source = 'community').
 router.get('/community-reports', async (req, res) => {

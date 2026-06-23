@@ -272,19 +272,29 @@ async function scanOfficeDepotDeals() {
 
   logger.info(`[OD Scan] ${rows.rows.length} active deals queued for price refresh`);
   const stats = { scanned: 0, deals: 0, errors: 0 };
+  let consecutiveFails = 0;
+  const THROTTLE_ABORT = 3; // abort if OD API fails 3 times in a row
 
   for (const p of rows.rows) {
     if (!p.product_url) continue;
     try {
       const scraped = await scrapeOfficeDepotProduct(p.product_url);
-      if (!scraped?.currentPrice) { stats.errors++; continue; }
+      if (!scraped?.currentPrice) { stats.errors++; consecutiveFails++; continue; }
+      consecutiveFails = 0;
       stats.scanned++;
       const r = await saveProductData(p, scraped, STORE_SLUG);
       if (r?.discountPct >= 20) stats.deals++;
     } catch (err) {
-      if (err.message === 'product_not_found') continue;
+      if (err.message === 'product_not_found') { consecutiveFails = 0; continue; }
+      consecutiveFails++;
       logger.error(`[OD Scan] FAIL "${p.name?.slice(0, 50)}": ${err.message}`);
       stats.errors++;
+      // OD is throttling this IP — abort remaining products rather than accumulating
+      // more errors that will all fail for the same reason.
+      if (consecutiveFails >= THROTTLE_ABORT) {
+        logger.warn(`[OD Scan] ${consecutiveFails} consecutive failures — OD likely throttling, aborting early`);
+        break;
+      }
     }
   }
 

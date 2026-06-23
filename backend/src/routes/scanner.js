@@ -4,6 +4,7 @@ const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { lookupByCode, getCachedMarketData, isEnabled } = require('../services/external/keepaService');
 const { lookupUpc } = require('../services/external/upcRecovery');
+const { lookupByUpc: ebayLookupByUpc, isEnabled: ebayEnabled } = require('../services/external/ebayService');
 const { evaluate } = require('../services/scannerEvaluation');
 const { trackScan, trackSubmitDeal } = require('../services/businessActions');
 const logger = require('../utils/logger');
@@ -148,13 +149,18 @@ router.get('/lookup/:code', authenticate, async (req, res) => {
           found,
           found ? recoveryResult.source : null,
           found ? JSON.stringify({
-            source:      recoveryResult.source,
-            title:       recoveryResult.title,
-            brand:       recoveryResult.brand,
-            image_url:   recoveryResult.image_url,
-            category:    recoveryResult.category,
-            description: recoveryResult.description,
-            model:       recoveryResult.model,
+            source:               recoveryResult.source,
+            title:                recoveryResult.title,
+            brand:                recoveryResult.brand,
+            image_url:            recoveryResult.image_url,
+            category:             recoveryResult.category,
+            description:          recoveryResult.description,
+            model:                recoveryResult.model,
+            market_low:           recoveryResult.market_low           || null,
+            market_high:          recoveryResult.market_high          || null,
+            market_midpoint:      recoveryResult.market_midpoint      || null,
+            market_offer_price:   recoveryResult.market_offer_price   || null,
+            market_offer_merchant:recoveryResult.market_offer_merchant|| null,
           }) : null,
         ]);
       } catch (recErr) {
@@ -162,21 +168,77 @@ router.get('/lookup/:code', authenticate, async (req, res) => {
       }
     }
 
-    // ── scan_status (Priority #3) ─────────────────────────────────────────
-    const hasKeepaPrice = keepaResult?.found &&
-      (keepaResult.effective_market_price != null ||
-       keepaResult.amazon_buy_box_price   != null ||
-       keepaResult.amazon_current_price   != null ||
-       keepaResult.amazon_90d_avg_price   != null);
+    // ── Extend Keepa fallback chain: amazon_new / amazon_used (P1) ────────────
+    // If Keepa found the product but effective_market_price is null,
+    // try to set it from new/used prices (lower confidence, already in keepaResult).
+    if (keepaResult?.found && !keepaResult.effective_market_price) {
+      if (keepaResult.amazon_new_price) {
+        keepaResult = { ...keepaResult, effective_market_price: keepaResult.amazon_new_price, effective_market_source: 'amazon_new', pricing_confidence: 30 };
+        logger.info(`[Scanner] fallback to amazon_new for ${code}: $${keepaResult.amazon_new_price}`);
+      } else if (keepaResult.amazon_used_price) {
+        keepaResult = { ...keepaResult, effective_market_price: keepaResult.amazon_used_price, effective_market_source: 'amazon_used', pricing_confidence: 20 };
+        logger.info(`[Scanner] fallback to amazon_used for ${code}: $${keepaResult.amazon_used_price}`);
+      }
+    }
+
+    // ── eBay fallback (P1) — only when Keepa has no price and eBay is configured ─
+    let ebayResult = null;
+    if (!foundInternal && isUpcFormat &&
+        keepaResult?.found && !keepaResult.effective_market_price &&
+        ebayEnabled()) {
+      try {
+        ebayResult = await ebayLookupByUpc(code, { productId: product?.product_id || null });
+        if (ebayResult?.found) {
+          logger.info(`[Scanner] eBay fallback for ${code}: median=$${ebayResult.median_price}`);
+        }
+      } catch (ebayErr) {
+        logger.warn(`[Scanner] eBay fallback error for ${code}: ${ebayErr.message}`);
+      }
+    }
+
+    // ── scan_status (P3) — considers all price sources ────────────────────────
+    const hasAnyPrice = foundInternal ||
+      (keepaResult?.effective_market_price != null) ||
+      (keepaResult?.amazon_buy_box_price   != null) ||
+      (keepaResult?.amazon_current_price   != null) ||
+      (keepaResult?.amazon_90d_avg_price   != null) ||
+      (keepaResult?.amazon_new_price       != null) ||
+      (keepaResult?.amazon_used_price      != null) ||
+      (ebayResult?.median_price            != null) ||
+      (recoveryResult?.market_offer_price  != null) ||
+      (recoveryResult?.market_midpoint     != null);
+
     const foundAnything = foundInternal || keepaResult?.found || recoveryResult?.found;
     const scan_status = !foundAnything
       ? 'NOT_FOUND'
-      : (foundInternal || hasKeepaPrice)
+      : hasAnyPrice
         ? 'FOUND_WITH_PRICE'
         : 'FOUND_NO_PRICE';
 
     // Business XP tracking — fire-and-forget, never blocks the response
     trackScan(req.user.id, code).catch(() => {});
+
+    // Collect all available price sources for source transparency (P2)
+    const priceSources = {
+      amazon_buy_box_price:    keepaResult?.amazon_buy_box_price   ?? null,
+      amazon_current_price:    keepaResult?.amazon_current_price   ?? null,
+      amazon_90d_avg_price:    keepaResult?.amazon_90d_avg_price   ?? null,
+      amazon_180d_avg_price:   keepaResult?.amazon_180d_avg_price  ?? null,
+      amazon_new_price:        keepaResult?.amazon_new_price       ?? null,
+      amazon_used_price:       keepaResult?.amazon_used_price      ?? null,
+      ebay_median_price:       ebayResult?.median_price            ?? null,
+      ebay_avg_price:          ebayResult?.avg_sold_price          ?? null,
+      ebay_sold_count:         ebayResult?.sold_count              ?? null,
+      market_offer_price:      recoveryResult?.market_offer_price  ?? null,
+      market_offer_merchant:   recoveryResult?.market_offer_merchant ?? null,
+      market_low:              recoveryResult?.market_low          ?? null,
+      market_high:             recoveryResult?.market_high         ?? null,
+      effective_market_price:  keepaResult?.effective_market_price ?? null,
+      effective_market_source: keepaResult?.effective_market_source ?? null,
+      pricing_confidence:      keepaResult?.pricing_confidence     ?? null,
+      asin:                    keepaResult?.asin                   ?? null,
+      sales_rank:              keepaResult?.sales_rank             ?? null,
+    };
 
     res.json({
       code,
@@ -207,7 +269,9 @@ router.get('/lookup/:code', authenticate, async (req, res) => {
         is_error_price: d.is_error_price,
       })),
       keepa: keepaResult,
+      ebay: ebayResult?.found ? ebayResult : null,
       recovery: recoveryResult?.found ? recoveryResult : null,
+      price_sources: priceSources,
       market_data: marketData || null,
       external_enabled: isEnabled(),
     });
@@ -220,12 +284,15 @@ router.get('/lookup/:code', authenticate, async (req, res) => {
 // POST /api/scanner/evaluate
 router.post('/evaluate', authenticate, async (req, res) => {
   const {
-    code, product_id, title, brand,
+    code, product_id, title, brand, category,
     in_store_price,
     effective_market_price, effective_market_source, pricing_confidence,
     amazon_current_price, amazon_buy_box_price, amazon_90d_avg_price,
+    amazon_new_price, amazon_used_price,
     sales_rank, confidence,
     ebay_avg_price, ebay_median_price, ebay_sold_count,
+    recovery_market_offer_price, recovery_market_midpoint,
+    shipping_override, prep_cost_override,
   } = req.body;
 
   if (!in_store_price) {
@@ -240,11 +307,19 @@ router.post('/evaluate', authenticate, async (req, res) => {
     amazon_current_price,
     amazon_buy_box_price,
     amazon_90d_avg_price,
+    amazon_new_price,
+    amazon_used_price,
     sales_rank,
     confidence,
     ebay_avg_price,
     ebay_median_price,
     ebay_sold_count,
+    recovery_market_offer_price,
+    recovery_market_midpoint,
+    category: category || '',
+    title: title || '',
+    shipping_override: shipping_override != null ? parseFloat(shipping_override) : null,
+    prep_cost_override: prep_cost_override != null ? parseFloat(prep_cost_override) : null,
   });
 
   res.json({

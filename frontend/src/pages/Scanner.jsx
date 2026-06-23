@@ -26,9 +26,10 @@ function fmtPct(v) {
 }
 
 const REC_COLORS = {
-  BUY: { bg: 'bg-neon-green/20', text: 'text-neon-green', border: 'border-neon-green/40' },
-  MAYBE: { bg: 'bg-yellow-400/20', text: 'text-yellow-400', border: 'border-yellow-400/40' },
-  SKIP: { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/40' },
+  BUY:               { bg: 'bg-neon-green/20',  text: 'text-neon-green',  border: 'border-neon-green/40' },
+  MAYBE:             { bg: 'bg-yellow-400/20',  text: 'text-yellow-400',  border: 'border-yellow-400/40' },
+  SKIP:              { bg: 'bg-red-500/20',     text: 'text-red-400',     border: 'border-red-500/40' },
+  INSUFFICIENT_DATA: { bg: 'bg-gray-500/15',   text: 'text-gray-400',    border: 'border-gray-500/30' },
 };
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
@@ -57,38 +58,54 @@ function ScoreDisplay({ score, label }) {
 }
 
 const SOURCE_LABELS = {
-  buy_box:         'Amazon Buy Box',
-  amazon_current:  'Amazon Current Price',
-  amazon_90d_avg:  'Amazon 90-Day Average',
-  amazon_180d_avg: 'Amazon 180-Day Average',
-  ebay_median:     'eBay Median',
-  ebay_avg:        'eBay Average',
-  none:            null,
+  buy_box:          'Amazon Buy Box',
+  amazon_current:   'Amazon Current',
+  amazon_90d_avg:   'Amazon 90-Day Avg',
+  amazon_180d_avg:  'Amazon 180-Day Avg',
+  amazon_new:       'Amazon New (3rd party)',
+  amazon_used:      'Amazon Used',
+  ebay_median:      'eBay Median',
+  ebay_avg:         'eBay Average',
+  market_offer:     'Market Offer Price',
+  market_estimate:  'Market Estimate',
+  none:             null,
 };
 
-// 'live' | 'estimated' | 'ebay' | null
+// 'live' | 'estimated' | 'ebay' | 'recovery' | null
 function priceType(src) {
   if (!src || src === 'none') return null;
   if (src === 'buy_box' || src === 'amazon_current') return 'live';
   if (src === 'amazon_90d_avg' || src === 'amazon_180d_avg') return 'estimated';
+  if (src === 'amazon_new' || src === 'amazon_used') return 'estimated';
   if (src.startsWith('ebay')) return 'ebay';
+  if (src === 'market_offer' || src === 'market_estimate') return 'recovery';
   return null;
 }
 
 const PRICE_TYPE_META = {
-  live:      { dot: '🟢', label: 'Live Price',     color: 'text-neon-green',  bg: 'bg-neon-green/10  border-neon-green/25' },
-  estimated: { dot: '🟡', label: 'Estimated Price', color: 'text-yellow-400',  bg: 'bg-yellow-400/10  border-yellow-400/25' },
-  ebay:      { dot: '🔵', label: 'eBay Estimate',   color: 'text-neon-blue',   bg: 'bg-neon-blue/10   border-neon-blue/25'  },
+  live:      { dot: '🟢', label: 'Live Price',      color: 'text-neon-green',  bg: 'bg-neon-green/10  border-neon-green/25' },
+  estimated: { dot: '🟡', label: 'Estimated Price',  color: 'text-yellow-400',  bg: 'bg-yellow-400/10  border-yellow-400/25' },
+  ebay:      { dot: '🔵', label: 'eBay Estimate',    color: 'text-neon-blue',   bg: 'bg-neon-blue/10   border-neon-blue/25'  },
+  recovery:  { dot: '🟠', label: 'Market Estimate',  color: 'text-orange-400',  bg: 'bg-orange-400/10  border-orange-400/25' },
 };
 
-// Priority: buy_box > amazon_current > 90d_avg > 180d_avg > ebay_median
-function deriveEffectivePrice(keepa) {
+// Full fallback chain matching backend evaluate() hierarchy
+function deriveEffectivePrice(keepa, ebay, recovery) {
   if (!keepa) return { price: null, source: null };
-  if (keepa.amazon_buy_box_price   != null) return { price: safe(keepa.amazon_buy_box_price),   source: 'buy_box' };
-  if (keepa.amazon_current_price   != null) return { price: safe(keepa.amazon_current_price),   source: 'amazon_current' };
-  if (keepa.amazon_90d_avg_price   != null) return { price: safe(keepa.amazon_90d_avg_price),   source: 'amazon_90d_avg' };
-  if (keepa.amazon_180d_avg_price  != null) return { price: safe(keepa.amazon_180d_avg_price),  source: 'amazon_180d_avg' };
-  if (keepa.ebay_median_price      != null) return { price: safe(keepa.ebay_median_price),      source: 'ebay_median' };
+  // Use pre-computed effective_market_price when present (backend already applied full chain)
+  if (keepa.effective_market_price != null) return {
+    price: safe(keepa.effective_market_price),
+    source: keepa.effective_market_source || 'keepa',
+  };
+  if (keepa.amazon_buy_box_price   != null) return { price: safe(keepa.amazon_buy_box_price),  source: 'buy_box' };
+  if (keepa.amazon_current_price   != null) return { price: safe(keepa.amazon_current_price),  source: 'amazon_current' };
+  if (keepa.amazon_90d_avg_price   != null) return { price: safe(keepa.amazon_90d_avg_price),  source: 'amazon_90d_avg' };
+  if (keepa.amazon_180d_avg_price  != null) return { price: safe(keepa.amazon_180d_avg_price), source: 'amazon_180d_avg' };
+  if (ebay?.median_price           != null) return { price: safe(ebay.median_price),            source: 'ebay_median' };
+  if (keepa.amazon_new_price       != null) return { price: safe(keepa.amazon_new_price),       source: 'amazon_new' };
+  if (keepa.amazon_used_price      != null) return { price: safe(keepa.amazon_used_price),      source: 'amazon_used' };
+  if (recovery?.market_offer_price != null) return { price: safe(recovery.market_offer_price),  source: 'market_offer' };
+  if (recovery?.market_midpoint    != null) return { price: safe(recovery.market_midpoint),     source: 'market_estimate' };
   return { price: null, source: null };
 }
 
@@ -171,33 +188,45 @@ function KeepaPanel({ keepa }) {
 
       {/* Price detail grid — only rows with actual data */}
       <div className="grid grid-cols-2 gap-2 text-xs">
-        {showCurrent && (
-          <div>
-            <p className="text-gray-500">Amazon current</p>
-            <p className="text-white font-semibold">{fmt(keepa.amazon_current_price)}</p>
-          </div>
-        )}
         {showBuyBox && (
           <div>
             <p className="text-gray-500">Buy Box</p>
             <p className="text-neon-green font-semibold">{fmt(keepa.amazon_buy_box_price)}</p>
           </div>
         )}
+        {showCurrent && (
+          <div>
+            <p className="text-gray-500">Amazon current</p>
+            <p className="text-white font-semibold">{fmt(keepa.amazon_current_price)}</p>
+          </div>
+        )}
         {keepa.amazon_90d_avg_price != null && (
           <div>
-            <p className="text-gray-500">90d avg</p>
+            <p className="text-gray-500">90-day avg</p>
             <p className="text-white">{fmt(keepa.amazon_90d_avg_price)}</p>
           </div>
         )}
         {keepa.amazon_180d_avg_price != null && (
           <div>
-            <p className="text-gray-500">180d avg</p>
+            <p className="text-gray-500">180-day avg</p>
             <p className="text-white">{fmt(keepa.amazon_180d_avg_price)}</p>
+          </div>
+        )}
+        {keepa.amazon_new_price != null && (
+          <div>
+            <p className="text-gray-500">Amazon new</p>
+            <p className="text-white">{fmt(keepa.amazon_new_price)}</p>
+          </div>
+        )}
+        {keepa.amazon_used_price != null && (
+          <div>
+            <p className="text-gray-500">Amazon used</p>
+            <p className="text-gray-400">{fmt(keepa.amazon_used_price)}</p>
           </div>
         )}
         {keepa.sales_rank != null && (
           <div>
-            <p className="text-gray-500">Sales rank</p>
+            <p className="text-gray-500">Sales rank (BSR)</p>
             <p className="text-white">#{keepa.sales_rank.toLocaleString()}</p>
           </div>
         )}
@@ -206,14 +235,39 @@ function KeepaPanel({ keepa }) {
           <p className="text-white">{keepa.confidence ?? 0}%</p>
         </div>
       </div>
+
+      {/* ASIN / Amazon URL */}
+      {keepa.asin && (
+        <a
+          href={`https://www.amazon.com/dp/${keepa.asin}`}
+          target="_blank" rel="noopener noreferrer"
+          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-neon-blue transition-colors"
+        >
+          <ExternalLink size={10} /> ASIN: {keepa.asin}
+        </a>
+      )}
     </div>
   );
 }
 
 function EvalPanel({ evaluation, onSave, saving }) {
+  const [showFeeBreakdown, setShowFeeBreakdown] = useState(false);
   if (!evaluation) return null;
   const rec = evaluation.recommendation || 'SKIP';
+
+  // INSUFFICIENT_DATA: no price, can't evaluate
+  if (rec === 'INSUFFICIENT_DATA') {
+    return (
+      <div className="rounded-xl p-4 border border-gray-500/30 bg-gray-500/10 space-y-2">
+        <p className="text-gray-300 text-sm font-semibold">Sin precio de reventa</p>
+        <p className="text-gray-400 text-xs">{evaluation.message || 'No hay precio de reventa suficiente para calcular ganancia.'}</p>
+      </div>
+    );
+  }
+
   const c = REC_COLORS[rec] || REC_COLORS.SKIP;
+  const fb = evaluation.fees_breakdown;
+  const srcLabel = SOURCE_LABELS[evaluation.resale_source] || evaluation.resale_source || '—';
 
   return (
     <div className={`rounded-xl p-4 border space-y-3 ${c.bg} ${c.border}`}>
@@ -225,7 +279,7 @@ function EvalPanel({ evaluation, onSave, saving }) {
         <div>
           <p className="text-gray-400 text-xs">Resale price</p>
           <p className="text-white font-bold">{fmt(evaluation.resale_price)}</p>
-          <p className="text-gray-500 text-xs">{evaluation.resale_source}</p>
+          <p className="text-gray-500 text-xs">{srcLabel}</p>
         </div>
         <div>
           <p className="text-gray-400 text-xs">Net profit</p>
@@ -234,7 +288,7 @@ function EvalPanel({ evaluation, onSave, saving }) {
           </p>
         </div>
         <div>
-          <p className="text-gray-400 text-xs">Amazon fees</p>
+          <p className="text-gray-400 text-xs">Est. total fees</p>
           <p className="text-white">{fmt(evaluation.fees_estimate)}</p>
         </div>
         <div>
@@ -244,7 +298,33 @@ function EvalPanel({ evaluation, onSave, saving }) {
           </p>
         </div>
       </div>
-      <p className="text-gray-500 text-xs">+$10 shipping · 15% FBA fee · based on {evaluation.resale_source}</p>
+
+      {/* Fee breakdown toggle */}
+      {fb && (
+        <div>
+          <button
+            onClick={() => setShowFeeBreakdown(v => !v)}
+            className="text-xs text-gray-500 hover:text-gray-300 flex items-center gap-1 transition-colors"
+          >
+            <ChevronDown size={11} className={showFeeBreakdown ? 'rotate-180' : ''} />
+            Fee breakdown ({fb.category_tier})
+            {fb.shipping_is_override && <span className="text-orange-400 ml-1">· override</span>}
+          </button>
+          {showFeeBreakdown && (
+            <div className="mt-2 grid grid-cols-2 gap-1.5 text-xs bg-dark-900/40 rounded-lg p-2">
+              <div><p className="text-gray-500">Referral fee ({fb.referral_rate_pct}%)</p><p className="text-white">{fmt(fb.referral_fee)}</p></div>
+              <div><p className="text-gray-500">FBA fee (est.)</p><p className="text-white">{fmt(fb.fba_fee)}</p></div>
+              <div><p className="text-gray-500">Inbound shipping</p><p className="text-white">{fmt(fb.inbound_shipping)}</p></div>
+              <div><p className="text-gray-500">Prep cost</p><p className="text-white">{fmt(fb.prep_cost)}</p></div>
+              <div className="col-span-2 border-t border-dark-600 pt-1 mt-0.5">
+                <p className="text-gray-500">Total estimated fees</p>
+                <p className="text-white font-semibold">{fmt(fb.total_fees)}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <button
         onClick={onSave}
         disabled={saving}
@@ -273,6 +353,7 @@ export default function Scanner() {
 
   // In-store price flow
   const [storePrice, setStorePrice] = useState('');
+  const [shippingOverride, setShippingOverride] = useState('');
   const [evaluation, setEvaluation] = useState(null);
   const [evaluating, setEvaluating] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -301,6 +382,7 @@ export default function Scanner() {
     setLookupResult(null);
     setError('');
     setStorePrice('');
+    setShippingOverride('');
     setEvaluation(null);
     setSavedId(null);
     setShowAllDeals(false);
@@ -387,19 +469,31 @@ export default function Scanner() {
     setEvaluating(true);
     setEvaluation(null);
     try {
-      const k = lookupResult?.keepa;
-      const { price: empPrice, source: empSrc } = deriveEffectivePrice(k);
+      const k   = lookupResult?.keepa;
+      const eb  = lookupResult?.ebay;
+      const rec = lookupResult?.recovery;
+      const { price: empPrice, source: empSrc } = deriveEffectivePrice(k, eb, rec);
       const r = await api.post('/scanner/evaluate', {
-        code: query,
-        in_store_price: sp,
+        code:  query,
+        title: lookupResult?.product?.name || k?.title || rec?.title || null,
+        category: k?.category || rec?.category || null,
+        in_store_price:          sp,
         effective_market_price:  empPrice,
         effective_market_source: empSrc,
-        pricing_confidence: k?.pricing_confidence ?? 0,
-        amazon_current_price: k?.amazon_current_price ?? null,
-        amazon_buy_box_price: k?.amazon_buy_box_price ?? null,
-        amazon_90d_avg_price: k?.amazon_90d_avg_price ?? null,
-        sales_rank: k?.sales_rank ?? null,
-        confidence: k?.confidence ?? 0,
+        pricing_confidence:      k?.pricing_confidence ?? 0,
+        amazon_current_price:    k?.amazon_current_price    ?? null,
+        amazon_buy_box_price:    k?.amazon_buy_box_price    ?? null,
+        amazon_90d_avg_price:    k?.amazon_90d_avg_price    ?? null,
+        amazon_new_price:        k?.amazon_new_price        ?? null,
+        amazon_used_price:       k?.amazon_used_price       ?? null,
+        sales_rank:              k?.sales_rank              ?? null,
+        confidence:              k?.confidence              ?? 0,
+        ebay_median_price:       eb?.median_price           ?? null,
+        ebay_avg_price:          eb?.avg_sold_price         ?? null,
+        ebay_sold_count:         eb?.sold_count             ?? null,
+        recovery_market_offer_price: rec?.market_offer_price ?? null,
+        recovery_market_midpoint:    rec?.market_midpoint    ?? null,
+        shipping_override: shippingOverride ? parseFloat(shippingOverride) : null,
       });
       setEvaluation(r.data);
     } catch {
@@ -514,13 +608,13 @@ export default function Scanner() {
   function handleExampleClick(ex) { setMode('sku'); doLookup(ex, 'sku'); }
 
   // Derived data from lookupResult
-  const keepa = lookupResult?.keepa;
-  const product = lookupResult?.product;
-  const recovery = lookupResult?.recovery;
+  const keepa      = lookupResult?.keepa;
+  const ebay       = lookupResult?.ebay;
+  const recovery   = lookupResult?.recovery;
   const scanStatus = lookupResult?.scan_status;
-  const deals = lookupResult?.deals || [];
+  const deals      = lookupResult?.deals || [];
   const skuResults = lookupResult?.sku_results || [];
-  const bestDeal = deals[0] || skuResults[0] || null;
+  const bestDeal   = deals[0] || skuResults[0] || null;
 
   return (
     <div className="p-4 lg:p-6 space-y-5 max-w-2xl mx-auto">
@@ -750,11 +844,45 @@ export default function Scanner() {
             </div>
           )}
 
+          {/* Recovery market price mini-panel (when recovery has pricing but no keepa price) */}
+          {recovery?.found && (recovery.market_offer_price || recovery.market_midpoint) && !keepa?.effective_market_price && (
+            <div className="card space-y-2">
+              <p className="text-gray-400 text-xs uppercase tracking-wider">Market Pricing Estimate</p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                {recovery.market_offer_price && (
+                  <div>
+                    <p className="text-gray-500">Market offer ({recovery.market_offer_merchant || 'retailer'})</p>
+                    <p className="text-orange-400 font-semibold">{fmt(recovery.market_offer_price)}</p>
+                  </div>
+                )}
+                {recovery.market_low && (
+                  <div>
+                    <p className="text-gray-500">Low recorded</p>
+                    <p className="text-white">{fmt(recovery.market_low)}</p>
+                  </div>
+                )}
+                {recovery.market_high && (
+                  <div>
+                    <p className="text-gray-500">High recorded</p>
+                    <p className="text-white">{fmt(recovery.market_high)}</p>
+                  </div>
+                )}
+                {recovery.market_midpoint && (
+                  <div>
+                    <p className="text-gray-500">Midpoint estimate</p>
+                    <p className="text-orange-400">{fmt(recovery.market_midpoint)}</p>
+                  </div>
+                )}
+              </div>
+              <p className="text-gray-600 text-xs">🟠 Low confidence — estimated from public market data</p>
+            </div>
+          )}
+
           {/* In-store price → profit calculation */}
-          {(keepa?.found || deals.length > 0) && (() => {
+          {(keepa?.found || recovery?.found || deals.length > 0) && (() => {
             const sp = parseFloat(storePrice);
             const storePriceValid = sp > 0;
-            const { price: empPrice, source: empSrc } = deriveEffectivePrice(keepa);
+            const { price: empPrice, source: empSrc } = deriveEffectivePrice(keepa, ebay, recovery);
             const empType  = priceType(empSrc);
             const empMeta  = empType ? PRICE_TYPE_META[empType] : null;
             const empLabel = SOURCE_LABELS[empSrc] || empSrc;
@@ -780,6 +908,21 @@ export default function Scanner() {
                   </button>
                 </div>
 
+                {/* Shipping override (optional) */}
+                <div className="flex items-center gap-2">
+                  <div className="relative w-32">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs">ship $</span>
+                    <input
+                      type="number" min="0" step="0.5"
+                      value={shippingOverride}
+                      onChange={e => { setShippingOverride(e.target.value); setEvaluation(null); }}
+                      placeholder="auto"
+                      className="w-full bg-dark-800 border border-dark-600 text-white rounded-xl pl-12 pr-3 py-2 text-xs focus:outline-none focus:border-gray-500"
+                    />
+                  </div>
+                  <p className="text-gray-600 text-xs">Override inbound shipping cost</p>
+                </div>
+
                 {/* Context line: what price will be used, or prompt to enter store price */}
                 {!storePriceValid ? (
                   <p className="text-gray-500 text-xs flex items-center gap-1.5">
@@ -794,7 +937,12 @@ export default function Scanner() {
                     </span>
                     &nbsp;·&nbsp;{empLabel}
                   </p>
-                ) : null}
+                ) : (
+                  <p className="text-gray-500 text-xs flex items-center gap-1.5">
+                    <AlertTriangle size={11} className="text-gray-600" />
+                    No resale price found — calculation will use market estimate if available.
+                  </p>
+                )}
 
                 {evaluation && (
                   <>

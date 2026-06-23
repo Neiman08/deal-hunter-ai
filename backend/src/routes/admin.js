@@ -4,6 +4,7 @@ const http = require('http');
 const router = express.Router();
 const { authenticate, requireAdmin } = require('../middleware/auth');
 const { query } = require('../config/database');
+const logger = require('../utils/logger');
 
 // All admin routes require authentication + admin role
 router.use(authenticate, requireAdmin);
@@ -57,6 +58,132 @@ router.get('/dashboard', async (req, res) => {
       stores: stores.rows[0],
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /admin/scanner-stats
+router.get('/scanner-stats', async (req, res) => {
+  try {
+    const [history, unknown, keepaCache, recovered] = await Promise.all([
+      // Scanner history breakdown
+      query(`
+        SELECT
+          COUNT(*)                                              AS total_scans,
+          COUNT(*) FILTER (WHERE found_internal)               AS found_internal,
+          COUNT(*) FILTER (WHERE keepa_asin IS NOT NULL)       AS keepa_matched,
+          COUNT(*) FILTER (WHERE keepa_confidence >= 60)       AS keepa_high_confidence,
+          COUNT(*) FILTER (WHERE in_store_price IS NOT NULL)   AS scans_with_price,
+          COUNT(DISTINCT user_id)                              AS unique_users,
+          COUNT(DISTINCT DATE(scanned_at))                     AS active_days,
+          MAX(scanned_at)                                      AS last_scan_at
+        FROM scanner_history
+      `),
+      // Unknown UPC queue stats
+      query(`
+        SELECT
+          COUNT(*)                                              AS total_unknown,
+          SUM(scans_count)                                     AS total_unknown_scans,
+          COUNT(*) FILTER (WHERE recovery_found)               AS recovery_hits,
+          COUNT(*) FILTER (WHERE high_priority)                AS high_priority_count,
+          COUNT(*) FILTER (WHERE recovery_attempted AND NOT recovery_found) AS recovery_misses,
+          ROUND(
+            100.0 * COUNT(*) FILTER (WHERE recovery_found)
+            / NULLIF(COUNT(*) FILTER (WHERE recovery_attempted), 0), 1
+          )                                                    AS recovery_hit_rate_pct
+        FROM scanner_unknown_products
+      `),
+      // Keepa market data coverage
+      query(`
+        SELECT
+          COUNT(*)                                                                  AS total_cached,
+          COUNT(*) FILTER (WHERE effective_market_price IS NOT NULL)               AS with_price,
+          COUNT(*) FILTER (WHERE effective_market_source = 'buy_box')              AS buy_box_count,
+          COUNT(*) FILTER (WHERE effective_market_source = 'amazon_current')       AS current_count,
+          COUNT(*) FILTER (WHERE effective_market_source IN ('amazon_90d_avg','amazon_180d_avg')) AS avg_only_count,
+          COUNT(*) FILTER (WHERE effective_market_price IS NULL)                   AS no_price_count
+        FROM product_market_data
+        WHERE source = 'keepa'
+          AND fetched_at > NOW() - INTERVAL '7 days'
+      `),
+      // Top recovered UPCs
+      query(`
+        SELECT upc, scans_count, recovery_source,
+          (recovery_data->>'title')  AS title,
+          (recovery_data->>'brand')  AS brand
+        FROM scanner_unknown_products
+        WHERE recovery_found = true
+        ORDER BY scans_count DESC
+        LIMIT 10
+      `),
+    ]);
+
+    // Top unknown (not recovered) UPCs
+    const topUnknown = await query(`
+      SELECT upc, scans_count, high_priority, last_seen
+      FROM scanner_unknown_products
+      WHERE recovery_found = false
+      ORDER BY scans_count DESC
+      LIMIT 10
+    `);
+
+    // Scans per day (last 14 days)
+    const scansByDay = await query(`
+      SELECT DATE(scanned_at) AS day, COUNT(*) AS scans
+      FROM scanner_history
+      WHERE scanned_at > NOW() - INTERVAL '14 days'
+      GROUP BY day
+      ORDER BY day DESC
+    `);
+
+    const h = history.rows[0];
+    const u = unknown.rows[0];
+    const k = keepaCache.rows[0];
+
+    const totalScans   = parseInt(h.total_scans)   || 0;
+    const keepaMatched = parseInt(h.keepa_matched)  || 0;
+    const foundInternal= parseInt(h.found_internal) || 0;
+    const totalUnknown = parseInt(u.total_unknown)  || 0;
+    const recoveryHits = parseInt(u.recovery_hits)  || 0;
+
+    const recognitionRate = totalScans > 0
+      ? Math.round(100 * (foundInternal + keepaMatched) / totalScans)
+      : null;
+
+    res.json({
+      scanner: {
+        total_scans:          totalScans,
+        found_internal:       foundInternal,
+        keepa_matched:        keepaMatched,
+        keepa_high_confidence:parseInt(h.keepa_high_confidence) || 0,
+        scans_with_price:     parseInt(h.scans_with_price) || 0,
+        unique_users:         parseInt(h.unique_users)     || 0,
+        active_days:          parseInt(h.active_days)      || 0,
+        last_scan_at:         h.last_scan_at,
+        recognition_rate_pct: recognitionRate,
+      },
+      unknown_queue: {
+        total_unique_upcs:     totalUnknown,
+        total_unknown_scans:   parseInt(u.total_unknown_scans) || 0,
+        recovery_hits:         recoveryHits,
+        recovery_misses:       parseInt(u.recovery_misses) || 0,
+        high_priority_count:   parseInt(u.high_priority_count) || 0,
+        recovery_hit_rate_pct: parseFloat(u.recovery_hit_rate_pct) || 0,
+      },
+      keepa_cache: {
+        total_cached:     parseInt(k.total_cached)     || 0,
+        with_price:       parseInt(k.with_price)       || 0,
+        no_price:         parseInt(k.no_price_count)   || 0,
+        buy_box_count:    parseInt(k.buy_box_count)    || 0,
+        current_count:    parseInt(k.current_count)    || 0,
+        avg_only_count:   parseInt(k.avg_only_count)   || 0,
+      },
+      top_unknown_upcs:   topUnknown.rows,
+      top_recovered_upcs: recovered.rows,
+      scans_by_day:       scansByDay.rows,
+    });
+  } catch (err) {
+    logger.error(`[Admin] scanner-stats error: ${err.message}`);
     res.status(500).json({ error: err.message });
   }
 });

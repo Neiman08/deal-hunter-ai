@@ -28,10 +28,11 @@ router.get('/', async (req, res) => {
   try {
     const result = await query(`
       SELECT s.*,
-        COUNT(d.id) FILTER (WHERE d.is_active = true) AS active_deals,
-        AVG(d.discount_percent) FILTER (WHERE d.is_active = true) AS avg_discount
+        COUNT(d.id) FILTER (WHERE d.is_active = true AND p.is_public_visible = true AND p.quality_status IN ('PASS','NEEDS_IMAGE')) AS active_deals,
+        AVG(d.discount_percent) FILTER (WHERE d.is_active = true AND p.is_public_visible = true AND p.quality_status IN ('PASS','NEEDS_IMAGE')) AS avg_discount
       FROM stores s
       LEFT JOIN deals d ON d.store_id = s.id
+      LEFT JOIN products p ON d.product_id = p.id
       WHERE s.is_active = true
       GROUP BY s.id
       ORDER BY active_deals DESC

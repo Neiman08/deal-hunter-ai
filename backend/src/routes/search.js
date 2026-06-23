@@ -12,7 +12,10 @@ router.get('/', async (req, res) => {
       return res.status(400).json({ error: 'Se requiere término de búsqueda, UPC o SKU' });
     }
 
-    let conditions = ['d.is_active = true'];
+    let conditions = [
+      'd.is_active = true',
+      `(p.is_public_visible = true AND p.quality_status IN ('PASS', 'NEEDS_IMAGE'))`,
+    ];
     let params = [];
     let idx = 1;
 

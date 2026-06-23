@@ -331,8 +331,11 @@ router.get('/stats', async (req, res) => {
           ROUND(AVG(d.opportunity_score)::numeric, 1) as avg_score,
           COUNT(DISTINCT d.id) FILTER (WHERE d.last_seen_at > NOW() - INTERVAL '24 hours') as fresh_deal_count,
           MAX(d.last_seen_at) as last_seen_at
-        FROM deals d JOIN stores s ON d.store_id = s.id
+        FROM deals d
+        JOIN stores s ON d.store_id = s.id
+        JOIN products p ON d.product_id = p.id
         WHERE d.is_active = true AND d.discount_percent >= 20
+          AND p.is_public_visible = true AND p.quality_status IN ('PASS', 'NEEDS_IMAGE')
         GROUP BY s.id, s.name, s.slug, s.color
         ORDER BY deal_count DESC
       `),
@@ -342,6 +345,7 @@ router.get('/stats', async (req, res) => {
         FROM deals d JOIN products p ON d.product_id = p.id
         LEFT JOIN categories c ON p.category_id = c.id
         WHERE d.is_active = true AND d.discount_percent >= 20 AND c.name IS NOT NULL
+          AND p.is_public_visible = true AND p.quality_status IN ('PASS', 'NEEDS_IMAGE')
         GROUP BY c.id, c.name, c.slug
         ORDER BY deal_count DESC
       `),
@@ -364,6 +368,10 @@ router.get('/stats', async (req, res) => {
 // GET /deals/:id — full detail with price history and cached market data
 router.get('/:id', async (req, res) => {
   try {
+    // Guard against non-UUID values (e.g. "latest", "live") hitting this catch-all
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.id)) {
+      return res.status(404).json({ error: 'Deal not found' });
+    }
     const dealRes = await query(`${BASE_DEAL_QUERY} AND d.id = $1`, [req.params.id]);
     if (!dealRes.rows.length) return res.status(404).json({ error: 'Deal not found' });
 

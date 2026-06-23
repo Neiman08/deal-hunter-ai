@@ -21,5 +21,6 @@ node src/db/migrate-phase-e.js       || echo "[render-migrate] migrate-phase-e s
 node src/db/migrate-keepa.js         || echo "[render-migrate] migrate-keepa skipped"
 node src/db/add_bestbuy_sku.js       || echo "[render-migrate] add_bestbuy_sku skipped"
 node src/db/add-beta-plan.js         || echo "[render-migrate] add-beta-plan skipped"
+node src/db/add-scanner-unknown.js   || echo "[render-migrate] add-scanner-unknown skipped"
 
 echo "=== [render-migrate] All migrations complete ==="

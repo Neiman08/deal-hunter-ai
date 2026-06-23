@@ -283,6 +283,12 @@ export default function Scanner() {
   const [submitting, setSubmitting] = useState(false);
   const [submitResult, setSubmitResult] = useState(null); // { id, points_pending, confirmations_needed, error }
 
+  // Community quick-submit (FOUND_NO_PRICE / NOT_FOUND)
+  const [communityStore, setCommunityStore] = useState('');
+  const [communityPrice, setCommunityPrice] = useState('');
+  const [communitySubmitting, setCommunitySubmitting] = useState(false);
+  const [communitySubmitResult, setCommunitySubmitResult] = useState(null);
+
   // History
   const [history, setHistory] = useState([]);
 
@@ -301,6 +307,10 @@ export default function Scanner() {
     setFeedbackTag('');
     setSubmitting(false);
     setSubmitResult(null);
+    setCommunityStore('');
+    setCommunityPrice('');
+    setCommunitySubmitting(false);
+    setCommunitySubmitResult(null);
   };
 
   const doLookup = useCallback(async (code, lookupMode, opts = {}) => {
@@ -331,8 +341,8 @@ export default function Scanner() {
         const r = await api.get(`/scanner/lookup/${encodeURIComponent(term)}`);
         setLookupResult(r.data);
 
-        if (!r.data.found_internal && !r.data.keepa?.found) {
-          setError(`"${term}" not found in Deal Hunter or Keepa.`);
+        if (r.data.scan_status === 'NOT_FOUND') {
+          setError(`"${term}" not found in Deal Hunter, Keepa, or UPC databases.`);
         }
 
         addHistory(term, r.data);
@@ -362,8 +372,8 @@ export default function Scanner() {
     setHistory(prev => [
       {
         code: term,
-        name: data.product?.name || data.keepa?.title || bestDeal?.name || term,
-        found: data.found_internal || data.keepa?.found,
+        name: data.product?.name || data.keepa?.title || data.recovery?.title || bestDeal?.name || term,
+        scan_status: data.scan_status || (data.found_internal || data.keepa?.found ? 'FOUND_WITH_PRICE' : 'NOT_FOUND'),
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       },
       ...prev.filter(h => h.code !== term).slice(0, 9),
@@ -474,6 +484,31 @@ export default function Scanner() {
     }
   }
 
+  async function submitCommunityDeal({ title, brand, upc, imageUrl, category }) {
+    const sp = parseFloat(communityPrice);
+    if (!communityStore.trim() || !sp || sp <= 0) return;
+    setCommunitySubmitting(true);
+    try {
+      const geo = await getGeoLocation();
+      const storeSlug = communityStore.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      const r = await api.post('/scanner/submit-deal', {
+        upc: upc || (mode === 'upc' ? query : null) || `manual-${Date.now()}`,
+        title: title || query,
+        brand: brand || null,
+        store_slug: storeSlug,
+        found_price: sp,
+        feedback_tag: 'Found in Store',
+        ...(geo || {}),
+      });
+      setCommunitySubmitResult({ id: r.data.id, points_pending: r.data.points_pending, confirmations_needed: r.data.confirmations_needed });
+    } catch (err) {
+      const msg = err.response?.data?.message || err.response?.data?.error || 'Submission failed.';
+      setCommunitySubmitResult({ error: true, message: msg });
+    } finally {
+      setCommunitySubmitting(false);
+    }
+  }
+
   function handleSubmit(e) { e?.preventDefault(); doLookup(); }
   function handleCameraScan(code) { setShowCamera(false); setMode('upc'); doLookup(code, 'upc', { fromCamera: true }); }
   function handleExampleClick(ex) { setMode('sku'); doLookup(ex, 'sku'); }
@@ -481,6 +516,8 @@ export default function Scanner() {
   // Derived data from lookupResult
   const keepa = lookupResult?.keepa;
   const product = lookupResult?.product;
+  const recovery = lookupResult?.recovery;
+  const scanStatus = lookupResult?.scan_status;
   const deals = lookupResult?.deals || [];
   const skuResults = lookupResult?.sku_results || [];
   const bestDeal = deals[0] || skuResults[0] || null;
@@ -548,57 +585,58 @@ export default function Scanner() {
             <AlertTriangle size={16} className="text-red-400 flex-shrink-0 mt-0.5" />
             <p className="text-red-400 text-sm">{error}</p>
           </div>
-          {/* "Not found" prompt: offer manual community submission */}
+          {/* NOT_FOUND: manual community submission */}
           {(error.includes('not found') || error.includes('No deals')) && (
             <div className="card space-y-3 border-neon-blue/20">
               <p className="text-white font-semibold text-sm">📸 Found it in store?</p>
-              <p className="text-gray-400 text-xs">You can submit this product to the Deal Hunter community so other resellers can verify it.</p>
-              <div className="flex flex-col gap-2">
-                <input
-                  placeholder="Product name (e.g. Sony WH-1000XM5 Headphones)"
-                  className="bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-blue/50"
-                  id="notfound-product-name"
-                />
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    placeholder="Store (e.g. Target)"
-                    className="bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-blue/50"
-                    id="notfound-store"
-                  />
-                  <input
-                    placeholder="Price found ($)"
-                    type="number"
-                    step="0.01"
-                    className="bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-blue/50"
-                    id="notfound-price"
-                  />
+              <p className="text-gray-400 text-xs">Submit it to the Deal Hunter community so other resellers can verify it.</p>
+              {communitySubmitResult?.id ? (
+                <div className="space-y-1">
+                  <p className="text-neon-green text-xs flex items-center gap-1.5">
+                    <CheckCircle size={12} /> Submitted — needs {communitySubmitResult.confirmations_needed} confirmations to go live.
+                  </p>
+                  <p className="text-gray-500 text-xs">+{communitySubmitResult.points_pending} pts will be awarded when verified.</p>
                 </div>
-                <button
-                  onClick={async () => {
-                    const name  = document.getElementById('notfound-product-name')?.value?.trim();
-                    const store = document.getElementById('notfound-store')?.value?.trim();
-                    const price = parseFloat(document.getElementById('notfound-price')?.value);
-                    if (!name || !store || !price) { alert('Enter product name, store, and price.'); return; }
-                    try {
-                      const geo = await getGeoLocation();
-                      const r = await api.post('/scanner/submit-deal', {
-                        upc: query || `manual-${Date.now()}`,
-                        store_slug: store.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, ''),
-                        found_price: price,
-                        title: name,
-                        feedback_tag: 'Found in Store',
-                        ...(geo || {}),
-                      });
-                      alert(`✅ Submitted! Needs ${r.data.confirmations_needed} confirmations to go live. +${r.data.points_pending} pts pending.`);
-                    } catch (err) {
-                      alert(`Error: ${err.response?.data?.error || 'Submission failed'}`);
-                    }
-                  }}
-                  className="btn-primary text-sm py-2.5 flex items-center justify-center gap-2"
-                >
-                  <Upload size={14} /> Submit to Community
-                </button>
-              </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <input
+                    placeholder="Product name (e.g. Sony WH-1000XM5 Headphones)"
+                    id="notfound-product-name"
+                    className="bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-blue/50"
+                  />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      placeholder="Store (e.g. Target)"
+                      value={communityStore}
+                      onChange={e => setCommunityStore(e.target.value)}
+                      className="bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-blue/50"
+                    />
+                    <input
+                      placeholder="Price found ($)"
+                      type="number"
+                      step="0.01"
+                      value={communityPrice}
+                      onChange={e => setCommunityPrice(e.target.value)}
+                      className="bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-blue/50"
+                    />
+                  </div>
+                  <button
+                    disabled={communitySubmitting}
+                    onClick={async () => {
+                      const name  = document.getElementById('notfound-product-name')?.value?.trim();
+                      const sp    = parseFloat(communityPrice);
+                      if (!name || !communityStore.trim() || !sp) { return; }
+                      await submitCommunityDeal({ title: name, upc: mode === 'upc' ? query : null });
+                    }}
+                    className="btn-primary text-sm py-2.5 flex items-center justify-center gap-2 disabled:opacity-50"
+                  >
+                    <Upload size={14} /> {communitySubmitting ? 'Publicando…' : 'PUBLICAR OFERTA'}
+                  </button>
+                  {communitySubmitResult?.error && (
+                    <p className="text-yellow-400 text-xs">{communitySubmitResult.message}</p>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -618,24 +656,43 @@ export default function Scanner() {
 
         <div className="space-y-4 animate-fade-in">
 
+          {/* scan_status badge */}
+          {scanStatus && (
+            <div className={`flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-full w-fit ${
+              scanStatus === 'FOUND_WITH_PRICE' ? 'bg-neon-green/15 text-neon-green' :
+              scanStatus === 'FOUND_NO_PRICE'   ? 'bg-yellow-400/15 text-yellow-400' :
+                                                  'bg-red-500/15 text-red-400'
+            }`}>
+              {scanStatus === 'FOUND_WITH_PRICE' ? '🟢 Found with price' :
+               scanStatus === 'FOUND_NO_PRICE'   ? '🟡 Identified — no price' :
+                                                   '🔴 Not found'}
+            </div>
+          )}
+
           {/* Product header */}
-          {(product || keepa?.found) && (
+          {(product || keepa?.found || recovery?.found) && (
             <div className="card space-y-3">
               <div className="flex items-start gap-3">
-                {(product?.image_url || keepa?.image_url) && (
-                  <img src={product?.image_url || keepa?.image_url} alt=""
+                {(product?.image_url || keepa?.image_url || recovery?.image_url) && (
+                  <img src={product?.image_url || keepa?.image_url || recovery?.image_url} alt=""
                     className="w-16 h-16 object-contain rounded-lg bg-dark-800/50 flex-shrink-0"
                     onError={e => { e.currentTarget.style.display = 'none'; }} />
                 )}
                 <div className="flex-1 min-w-0">
-                  <p className="text-gray-400 text-xs mb-0.5">{product?.brand || keepa?.brand}</p>
+                  <p className="text-gray-400 text-xs mb-0.5">{product?.brand || keepa?.brand || recovery?.brand}</p>
                   <h2 className="text-white font-bold text-base leading-snug">
-                    {product?.name || keepa?.title || query}
+                    {product?.name || keepa?.title || recovery?.title || query}
                   </h2>
                   {product?.store_name && (
                     <span className="text-xs font-semibold px-2 py-0.5 rounded-full mt-1 inline-block"
                       style={{ background: `${product.store_color}25`, color: product.store_color }}>
                       {product.store_name}
+                    </span>
+                  )}
+                  {recovery?.found && !product && !keepa?.found && (
+                    <span className="text-xs text-gray-500 mt-1 inline-block">
+                      via {recovery.source === 'upcitemdb' ? 'UPC database' : 'Open Food Facts'}
+                      {recovery.category ? ` · ${recovery.category}` : ''}
                     </span>
                   )}
                 </div>
@@ -645,6 +702,7 @@ export default function Scanner() {
               <div className="flex gap-3 text-xs text-gray-500 font-mono">
                 {product?.upc && <span>UPC: {product.upc}</span>}
                 {product?.sku && <span>SKU: {product.sku}</span>}
+                {!product?.upc && mode === 'upc' && <span>UPC: {query}</span>}
               </div>
             </div>
           )}
@@ -803,14 +861,67 @@ export default function Scanner() {
             );
           })()}
 
-          {/* Not found state */}
-          {!lookupResult.found_internal && !keepa?.found && (
-            <div className="card text-center py-6 text-gray-400">
-              <Scan size={28} className="mx-auto mb-2 text-gray-600" />
-              <p className="text-sm">Product not found in Deal Hunter or Keepa</p>
-              <p className="text-xs mt-1 text-gray-500">Try searching with a different code or check the Search page</p>
-            </div>
-          )}
+          {/* FOUND_NO_PRICE: product identified but no Amazon price — community submit */}
+          {scanStatus === 'FOUND_NO_PRICE' && (() => {
+            const recTitle = product?.name || keepa?.title || recovery?.title;
+            const recBrand = product?.brand || keepa?.brand || recovery?.brand;
+            const recUpc   = product?.upc || (mode === 'upc' ? query : null);
+            return (
+              <div className="card space-y-3 border-yellow-400/20 bg-yellow-400/5">
+                <div>
+                  <p className="text-yellow-400 text-sm font-semibold">📸 Found it at a store?</p>
+                  <p className="text-gray-400 text-xs mt-0.5">
+                    This product has no Amazon price yet. Submit the store price to help the community.
+                  </p>
+                </div>
+
+                {communitySubmitResult?.id ? (
+                  <div className="space-y-1">
+                    <p className="text-neon-green text-xs flex items-center gap-1.5">
+                      <CheckCircle size={12} /> Submitted — needs {communitySubmitResult.confirmations_needed} confirmations to go live.
+                    </p>
+                    <p className="text-gray-500 text-xs">+{communitySubmitResult.points_pending} pts will be awarded when verified.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <input
+                      placeholder="Store name (e.g. TJ Maxx)"
+                      value={communityStore}
+                      onChange={e => setCommunityStore(e.target.value)}
+                      className="w-full bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-yellow-400/50"
+                    />
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
+                        <input
+                          placeholder="Price found"
+                          type="number"
+                          min="0.01"
+                          step="0.01"
+                          value={communityPrice}
+                          onChange={e => setCommunityPrice(e.target.value)}
+                          className="w-full bg-dark-800 border border-dark-600 text-white rounded-xl pl-7 pr-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-yellow-400/50"
+                        />
+                      </div>
+                      <button
+                        onClick={() => submitCommunityDeal({ title: recTitle, brand: recBrand, upc: recUpc })}
+                        disabled={communitySubmitting || !communityStore.trim() || !(parseFloat(communityPrice) > 0)}
+                        className="btn-primary text-sm px-4 flex items-center gap-2 disabled:opacity-50 whitespace-nowrap"
+                      >
+                        <Upload size={14} /> {communitySubmitting ? 'Publicando…' : 'PUBLICAR OFERTA'}
+                      </button>
+                    </div>
+                    {communitySubmitResult?.error && (
+                      <p className="text-yellow-400 text-xs flex items-center gap-1.5">
+                        <AlertTriangle size={12} /> {communitySubmitResult.message}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+
         </div>
       )}
 
@@ -826,9 +937,10 @@ export default function Scanner() {
                 className="w-full flex items-center gap-3 p-2 rounded-xl hover:bg-dark-800 transition-colors text-left">
                 <span className="font-mono text-gray-400 text-xs w-28 truncate">{h.code}</span>
                 <span className="text-white text-sm flex-1 truncate">{h.name}</span>
-                {h.found
-                  ? <CheckCircle size={12} className="text-neon-green flex-shrink-0" />
-                  : <X size={12} className="text-red-400 flex-shrink-0" />}
+                <span className="flex-shrink-0 text-xs">
+                  {h.scan_status === 'FOUND_WITH_PRICE' ? '🟢' :
+                   h.scan_status === 'FOUND_NO_PRICE'   ? '🟡' : '🔴'}
+                </span>
                 <span className="text-gray-500 text-xs flex-shrink-0">{h.time}</span>
               </button>
             ))}

@@ -3,6 +3,7 @@ const router = express.Router();
 const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
 const { lookupByCode, getCachedMarketData, isEnabled } = require('../services/external/keepaService');
+const { lookupUpc } = require('../services/external/upcRecovery');
 const { evaluate } = require('../services/scannerEvaluation');
 const { trackScan, trackSubmitDeal } = require('../services/businessActions');
 const logger = require('../utils/logger');
@@ -101,11 +102,85 @@ router.get('/lookup/:code', authenticate, async (req, res) => {
       keepaResult = { configured: false, error: 'Keepa API not configured' };
     }
 
+    // ── Scanner Recovery Engine (Priority #1) ─────────────────────────────
+    // When Keepa finds nothing and code looks like a UPC, try free UPC databases
+    let recoveryResult = null;
+    const isUpcFormat = /^\d{8,14}$/.test(code);
+
+    if (!foundInternal && !keepaResult?.found && isUpcFormat) {
+      try {
+        // Check if we already attempted recovery for this UPC
+        const cachedUnknown = await query(
+          'SELECT recovery_attempted, recovery_found, recovery_data FROM scanner_unknown_products WHERE upc = $1',
+          [code]
+        );
+
+        if (cachedUnknown.rows[0]?.recovery_found && cachedUnknown.rows[0]?.recovery_data) {
+          // Use cached recovery result
+          recoveryResult = { found: true, ...cachedUnknown.rows[0].recovery_data };
+          logger.info(`[Scanner] recovery cache hit for ${code}: "${recoveryResult.title}"`);
+        } else if (!cachedUnknown.rows[0]?.recovery_attempted) {
+          // First time — call external UPC APIs
+          recoveryResult = await lookupUpc(code);
+        }
+        // else: already attempted + not found → skip external call
+
+        // Upsert into scanner_unknown_products (Priority #5)
+        const attempted = recoveryResult !== null || cachedUnknown.rows[0]?.recovery_attempted || false;
+        const found     = recoveryResult?.found || false;
+        await query(`
+          INSERT INTO scanner_unknown_products
+            (upc, scans_count, user_count, first_seen, last_seen,
+             high_priority, recovery_attempted, recovery_found, recovery_source, recovery_data)
+          VALUES ($1, 1, 1, NOW(), NOW(), FALSE, $2, $3, $4, $5)
+          ON CONFLICT (upc) DO UPDATE SET
+            scans_count        = scanner_unknown_products.scans_count + 1,
+            last_seen          = NOW(),
+            high_priority      = (scanner_unknown_products.scans_count + 1) >= 5,
+            recovery_attempted = CASE WHEN $2 THEN TRUE ELSE scanner_unknown_products.recovery_attempted END,
+            recovery_found     = CASE WHEN $3 THEN TRUE ELSE scanner_unknown_products.recovery_found END,
+            recovery_source    = COALESCE($4, scanner_unknown_products.recovery_source),
+            recovery_data      = COALESCE($5, scanner_unknown_products.recovery_data),
+            updated_at         = NOW()
+        `, [
+          code,
+          attempted,
+          found,
+          found ? recoveryResult.source : null,
+          found ? JSON.stringify({
+            source:      recoveryResult.source,
+            title:       recoveryResult.title,
+            brand:       recoveryResult.brand,
+            image_url:   recoveryResult.image_url,
+            category:    recoveryResult.category,
+            description: recoveryResult.description,
+            model:       recoveryResult.model,
+          }) : null,
+        ]);
+      } catch (recErr) {
+        logger.warn(`[Scanner] recovery engine error for ${code}: ${recErr.message}`);
+      }
+    }
+
+    // ── scan_status (Priority #3) ─────────────────────────────────────────
+    const hasKeepaPrice = keepaResult?.found &&
+      (keepaResult.effective_market_price != null ||
+       keepaResult.amazon_buy_box_price   != null ||
+       keepaResult.amazon_current_price   != null ||
+       keepaResult.amazon_90d_avg_price   != null);
+    const foundAnything = foundInternal || keepaResult?.found || recoveryResult?.found;
+    const scan_status = !foundAnything
+      ? 'NOT_FOUND'
+      : (foundInternal || hasKeepaPrice)
+        ? 'FOUND_WITH_PRICE'
+        : 'FOUND_NO_PRICE';
+
     // Business XP tracking — fire-and-forget, never blocks the response
     trackScan(req.user.id, code).catch(() => {});
 
     res.json({
       code,
+      scan_status,
       found_internal: foundInternal,
       product: product ? {
         product_id: product.product_id,
@@ -132,6 +207,7 @@ router.get('/lookup/:code', authenticate, async (req, res) => {
         is_error_price: d.is_error_price,
       })),
       keepa: keepaResult,
+      recovery: recoveryResult?.found ? recoveryResult : null,
       market_data: marketData || null,
       external_enabled: isEnabled(),
     });

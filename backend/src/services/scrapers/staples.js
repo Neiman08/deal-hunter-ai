@@ -143,7 +143,15 @@ async function scanStaplesDeals() {
     if (!p.product_url) continue;
     try {
       const scraped = await scrapeStaplesProduct(p.product_url);
-      if (!scraped?.currentPrice) { consecutiveFails++; stats.errors++; continue; }
+      if (!scraped?.currentPrice) {
+        consecutiveFails++;
+        stats.errors++;
+        if (consecutiveFails >= ABORT_THRESHOLD) {
+          logger.warn(`[Staples Scan] ${consecutiveFails} consecutive no-price results — aborting early`);
+          break;
+        }
+        continue;
+      }
       consecutiveFails = 0;
       stats.scanned++;
       const r = await saveProductData(p, scraped, STORE_SLUG);

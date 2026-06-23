@@ -157,6 +157,10 @@ async function scanGameStopDeals() {
       if (!scraped?.currentPrice || scraped.currentPrice <= 3) {
         consecutiveFails++;
         stats.errors++;
+        if (consecutiveFails >= ABORT_THRESHOLD) {
+          logger.warn(`[GS Scan] ${consecutiveFails} consecutive no-price results — aborting early`);
+          break;
+        }
         continue;
       }
       consecutiveFails = 0;

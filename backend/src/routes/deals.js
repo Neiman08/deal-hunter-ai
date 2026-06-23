@@ -49,7 +49,7 @@ let _qualityFilter = '';
             ELSE NULL
           END,
           updated_at = NOW()
-        FROM stores s WHERE p.store_id = s.id
+        WHERE true
       `);
     }
     _qualityFilter = '(p.is_public_visible IS NOT FALSE)';

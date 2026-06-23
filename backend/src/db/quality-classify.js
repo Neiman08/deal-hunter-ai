@@ -62,9 +62,7 @@ async function classify() {
         ELSE NULL
       END,
       updated_at = NOW()
-    FROM stores s
-    WHERE p.store_id = s.id
-    -- always re-classify (idempotent — corrects prior wrong regex runs)
+    -- no stores JOIN — detect macys.com by URL, not by store_id
   `);
   console.log(`[quality-classify] ${result.rowCount} products classified`);
 

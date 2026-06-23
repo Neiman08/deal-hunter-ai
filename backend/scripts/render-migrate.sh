@@ -25,5 +25,6 @@ node src/db/add-scanner-unknown.js   || echo "[render-migrate] add-scanner-unkno
 node src/db/add-quality-gate.js      || echo "[render-migrate] add-quality-gate skipped"
 node src/db/quality-classify.js      || echo "[render-migrate] quality-classify skipped"
 node src/db/gamestop-name-recovery.js || echo "[render-migrate] gamestop-name-recovery skipped"
+node src/db/add-scale-indexes.js     || echo "[render-migrate] add-scale-indexes skipped"
 
 echo "=== [render-migrate] All migrations complete ==="

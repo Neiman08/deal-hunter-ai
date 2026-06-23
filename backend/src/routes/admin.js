@@ -1476,7 +1476,7 @@ router.post('/run-quality-backfill', async (req, res) => {
           WHEN p.product_url IS NULL OR trim(p.product_url) = ''
             THEN 'INCOMPLETE_PRODUCT'
           WHEN p.image_url IS NULL OR trim(p.image_url) = ''
-            THEN 'HIDDEN_MISSING_IMAGE'
+            THEN 'NEEDS_IMAGE'
           ELSE 'PASS'
         END,
         is_public_visible = CASE
@@ -1492,8 +1492,6 @@ router.post('/run-quality-backfill', async (req, res) => {
                AND (p.product_url NOT LIKE '%/ID/%')
             THEN false
           WHEN p.product_url IS NULL OR trim(p.product_url) = ''
-            THEN false
-          WHEN p.image_url IS NULL OR trim(p.image_url) = ''
             THEN false
           ELSE true
         END,
@@ -1511,7 +1509,7 @@ router.post('/run-quality-backfill', async (req, res) => {
           WHEN p.product_url IS NULL OR trim(p.product_url) = ''
             THEN 'No product URL'
           WHEN p.image_url IS NULL OR trim(p.image_url) = ''
-            THEN 'No product image'
+            THEN 'No image — flagged for enrichment'
           ELSE NULL
         END,
         last_quality_check_at = NOW(),
@@ -1548,14 +1546,14 @@ router.get('/feed-quality', async (req, res) => {
           COUNT(*)                                                                          AS total_products,
           COUNT(*) FILTER (WHERE d.is_active)                                              AS total_deals,
           COUNT(DISTINCT d.id) FILTER (WHERE d.is_active AND p.is_public_visible = true
-                                       AND p.quality_status = 'PASS')                      AS public_visible_deals,
+                                       AND p.quality_status IN ('PASS', 'NEEDS_IMAGE'))    AS public_visible_deals,
           COUNT(DISTINCT d.id) FILTER (WHERE d.is_active AND p.is_public_visible = false)  AS hidden_by_quality,
           COUNT(*) FILTER (WHERE p.quality_status IS NULL)                                 AS unchecked,
           COUNT(*) FILTER (WHERE p.quality_status = 'PASS')                               AS pass,
           COUNT(*) FILTER (WHERE p.quality_status = 'HIDDEN_GENERIC_TITLE')               AS generic_title,
           COUNT(*) FILTER (WHERE p.quality_status = 'HIDDEN_MISSING_TITLE')               AS missing_title,
           COUNT(*) FILTER (WHERE p.quality_status = 'HIDDEN_BROKEN_URL')                  AS broken_url,
-          COUNT(*) FILTER (WHERE p.quality_status = 'HIDDEN_MISSING_IMAGE')               AS missing_image,
+          COUNT(*) FILTER (WHERE p.quality_status = 'NEEDS_IMAGE')                        AS needs_image,
           COUNT(*) FILTER (WHERE p.quality_status = 'INCOMPLETE_PRODUCT')                 AS incomplete_product,
           COUNT(*) FILTER (WHERE p.quality_status = 'NEEDS_RECOVERY')                     AS needs_recovery,
           COUNT(*) FILTER (WHERE p.quality_status = 'MANUAL_REVIEW')                      AS manual_review
@@ -1569,12 +1567,12 @@ router.get('/feed-quality', async (req, res) => {
           COUNT(DISTINCT p.id)                                                                          AS total_products,
           COUNT(DISTINCT d.id) FILTER (WHERE d.is_active)                                              AS active_deals,
           COUNT(DISTINCT d.id) FILTER (WHERE d.is_active AND p.is_public_visible = true
-                                       AND p.quality_status = 'PASS')                                  AS public_deals,
+                                       AND p.quality_status IN ('PASS', 'NEEDS_IMAGE'))               AS public_deals,
           COUNT(DISTINCT p.id) FILTER (WHERE p.is_public_visible = false)                              AS hidden_products,
           COUNT(DISTINCT p.id) FILTER (WHERE p.quality_status = 'HIDDEN_GENERIC_TITLE')               AS generic_title,
           COUNT(DISTINCT p.id) FILTER (WHERE p.quality_status = 'HIDDEN_BROKEN_URL')                  AS broken_url,
           COUNT(DISTINCT p.id) FILTER (WHERE p.quality_status = 'HIDDEN_MISSING_TITLE')               AS missing_title,
-          COUNT(DISTINCT p.id) FILTER (WHERE p.quality_status = 'HIDDEN_MISSING_IMAGE')               AS missing_image
+          COUNT(DISTINCT p.id) FILTER (WHERE p.quality_status = 'NEEDS_IMAGE')                        AS needs_image
         FROM products p
         JOIN stores s ON p.store_id = s.id
         LEFT JOIN deals d ON d.product_id = p.id
@@ -1613,7 +1611,7 @@ router.get('/feed-quality', async (req, res) => {
         HIDDEN_GENERIC_TITLE: parseInt(o.generic_title)        || 0,
         HIDDEN_MISSING_TITLE: parseInt(o.missing_title)        || 0,
         HIDDEN_BROKEN_URL:    parseInt(o.broken_url)           || 0,
-        HIDDEN_MISSING_IMAGE: parseInt(o.missing_image)        || 0,
+        NEEDS_IMAGE:          parseInt(o.needs_image)          || 0,
         INCOMPLETE_PRODUCT:   parseInt(o.incomplete_product)   || 0,
         NEEDS_RECOVERY:       parseInt(o.needs_recovery)       || 0,
         MANUAL_REVIEW:        parseInt(o.manual_review)        || 0,

@@ -12,7 +12,7 @@
  *   HIDDEN_BROKEN_URL    — URL structurally missing required routing ID
  *   HIDDEN_GENERIC_TITLE — name matches a known stub pattern
  *   HIDDEN_MISSING_TITLE — name is null, empty, or too short
- *   HIDDEN_MISSING_IMAGE — no image_url
+ *   NEEDS_IMAGE          — no image_url; visible but flagged for enrichment
  *   NEEDS_RECOVERY       — has real name but is otherwise incomplete; attempt re-scrape
  *   INCOMPLETE_PRODUCT   — no URL at all
  *   MANUAL_REVIEW        — confidence too low to auto-publish
@@ -54,7 +54,7 @@ function classifyProduct(p) {
   }
 
   if (!img) {
-    return { status: 'HIDDEN_MISSING_IMAGE', visible: false, reason: 'No product image' };
+    return { status: 'NEEDS_IMAGE', visible: true, reason: 'No image — flagged for enrichment' };
   }
 
   return { status: 'PASS', visible: true, reason: null };
@@ -64,6 +64,6 @@ function classifyProduct(p) {
  * The SQL WHERE clause for public endpoints.
  * Use this string directly in queries joining products p.
  */
-const PUBLIC_QUALITY_FILTER = `(p.is_public_visible = true AND p.quality_status = 'PASS')`;
+const PUBLIC_QUALITY_FILTER = `(p.is_public_visible = true AND p.quality_status IN ('PASS', 'NEEDS_IMAGE'))`;
 
 module.exports = { classifyProduct, PUBLIC_QUALITY_FILTER, PLACEHOLDER_PATTERNS };

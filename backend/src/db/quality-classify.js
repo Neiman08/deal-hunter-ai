@@ -7,7 +7,7 @@
  *   HIDDEN_BROKEN_URL    — URL structurally missing required routing ID (Macy's)
  *   HIDDEN_GENERIC_TITLE — name is a placeholder (GameStop Product XXXXX, etc.)
  *   HIDDEN_MISSING_TITLE — name is null or too short
- *   HIDDEN_MISSING_IMAGE — no image_url
+ *   NEEDS_IMAGE          — no image_url; visible but flagged for enrichment
  *   NEEDS_RECOVERY       — has real name but is otherwise incomplete
  *   INCOMPLETE_PRODUCT   — no URL
  *
@@ -38,7 +38,7 @@ async function classify() {
           THEN 'INCOMPLETE_PRODUCT'
 
         WHEN p.image_url IS NULL OR trim(p.image_url) = ''
-          THEN 'HIDDEN_MISSING_IMAGE'
+          THEN 'NEEDS_IMAGE'
 
         ELSE 'PASS'
       END,
@@ -57,8 +57,6 @@ async function classify() {
           AND p.product_url NOT LIKE '%/ID/%'
           THEN false
         WHEN p.product_url IS NULL OR trim(p.product_url) = ''
-          THEN false
-        WHEN p.image_url IS NULL OR trim(p.image_url) = ''
           THEN false
         ELSE true
       END,
@@ -80,7 +78,7 @@ async function classify() {
         WHEN p.product_url IS NULL OR trim(p.product_url) = ''
           THEN 'No product URL'
         WHEN p.image_url IS NULL OR trim(p.image_url) = ''
-          THEN 'No product image'
+          THEN 'No image — flagged for enrichment'
         ELSE NULL
       END,
 

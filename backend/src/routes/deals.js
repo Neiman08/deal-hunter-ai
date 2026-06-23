@@ -32,7 +32,7 @@ async function runQualityClassification() {
         WHEN p.product_url IS NULL OR trim(p.product_url)=''
           THEN 'INCOMPLETE_PRODUCT'
         WHEN p.image_url IS NULL OR trim(p.image_url)=''
-          THEN 'HIDDEN_MISSING_IMAGE'
+          THEN 'NEEDS_IMAGE'
         ELSE 'PASS'
       END,
       is_public_visible = CASE
@@ -47,7 +47,6 @@ async function runQualityClassification() {
           AND p.product_url NOT LIKE '%/ID/%'
           THEN false
         WHEN p.product_url IS NULL OR trim(p.product_url)='' THEN false
-        WHEN p.image_url IS NULL OR trim(p.image_url)='' THEN false
         ELSE true
       END,
       quality_reason = CASE
@@ -66,7 +65,7 @@ async function runQualityClassification() {
         WHEN p.product_url IS NULL OR trim(p.product_url)=''
           THEN 'No product URL'
         WHEN p.image_url IS NULL OR trim(p.image_url)=''
-          THEN 'No product image'
+          THEN 'No image — flagged for enrichment'
         ELSE NULL
       END,
       last_quality_check_at = NOW(),
@@ -98,7 +97,7 @@ async function runQualityClassification() {
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const n = await runQualityClassification();
-      _qualityFilter = `(p.is_public_visible = true AND p.quality_status = 'PASS')`;
+      _qualityFilter = `(p.is_public_visible = true AND p.quality_status IN ('PASS', 'NEEDS_IMAGE'))`;
       console.log(`[quality-gate] ACTIVE — filter set after ${n} products classified (attempt ${attempt})`);
       return;
     } catch (err) {

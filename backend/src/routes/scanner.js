@@ -9,6 +9,60 @@ const { evaluate } = require('../services/scannerEvaluation');
 const { trackScan, trackSubmitDeal } = require('../services/businessActions');
 const logger = require('../utils/logger');
 
+/**
+ * Recovery confidence scoring.
+ * score 0-100; state = FOUND | PARTIAL_MATCH | LOW_CONFIDENCE | NO_DATA
+ */
+function computeRecoveryConfidence({ foundInternal, keepaResult, ebayResult, recoveryResult }) {
+  let score = 0;
+  const signals = [];
+
+  if (foundInternal) {
+    score += 50;
+    signals.push({ key: 'internal_db_match', weight: 50, desc: 'Exact match in Deal Hunter database' });
+  }
+
+  if (keepaResult?.found) {
+    if (keepaResult.amazon_buy_box_price) {
+      score += 25;
+      signals.push({ key: 'keepa_buy_box', weight: 25, desc: 'Amazon buy box price via Keepa' });
+    } else if (keepaResult.amazon_current_price || keepaResult.amazon_90d_avg_price) {
+      score += 15;
+      signals.push({ key: 'keepa_historical', weight: 15, desc: 'Amazon historical price via Keepa' });
+    } else {
+      score += 10;
+      signals.push({ key: 'keepa_asin_only', weight: 10, desc: 'ASIN found on Amazon — no current price' });
+    }
+    if (keepaResult.sales_rank) {
+      score += 5;
+      signals.push({ key: 'sales_rank', weight: 5, desc: 'Amazon BSR data available' });
+    }
+  }
+
+  if (ebayResult?.found && ebayResult.median_price) {
+    score += 10;
+    signals.push({ key: 'ebay_sold', weight: 10, desc: `eBay recently-sold median $${ebayResult.median_price}` });
+  }
+
+  if (recoveryResult?.found) {
+    score += 5;
+    signals.push({ key: 'upc_db', weight: 5, desc: `Product info from ${recoveryResult.source}` });
+    if (recoveryResult.market_offer_price || recoveryResult.market_low) {
+      score += 5;
+      signals.push({ key: 'market_price', weight: 5, desc: 'Market price data from UPC database' });
+    }
+  }
+
+  score = Math.min(score, 100);
+  const state =
+    score >= 70 ? 'FOUND' :
+    score >= 40 ? 'PARTIAL_MATCH' :
+    score >= 15 ? 'LOW_CONFIDENCE' :
+    'NO_DATA';
+
+  return { state, score, signals };
+}
+
 // GET /api/scanner/lookup/:code
 router.get('/lookup/:code', authenticate, async (req, res) => {
   const code = (req.params.code || '').trim();
@@ -240,9 +294,12 @@ router.get('/lookup/:code', authenticate, async (req, res) => {
       sales_rank:              keepaResult?.sales_rank             ?? null,
     };
 
+    const recoveryAssessment = computeRecoveryConfidence({ foundInternal, keepaResult, ebayResult, recoveryResult });
+
     res.json({
       code,
       scan_status,
+      recovery_assessment: recoveryAssessment,
       found_internal: foundInternal,
       product: product ? {
         product_id: product.product_id,
@@ -570,6 +627,55 @@ router.get('/history', authenticate, async (req, res) => {
     res.json({ history: r.rows, total: r.rowCount });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch scan history' });
+  }
+});
+
+// POST /api/scanner/community-report
+// User submits product info for an unrecognised UPC/SKU.
+// Stored in scanner_unknown_products with recovery_source = 'community'.
+router.post('/community-report', authenticate, async (req, res) => {
+  try {
+    const { upc, name, brand, category, image_url, notes } = req.body;
+
+    if (!upc) return res.status(400).json({ error: 'upc required' });
+    if (!name || name.trim().length < 3) return res.status(400).json({ error: 'name required (min 3 chars)' });
+
+    const cleanName  = name.trim().slice(0, 500);
+    const cleanBrand = (brand || '').trim().slice(0, 200) || null;
+    const cleanCat   = (category || '').trim().slice(0, 100) || null;
+    const cleanImg   = (image_url || '').trim().slice(0, 1000) || null;
+    const cleanNotes = (notes || '').trim().slice(0, 1000) || null;
+
+    const payload = JSON.stringify({
+      source:        'community',
+      submitted_by:  req.user.id,
+      submitted_at:  new Date().toISOString(),
+      title:         cleanName,
+      brand:         cleanBrand,
+      category:      cleanCat,
+      image_url:     cleanImg,
+      notes:         cleanNotes,
+    });
+
+    await query(`
+      INSERT INTO scanner_unknown_products
+        (upc, scans_count, user_count, first_seen, last_seen,
+         high_priority, recovery_attempted, recovery_found, recovery_source, recovery_data)
+      VALUES ($1, 0, 1, NOW(), NOW(), TRUE, TRUE, TRUE, 'community', $2::jsonb)
+      ON CONFLICT (upc) DO UPDATE SET
+        recovery_found     = TRUE,
+        recovery_source    = 'community',
+        recovery_data      = $2::jsonb,
+        high_priority      = TRUE,
+        last_seen          = NOW(),
+        updated_at         = NOW()
+    `, [upc, payload]);
+
+    logger.info(`[Scanner] community report: upc=${upc} name="${cleanName}" by user=${req.user.id}`);
+    res.json({ ok: true, upc, name: cleanName });
+  } catch (err) {
+    logger.error(`[Scanner] community-report error: ${err.message}`);
+    res.status(500).json({ error: 'Failed to save community report' });
   }
 });
 

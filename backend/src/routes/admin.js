@@ -1625,4 +1625,152 @@ router.get('/feed-quality', async (req, res) => {
   }
 });
 
+// GET /admin/community-reports
+// Lists community-submitted product corrections (recovery_source = 'community').
+router.get('/community-reports', async (req, res) => {
+  try {
+    const limit  = Math.min(parseInt(req.query.limit) || 50, 200);
+    const offset = parseInt(req.query.offset) || 0;
+
+    const r = await query(`
+      SELECT
+        upc,
+        scans_count,
+        high_priority,
+        recovery_source,
+        recovery_data,
+        created_at,
+        updated_at
+      FROM scanner_unknown_products
+      WHERE recovery_source = 'community' AND recovery_found = TRUE
+      ORDER BY high_priority DESC, scans_count DESC, updated_at DESC
+      LIMIT $1 OFFSET $2
+    `, [limit, offset]);
+
+    res.json({
+      total:   r.rowCount,
+      limit,
+      offset,
+      reports: r.rows.map(row => ({
+        upc:          row.upc,
+        scans_count:  row.scans_count,
+        high_priority:row.high_priority,
+        submitted_by: row.recovery_data?.submitted_by,
+        submitted_at: row.recovery_data?.submitted_at,
+        name:         row.recovery_data?.title,
+        brand:        row.recovery_data?.brand,
+        category:     row.recovery_data?.category,
+        image_url:    row.recovery_data?.image_url,
+        notes:        row.recovery_data?.notes,
+        created_at:   row.created_at,
+        updated_at:   row.updated_at,
+      })),
+    });
+  } catch (err) {
+    logger.error(`[Admin] community-reports error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /admin/community-reports/:upc/approve
+// Applies a community-submitted name/brand/category to matching products.
+router.post('/community-reports/:upc/approve', async (req, res) => {
+  try {
+    const { upc } = req.params;
+
+    const reportRes = await query(
+      `SELECT recovery_data FROM scanner_unknown_products WHERE upc = $1 AND recovery_source = 'community'`,
+      [upc]
+    );
+    if (!reportRes.rows.length) {
+      return res.status(404).json({ error: 'Community report not found for this UPC' });
+    }
+
+    const data = reportRes.rows[0].recovery_data || {};
+    if (!data.title) return res.status(400).json({ error: 'Report has no product name' });
+
+    // Update matching products — only fill in null fields, never overwrite existing data
+    const updateRes = await query(`
+      UPDATE products SET
+        name       = CASE WHEN (name IS NULL OR trim(name) = '' OR name ~* '^[a-z]{2,12}[[:space:]]+product[[:space:]]+[0-9]+$') THEN $2 ELSE name END,
+        brand      = CASE WHEN brand IS NULL AND $3::text IS NOT NULL THEN $3 ELSE brand END,
+        updated_at = NOW()
+      WHERE upc = $1
+      RETURNING id, name, brand
+    `, [upc, data.title, data.brand || null]);
+
+    logger.info(`[Admin] community report approved: upc=${upc} name="${data.title}" — ${updateRes.rowCount} products updated`);
+    res.json({
+      ok:               true,
+      upc,
+      applied_name:     data.title,
+      products_updated: updateRes.rowCount,
+      products:         updateRes.rows,
+    });
+  } catch (err) {
+    logger.error(`[Admin] community-reports approve error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /admin/quality-dashboard
+// Full data quality overview: status breakdown, enrichment queue, community reports.
+router.get('/quality-dashboard', async (req, res) => {
+  try {
+    const [statusBreakdown, enrichmentQueue, communityReports] = await Promise.all([
+
+      // Per-status counts and deal coverage
+      query(`
+        SELECT
+          p.quality_status,
+          p.is_public_visible,
+          COUNT(DISTINCT p.id)                                      AS products,
+          COUNT(DISTINCT d.id) FILTER (WHERE d.is_active = TRUE)   AS active_deals
+        FROM products p
+        LEFT JOIN deals d ON d.product_id = p.id
+        GROUP BY p.quality_status, p.is_public_visible
+        ORDER BY products DESC
+      `),
+
+      // Products needing image enrichment (NEEDS_IMAGE with active deals)
+      query(`
+        SELECT
+          s.name AS store,
+          COUNT(DISTINCT p.id) AS needs_image_products,
+          COUNT(DISTINCT d.id) AS active_deals
+        FROM products p
+        JOIN stores s ON p.store_id = s.id
+        LEFT JOIN deals d ON d.product_id = p.id AND d.is_active = TRUE
+        WHERE p.quality_status = 'NEEDS_IMAGE'
+        GROUP BY s.name
+        ORDER BY active_deals DESC
+      `),
+
+      // Community reports summary
+      query(`
+        SELECT
+          COUNT(*) FILTER (WHERE recovery_source = 'community' AND recovery_found = TRUE) AS pending_review,
+          COUNT(*) FILTER (WHERE high_priority = TRUE)                                    AS high_priority,
+          MAX(updated_at)                                                                 AS latest_submission
+        FROM scanner_unknown_products
+      `),
+    ]);
+
+    const cr = communityReports.rows[0] || {};
+    res.json({
+      generated_at:      new Date().toISOString(),
+      status_breakdown:  statusBreakdown.rows,
+      enrichment_queue:  enrichmentQueue.rows,
+      community_reports: {
+        pending_review:     parseInt(cr.pending_review) || 0,
+        high_priority:      parseInt(cr.high_priority)  || 0,
+        latest_submission:  cr.latest_submission,
+      },
+    });
+  } catch (err) {
+    logger.error(`[Admin] quality-dashboard error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

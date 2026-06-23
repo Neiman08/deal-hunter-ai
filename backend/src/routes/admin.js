@@ -2086,4 +2086,194 @@ router.get('/quality-dashboard', async (req, res) => {
   }
 });
 
+// GET /admin/data-health — comprehensive health dashboard for all data quality metrics
+router.get('/data-health', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const [
+      productStats,
+      dealStats,
+      brokenLinks,
+      noImage,
+      noName,
+      botBlocked,
+      unrecognizedUpc,
+      scanStats,
+      storeErrors,
+    ] = await Promise.all([
+
+      // Active vs total products
+      query(`
+        SELECT
+          COUNT(*)                                           AS total,
+          COUNT(*) FILTER (WHERE is_public_visible = true)  AS visible,
+          COUNT(*) FILTER (WHERE is_public_visible = false) AS hidden,
+          COUNT(*) FILTER (WHERE quality_status IS NULL)    AS unclassified
+        FROM products
+      `),
+
+      // Deal stats
+      query(`
+        SELECT
+          COUNT(*)                              AS total,
+          COUNT(*) FILTER (WHERE is_active = true)  AS active,
+          COUNT(*) FILTER (WHERE is_active = false) AS inactive,
+          COUNT(*) FILTER (WHERE is_active = true AND estimated_profit < 0) AS negative_profit,
+          ROUND(AVG(opportunity_score) FILTER (WHERE is_active = true), 1) AS avg_score
+        FROM deals
+      `),
+
+      // Broken links by store
+      query(`
+        SELECT s.name AS store, s.slug, COUNT(p.id) AS count
+        FROM products p
+        JOIN stores s ON p.store_id = s.id
+        WHERE p.quality_status = 'HIDDEN_BROKEN_URL'
+        GROUP BY s.name, s.slug
+        ORDER BY count DESC
+      `),
+
+      // Products without images (NEEDS_IMAGE) that have active deals
+      query(`
+        SELECT s.name AS store, COUNT(DISTINCT p.id) AS products, COUNT(DISTINCT d.id) AS active_deals
+        FROM products p
+        JOIN stores s ON p.store_id = s.id
+        LEFT JOIN deals d ON d.product_id = p.id AND d.is_active = true
+        WHERE p.quality_status = 'NEEDS_IMAGE'
+        GROUP BY s.name
+        ORDER BY active_deals DESC
+        LIMIT 10
+      `),
+
+      // Products without proper names
+      query(`
+        SELECT quality_status, COUNT(*) AS count
+        FROM products
+        WHERE quality_status IN ('HIDDEN_MISSING_TITLE', 'HIDDEN_GENERIC_TITLE', 'HIDDEN_BOT_BLOCKED')
+        GROUP BY quality_status
+        ORDER BY count DESC
+      `),
+
+      // Bot-blocked pages saved as names
+      query(`
+        SELECT COUNT(*) AS count FROM products WHERE quality_status = 'HIDDEN_BOT_BLOCKED'
+      `),
+
+      // UPCs scanned but not recognized
+      query(`
+        SELECT
+          COUNT(*)                                          AS total_unknown,
+          COUNT(*) FILTER (WHERE recovery_found = true)    AS recovered,
+          COUNT(*) FILTER (WHERE recovery_found = false AND recovery_attempted = true) AS unrecoverable,
+          COUNT(*) FILTER (WHERE recovery_attempted = false) AS not_attempted,
+          COUNT(*) FILTER (WHERE high_priority = true)     AS high_priority
+        FROM scanner_unknown_products
+      `),
+
+      // Scan success/failure last 7 days
+      query(`
+        SELECT
+          COUNT(*)                                              AS total,
+          COUNT(*) FILTER (WHERE status = 'success')           AS success,
+          COUNT(*) FILTER (WHERE status = 'partial')           AS partial,
+          COUNT(*) FILTER (WHERE status = 'error')             AS error,
+          COUNT(*) FILTER (WHERE status = 'running')           AS running,
+          SUM(products_scanned)                                AS total_scanned,
+          SUM(deals_found)                                     AS total_deals,
+          ROUND(AVG(duration_seconds) FILTER (WHERE status IN ('success','partial','error')), 0) AS avg_duration_s
+        FROM scan_logs
+        WHERE started_at > NOW() - INTERVAL '7 days'
+      `),
+
+      // Per-store error summary from scan_logs (last 24h error_details)
+      query(`
+        SELECT error_details
+        FROM scan_logs
+        WHERE started_at > NOW() - INTERVAL '24 hours'
+          AND error_details IS NOT NULL
+          AND error_details != '{}'
+          AND error_details != 'null'
+        ORDER BY started_at DESC
+        LIMIT 10
+      `),
+    ]);
+
+    // Aggregate per-store errors from recent scan error_details
+    const storeErrorMap = {};
+    for (const row of storeErrors.rows) {
+      let ed = row.error_details;
+      if (typeof ed === 'string') { try { ed = JSON.parse(ed); } catch { continue; } }
+      if (!ed || typeof ed !== 'object') continue;
+      for (const [store, info] of Object.entries(ed)) {
+        if (!storeErrorMap[store]) storeErrorMap[store] = { errors: 0, scanned: 0, cycles: 0 };
+        storeErrorMap[store].errors  += info.errors || 0;
+        storeErrorMap[store].scanned += info.products_scanned || 0;
+        storeErrorMap[store].cycles  += 1;
+      }
+    }
+
+    const ps = productStats.rows[0];
+    const ds = dealStats.rows[0];
+    const sc = scanStats.rows[0];
+    const uu = unrecognizedUpc.rows[0];
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      products: {
+        total:        parseInt(ps.total) || 0,
+        visible:      parseInt(ps.visible) || 0,
+        hidden:       parseInt(ps.hidden) || 0,
+        unclassified: parseInt(ps.unclassified) || 0,
+      },
+      deals: {
+        total:          parseInt(ds.total) || 0,
+        active:         parseInt(ds.active) || 0,
+        inactive:       parseInt(ds.inactive) || 0,
+        negative_profit: parseInt(ds.negative_profit) || 0,
+        avg_score:      parseFloat(ds.avg_score) || 0,
+      },
+      broken_links: {
+        total: brokenLinks.rows.reduce((s, r) => s + parseInt(r.count), 0),
+        by_store: brokenLinks.rows.map(r => ({ store: r.store, slug: r.slug, count: parseInt(r.count) })),
+      },
+      missing_images: {
+        total: noImage.rows.reduce((s, r) => s + parseInt(r.products), 0),
+        by_store: noImage.rows.map(r => ({ store: r.store, products: parseInt(r.products), active_deals: parseInt(r.active_deals) })),
+      },
+      bad_names: {
+        total: noName.rows.reduce((s, r) => s + parseInt(r.count), 0),
+        bot_blocked: parseInt(botBlocked.rows[0]?.count) || 0,
+        by_type: noName.rows.map(r => ({ type: r.quality_status, count: parseInt(r.count) })),
+      },
+      upc_recognition: {
+        total_scanned: parseInt(uu.total_unknown) || 0,
+        recovered:     parseInt(uu.recovered) || 0,
+        unrecoverable: parseInt(uu.unrecoverable) || 0,
+        not_attempted: parseInt(uu.not_attempted) || 0,
+        high_priority: parseInt(uu.high_priority) || 0,
+        recovery_rate_pct: uu.total_unknown > 0
+          ? Math.round(parseInt(uu.recovered) / parseInt(uu.total_unknown) * 100)
+          : null,
+      },
+      scan_health: {
+        period: '7 days',
+        total:       parseInt(sc.total) || 0,
+        success:     parseInt(sc.success) || 0,
+        partial:     parseInt(sc.partial) || 0,
+        error:       parseInt(sc.error) || 0,
+        running:     parseInt(sc.running) || 0,
+        success_rate_pct: sc.total > 0
+          ? Math.round((parseInt(sc.success) + parseInt(sc.partial)) / parseInt(sc.total) * 100)
+          : null,
+        total_scanned:  parseInt(sc.total_scanned) || 0,
+        total_deals:    parseInt(sc.total_deals) || 0,
+        avg_duration_s: parseInt(sc.avg_duration_s) || 0,
+      },
+      store_errors_24h: storeErrorMap,
+    });
+  } catch (err) {
+    logger.error(`[Admin] data-health error: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;

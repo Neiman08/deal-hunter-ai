@@ -20,11 +20,23 @@ async function runQualityClassification() {
       quality_status = CASE
         WHEN trim(COALESCE(p.name,''))='' OR length(trim(COALESCE(p.name,''))) < 5
           THEN 'HIDDEN_MISSING_TITLE'
+        -- Bot-blocked error pages saved as product names (Cloudflare, Incapsula, etc.)
+        WHEN p.name ~* 'attention required'
+          OR p.name ~* 'access denied'
+          OR p.name ~* 'sorry.{0,10}(you have been blocked|blocked)'
+          OR p.name ~* '^(403|404|503)[[:space:]]'
+          OR p.name ~* 'just a moment'
+          OR p.name ~* 'ddos protection'
+          OR p.name ~* 'verify you are human'
+          OR p.name ~* 'enable javascript'
+          THEN 'HIDDEN_BOT_BLOCKED'
+        -- Placeholder/generic titles
         WHEN p.name ~* '^gamestop product[[:space:]]+[0-9]+$'
           OR p.name ~* '^product[[:space:]]+[0-9]+$'
           OR p.name ~* '^[a-z]{2,12}[[:space:]]+product[[:space:]]+[0-9]+$'
           OR p.name ~ '^[0-9]{5,}$'
           THEN 'HIDDEN_GENERIC_TITLE'
+        -- Macy's: URL missing product ID parameter
         WHEN p.product_url LIKE '%macys.com%'
           AND p.product_url NOT LIKE '%?ID=%'
           AND p.product_url NOT LIKE '%/ID/%'
@@ -37,6 +49,15 @@ async function runQualityClassification() {
       END,
       is_public_visible = CASE
         WHEN trim(COALESCE(p.name,''))='' OR length(trim(COALESCE(p.name,''))) < 5 THEN false
+        WHEN p.name ~* 'attention required'
+          OR p.name ~* 'access denied'
+          OR p.name ~* 'sorry.{0,10}(you have been blocked|blocked)'
+          OR p.name ~* '^(403|404|503)[[:space:]]'
+          OR p.name ~* 'just a moment'
+          OR p.name ~* 'ddos protection'
+          OR p.name ~* 'verify you are human'
+          OR p.name ~* 'enable javascript'
+          THEN false
         WHEN p.name ~* '^gamestop product[[:space:]]+[0-9]+$'
           OR p.name ~* '^product[[:space:]]+[0-9]+$'
           OR p.name ~* '^[a-z]{2,12}[[:space:]]+product[[:space:]]+[0-9]+$'
@@ -52,6 +73,14 @@ async function runQualityClassification() {
       quality_reason = CASE
         WHEN trim(COALESCE(p.name,''))='' OR length(trim(COALESCE(p.name,''))) < 5
           THEN 'Empty or too-short product name'
+        WHEN p.name ~* 'attention required'
+          OR p.name ~* 'access denied'
+          OR p.name ~* 'sorry.{0,10}(you have been blocked|blocked)'
+          OR p.name ~* 'just a moment'
+          OR p.name ~* 'ddos protection'
+          OR p.name ~* 'verify you are human'
+          OR p.name ~* 'enable javascript'
+          THEN 'Bot-blocked page saved as product name: ' || left(trim(p.name), 60)
         WHEN p.name ~* '^gamestop product[[:space:]]+[0-9]+$'
           OR p.name ~* '^product[[:space:]]+[0-9]+$'
           OR p.name ~* '^[a-z]{2,12}[[:space:]]+product[[:space:]]+[0-9]+$'
@@ -144,6 +173,8 @@ router.get('/', async (req, res) => {
       `d.discount_percent >= $1`,
       '(d.is_error_price IS NOT TRUE)',
       'd.deal_price > 0',
+      // Exclude deals with confirmed negative profit — allow NULL (no resale data available)
+      '(d.estimated_profit IS NULL OR d.estimated_profit >= 0)',
       ...(  _qualityFilter ? [_qualityFilter] : []),
     ];
     let params = [parseFloat(min_discount)];

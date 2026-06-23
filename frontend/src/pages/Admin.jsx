@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Shield, RefreshCw, Users, Activity, AlertCircle,
   CheckCircle, Play, Trash2, TrendingUp, DollarSign, Bell,
-  Package, Star, Clock, Zap, Database, BarChart2
+  Package, Star, Clock, Zap, Database, BarChart2,
+  Link2Off, ImageOff, FileText, ScanLine, HeartPulse
 } from 'lucide-react';
 import api from '../utils/api';
 import StatCard from '../components/StatCard';
@@ -46,6 +47,8 @@ export default function Admin() {
   const [topCats, setTopCats] = useState([]);
   const [health, setHealth] = useState(null);
   const [healthLoading, setHealthLoading] = useState(false);
+  const [dataHealth, setDataHealth] = useState(null);
+  const [dataHealthLoading, setDataHealthLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState('');
   const [msg, setMsg] = useState('');
@@ -56,6 +59,14 @@ export default function Admin() {
       .then(r => setHealth(r.data))
       .catch(() => {})
       .finally(() => setHealthLoading(false));
+  }, []);
+
+  const loadDataHealth = useCallback(() => {
+    setDataHealthLoading(true);
+    api.get('/admin/data-health')
+      .then(r => setDataHealth(r.data))
+      .catch(() => {})
+      .finally(() => setDataHealthLoading(false));
   }, []);
 
   useEffect(() => {
@@ -72,7 +83,8 @@ export default function Admin() {
       setTopCats(dealsStats.data.top_categories || []);
     }).catch(() => {}).finally(() => setLoading(false));
     loadHealth();
-  }, [loadHealth]);
+    loadDataHealth();
+  }, [loadHealth, loadDataHealth]);
 
   async function scan(store) {
     setScanning(store);
@@ -116,6 +128,7 @@ export default function Admin() {
   const mrr = stats ? (stats.revenue?.mrr_cents || 0) / 100 : 0;
   const TABS = [
     { id: 'overview', label: 'Overview' },
+    { id: 'data-health', label: 'Data Health' },
     { id: 'health', label: 'Scanner Health' },
     { id: 'revenue', label: 'Revenue' },
     { id: 'scans', label: 'Scan Logs' },
@@ -218,6 +231,177 @@ export default function Admin() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── DATA HEALTH ── */}
+      {tab === 'data-health' && (
+        <div className="space-y-5">
+          <div className="flex items-center justify-between">
+            <h2 className="text-white font-semibold flex items-center gap-2">
+              <HeartPulse size={17} className="text-neon-green" /> Data Quality Overview
+            </h2>
+            <button onClick={loadDataHealth} disabled={dataHealthLoading}
+              className="text-xs text-gray-400 hover:text-white flex items-center gap-1.5 disabled:opacity-50">
+              <RefreshCw size={12} className={dataHealthLoading ? 'animate-spin' : ''} /> Refresh
+            </button>
+          </div>
+
+          {dataHealthLoading && !dataHealth ? (
+            <div className="flex items-center justify-center h-32">
+              <div className="w-6 h-6 border-2 border-neon-green/30 border-t-neon-green rounded-full animate-spin" />
+            </div>
+          ) : dataHealth ? (
+            <>
+              {/* Top metrics row */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <StatCard icon={<Package size={16} />} title="Productos Activos"
+                  value={dataHealth.products?.visible?.toLocaleString() || '—'}
+                  sub={`de ${dataHealth.products?.total?.toLocaleString()} total`} color="green" />
+                <StatCard icon={<Activity size={16} />} title="Deals Activos"
+                  value={dataHealth.deals?.active?.toLocaleString() || '—'}
+                  sub={`score prom: ${dataHealth.deals?.avg_score || 0}`} color="blue" />
+                <StatCard icon={<Link2Off size={16} />} title="Links Rotos"
+                  value={dataHealth.broken_links?.total?.toLocaleString() || '0'}
+                  sub="ocultos del feed" color={dataHealth.broken_links?.total > 0 ? 'red' : 'green'} />
+                <StatCard icon={<ImageOff size={16} />} title="Sin Imagen"
+                  value={dataHealth.missing_images?.total?.toLocaleString() || '0'}
+                  sub="deals con NEEDS_IMAGE" color={dataHealth.missing_images?.total > 50 ? 'yellow' : 'green'} />
+              </div>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <StatCard icon={<FileText size={16} />} title="Sin Nombre"
+                  value={dataHealth.bad_names?.total?.toLocaleString() || '0'}
+                  sub={`${dataHealth.bad_names?.bot_blocked || 0} bot-blocked`} color={dataHealth.bad_names?.total > 0 ? 'yellow' : 'green'} />
+                <StatCard icon={<ScanLine size={16} />} title="UPC No Reconocidos"
+                  value={dataHealth.upc_recognition?.total_scanned?.toLocaleString() || '0'}
+                  sub={`${dataHealth.upc_recognition?.recovery_rate_pct ?? '—'}% tasa de recuperación`} color="purple" />
+                <StatCard icon={<CheckCircle size={16} />} title="Scans Exitosos (7d)"
+                  value={`${dataHealth.scan_health?.success_rate_pct ?? '—'}%`}
+                  sub={`${dataHealth.scan_health?.success || 0}/${dataHealth.scan_health?.total || 0} ciclos`} color={
+                    (dataHealth.scan_health?.success_rate_pct || 0) >= 70 ? 'green' : 'red'
+                  } />
+                <StatCard icon={<TrendingUp size={16} />} title="Profit Negativo"
+                  value={dataHealth.deals?.negative_profit?.toLocaleString() || '0'}
+                  sub="deals activos filtrados" color={dataHealth.deals?.negative_profit > 0 ? 'yellow' : 'green'} />
+              </div>
+
+              {/* Links rotos por tienda */}
+              {dataHealth.broken_links?.by_store?.length > 0 && (
+                <div className="card">
+                  <h3 className="text-white font-semibold mb-3 flex items-center gap-2 text-sm">
+                    <Link2Off size={14} className="text-red-400" /> Links Rotos por Tienda
+                  </h3>
+                  <div className="space-y-2">
+                    {dataHealth.broken_links.by_store.map(s => (
+                      <div key={s.slug} className="flex items-center justify-between text-sm py-1.5 border-b border-dark-700/50">
+                        <span className="text-gray-300">{s.store}</span>
+                        <span className="text-red-400 font-medium">{s.count.toLocaleString()} productos ocultos</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Nombres incorrectos */}
+              {dataHealth.bad_names?.total > 0 && (
+                <div className="card">
+                  <h3 className="text-white font-semibold mb-3 flex items-center gap-2 text-sm">
+                    <FileText size={14} className="text-yellow-400" /> Productos con Nombres Inválidos
+                  </h3>
+                  <div className="space-y-2">
+                    {dataHealth.bad_names.by_type.map(t => (
+                      <div key={t.type} className="flex items-center justify-between text-sm py-1.5 border-b border-dark-700/50">
+                        <span className="text-gray-400 font-mono text-xs">{t.type}</span>
+                        <span className="text-yellow-400 font-medium">{t.count.toLocaleString()}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">Todos ocultos del feed público automáticamente.</p>
+                </div>
+              )}
+
+              {/* Sin imagen por tienda */}
+              {dataHealth.missing_images?.by_store?.length > 0 && (
+                <div className="card">
+                  <h3 className="text-white font-semibold mb-3 flex items-center gap-2 text-sm">
+                    <ImageOff size={14} className="text-yellow-400" /> Productos Sin Imagen (NEEDS_IMAGE)
+                  </h3>
+                  <div className="space-y-2">
+                    {dataHealth.missing_images.by_store.map(s => (
+                      <div key={s.store} className="flex items-center justify-between text-sm py-1.5 border-b border-dark-700/50">
+                        <span className="text-gray-300">{s.store}</span>
+                        <div className="flex gap-4 text-right">
+                          <span className="text-gray-400 text-xs">{s.products.toLocaleString()} productos</span>
+                          <span className="text-yellow-400 font-medium">{s.active_deals.toLocaleString()} deals activos</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* UPC recognition */}
+              <div className="card">
+                <h3 className="text-white font-semibold mb-3 flex items-center gap-2 text-sm">
+                  <ScanLine size={14} className="text-neon-blue" /> Reconocimiento de UPC (Scanner)
+                </h3>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-center">
+                  {[
+                    { label: 'Escaneados', val: dataHealth.upc_recognition?.total_scanned, color: 'text-white' },
+                    { label: 'Recuperados', val: dataHealth.upc_recognition?.recovered, color: 'text-neon-green' },
+                    { label: 'Sin recuperar', val: dataHealth.upc_recognition?.unrecoverable, color: 'text-red-400' },
+                    { label: 'Alta prioridad', val: dataHealth.upc_recognition?.high_priority, color: 'text-yellow-400' },
+                  ].map(m => (
+                    <div key={m.label} className="bg-dark-800/50 rounded-xl p-3">
+                      <p className={`text-xl font-bold ${m.color}`}>{m.val?.toLocaleString() ?? '—'}</p>
+                      <p className="text-xs text-gray-500 mt-1">{m.label}</p>
+                    </div>
+                  ))}
+                </div>
+                {dataHealth.upc_recognition?.recovery_rate_pct != null && (
+                  <div className="mt-3">
+                    <div className="flex justify-between text-xs text-gray-500 mb-1">
+                      <span>Tasa de recuperación</span>
+                      <span className="text-neon-green">{dataHealth.upc_recognition.recovery_rate_pct}%</span>
+                    </div>
+                    <div className="h-2 bg-dark-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-neon-green rounded-full transition-all"
+                        style={{ width: `${dataHealth.upc_recognition.recovery_rate_pct}%` }} />
+                    </div>
+                    <p className="text-xs text-gray-600 mt-1">Meta: 80%</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Errores por tienda (24h) */}
+              {Object.keys(dataHealth.store_errors_24h || {}).length > 0 && (
+                <div className="card">
+                  <h3 className="text-white font-semibold mb-3 flex items-center gap-2 text-sm">
+                    <AlertCircle size={14} className="text-red-400" /> Errores por Tienda (últimas 24h)
+                  </h3>
+                  <div className="space-y-2">
+                    {Object.entries(dataHealth.store_errors_24h).map(([store, d]) => (
+                      <div key={store} className="flex items-center justify-between text-sm py-1.5 border-b border-dark-700/50">
+                        <span className="text-gray-300 capitalize">{store}</span>
+                        <div className="flex gap-4 text-right text-xs">
+                          <span className="text-neon-green">{d.scanned.toLocaleString()} scaneados</span>
+                          <span className={d.errors > 0 ? 'text-red-400' : 'text-gray-500'}>{d.errors.toLocaleString()} errores</span>
+                          <span className="text-gray-600">{d.cycles} ciclos</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <p className="text-xs text-gray-600">
+                Generado: {dataHealth.generated_at ? new Date(dataHealth.generated_at).toLocaleString() : '—'}
+              </p>
+            </>
+          ) : (
+            <div className="card text-center text-gray-500 py-8 text-sm">No se pudo cargar el dashboard de salud.</div>
+          )}
         </div>
       )}
 

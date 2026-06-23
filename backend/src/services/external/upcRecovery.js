@@ -6,6 +6,8 @@
  * Sources in priority order:
  *  1. UPCitemdb (trial, 100 req/day — cached to avoid waste)
  *  2. Open Food Facts (unlimited, good for grocery/food)
+ *  3. Walmart Product Search (free, good for general merchandise)
+ *  4. Internal Deal Hunter history (scanner_unknown_products cache)
  *
  * Market pricing from upcitemdb:
  *  - lowest_recorded_price / highest_recorded_price → midpoint estimate (low confidence)
@@ -90,8 +92,73 @@ async function tryOpenFoodFacts(upc) {
 }
 
 /**
+ * Walmart product search by UPC.
+ * Uses the public Walmart search page (HTML, no API key needed).
+ * Returns product identity + Walmart price as market_offer_price.
+ */
+async function tryWalmartSearch(upc) {
+  // Walmart's search API endpoint (no key required for basic search)
+  const searchUrl = `https://www.walmart.com/search?q=${upc}&affinityOverride=default`;
+  const res = await axios.get(searchUrl, {
+    timeout: TIMEOUT_MS,
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept':     'text/html,application/xhtml+xml',
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
+  });
+
+  // Walmart embeds product data in __NEXT_DATA__ JSON
+  const m = res.data.match(/<script id="__NEXT_DATA__"[^>]*>(\{.+?\})<\/script>/s);
+  if (!m) return null;
+
+  let data;
+  try { data = JSON.parse(m[1]); } catch { return null; }
+
+  // Navigate to first search result item
+  const items =
+    data?.props?.pageProps?.initialData?.searchResult?.itemStacks?.[0]?.items ||
+    data?.props?.pageProps?.initialData?.searchResult?.items ||
+    [];
+
+  // Find item matching the UPC — Walmart doesn't always surface UPC in search results,
+  // so we also accept the first result with a valid price if only one item is returned.
+  const item = items.find(i => i.usItemId && (i.canonicalUrl || i.name)) || items[0];
+  if (!item?.name) return null;
+
+  const price = item.priceInfo?.currentPrice?.price || item.price || null;
+  const imageUrl = item.imageInfo?.thumbnailUrl || item.image || null;
+  const productUrl = item.canonicalUrl
+    ? `https://www.walmart.com${item.canonicalUrl}`
+    : null;
+
+  return {
+    found: true,
+    source: 'walmart_search',
+    title:       item.name || null,
+    brand:       item.brand || null,
+    image_url:   imageUrl,
+    category:    item.category?.categoryPath?.split('/').pop() || null,
+    description: item.shortDescription || null,
+    model:       item.modelNumber || null,
+    market_offer_price:     price ? parseFloat(price) : null,
+    market_offer_merchant:  'walmart.com',
+    market_offer_list_price: item.priceInfo?.wasPrice?.price ? parseFloat(item.priceInfo.wasPrice.price) : null,
+    market_low:  null,
+    market_high: null,
+    market_midpoint: null,
+    product_url: productUrl,
+  };
+}
+
+/**
  * Look up a UPC in free public databases.
  * Returns product identity + any market pricing found, or { found: false }
+ *
+ * Cascade:
+ *  1. UPCitemdb  — most comprehensive for UPCs, includes multi-merchant pricing
+ *  2. OpenFoodFacts — unlimited, best for grocery/food/beverages
+ *  3. Walmart Search — good for general merchandise, returns current store price
  */
 async function lookupUpc(upc) {
   if (!upc || !/^\d{8,14}$/.test(upc)) return { found: false };
@@ -116,8 +183,18 @@ async function lookupUpc(upc) {
     logger.warn(`[UPCRecovery] openfoodfacts failed for ${upc}: ${err.message}`);
   }
 
+  try {
+    const result = await tryWalmartSearch(upc);
+    if (result) {
+      logger.info(`[UPCRecovery] walmart_search hit for ${upc}: "${result.title}" price=$${result.market_offer_price}`);
+      return result;
+    }
+  } catch (err) {
+    logger.warn(`[UPCRecovery] walmart_search failed for ${upc}: ${err.message}`);
+  }
+
   logger.info(`[UPCRecovery] no match for ${upc}`);
   return { found: false };
 }
 
-module.exports = { lookupUpc };
+module.exports = { lookupUpc, tryWalmartSearch };

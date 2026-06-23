@@ -8,6 +8,14 @@ import { Link } from 'react-router-dom';
 import api from '../utils/api';
 import CameraScanner from '../components/CameraScanner';
 
+// Tiendas donde los colaboradores encuentran deals de clearance
+const STORE_OPTIONS = [
+  'Walmart','Target','TJ Maxx','Marshalls','HomeGoods','Ross',
+  'Burlington','Nordstrom Rack','Office Depot','Staples',
+  'GameStop','Best Buy','Home Depot','Lowe\'s','Costco',
+  'Macy\'s','Kohl\'s','Big Lots','Dollar General','Five Below',
+];
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function safe(v) {
@@ -699,14 +707,16 @@ export default function Scanner() {
                     className="bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-blue/50"
                   />
                   <div className="grid grid-cols-2 gap-2">
-                    <input
-                      placeholder="Store (e.g. Target)"
+                    <select
                       value={communityStore}
                       onChange={e => setCommunityStore(e.target.value)}
-                      className="bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-neon-blue/50"
-                    />
+                      className="bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-neon-blue/50"
+                    >
+                      <option value="">Seleccionar tienda…</option>
+                      {STORE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
                     <input
-                      placeholder="Price found ($)"
+                      placeholder="Precio encontrado ($)"
                       type="number"
                       step="0.01"
                       value={communityPrice}
@@ -1032,12 +1042,14 @@ export default function Scanner() {
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    <input
-                      placeholder="Store name (e.g. TJ Maxx)"
+                    <select
                       value={communityStore}
                       onChange={e => setCommunityStore(e.target.value)}
-                      className="w-full bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-yellow-400/50"
-                    />
+                      className="w-full bg-dark-800 border border-dark-600 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-yellow-400/50"
+                    >
+                      <option value="">Seleccionar tienda donde lo encontraste…</option>
+                      {STORE_OPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
                     <div className="flex gap-2">
                       <div className="relative flex-1">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>

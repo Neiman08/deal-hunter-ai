@@ -45,11 +45,13 @@ function computeRecoveryConfidence({ foundInternal, keepaResult, ebayResult, rec
   }
 
   if (recoveryResult?.found) {
-    score += 5;
-    signals.push({ key: 'upc_db', weight: 5, desc: `Product info from ${recoveryResult.source}` });
+    const srcWeight = recoveryResult.source === 'walmart_search' ? 8 : 5;
+    score += srcWeight;
+    signals.push({ key: 'upc_db', weight: srcWeight, desc: `Product info from ${recoveryResult.source}` });
     if (recoveryResult.market_offer_price || recoveryResult.market_low) {
-      score += 5;
-      signals.push({ key: 'market_price', weight: 5, desc: 'Market price data from UPC database' });
+      const priceWeight = recoveryResult.source === 'walmart_search' ? 8 : 5;
+      score += priceWeight;
+      signals.push({ key: 'market_price', weight: priceWeight, desc: `Market price from ${recoveryResult.source}` });
     }
   }
 
@@ -157,12 +159,16 @@ router.get('/lookup/:code', authenticate, async (req, res) => {
       keepaResult = { configured: false, error: 'Keepa API not configured' };
     }
 
-    // ── Scanner Recovery Engine (Priority #1) ─────────────────────────────
-    // When Keepa finds nothing and code looks like a UPC, try free UPC databases
+    // ── Scanner Recovery Engine ───────────────────────────────────────────
+    // Run when:
+    //  (a) Keepa found nothing — need identity + pricing
+    //  (b) Keepa found product but has no price — need market price from other sources
+    //  (c) Not in internal DB
     let recoveryResult = null;
     const isUpcFormat = /^\d{8,14}$/.test(code);
+    const keepaNeedsPrice = keepaResult?.found && !keepaResult.effective_market_price;
 
-    if (!foundInternal && !keepaResult?.found && isUpcFormat) {
+    if (!foundInternal && isUpcFormat && (!keepaResult?.found || keepaNeedsPrice)) {
       try {
         // Check if we already attempted recovery for this UPC
         const cachedUnknown = await query(

@@ -59,6 +59,8 @@
 .store-target { background: #CC000020; border-color: #CC000040; color: #CC0000; }
 .store-best-buy { background: #00308720; border-color: #00308740; color: #4a90d9; }
 .store-lowes { background: #00499020; border-color: #00499040; color: #0077cc; }
+.store-harbor-freight { background: #E3183720; border-color: #E3183740; color: #E31837; }
+.store-wayfair { background: #7B2D8B20; border-color: #7B2D8B40; color: #7B2D8B; }
 
 /* Animations */
 @keyframes scanline {

@@ -359,9 +359,11 @@ router.post('/discovery', workerOnly, async (req, res) => {
     'kohls':          () => loadDiscovery('kohlsDiscovery')(),
     'costco':         () => loadDiscovery('costcoDiscovery')(),
     'gamestop':       () => loadDiscovery('gamestopDiscovery')(),
-    'office-depot':   () => loadDiscovery('officeDepotDiscovery')(),
-    'staples':        () => loadDiscovery('staplesDiscovery')(),
-    'nordstrom-rack': () => loadDiscovery('nordstromRackDiscovery')(),
+    'office-depot':    () => loadDiscovery('officeDepotDiscovery')(),
+    'staples':         () => loadDiscovery('staplesDiscovery')(),
+    'nordstrom-rack':  () => loadDiscovery('nordstromRackDiscovery')(),
+    'harbor-freight':  () => loadDiscovery('harborFreightDiscovery')(),
+    'wayfair':         () => loadDiscovery('wayfairDiscovery')(),
   };
 
   const { acquireLock, releaseLock } = require('../services/discoveryLock');
@@ -778,7 +780,7 @@ router.get('/proxy-status', async (req, res) => {
 router.post('/clear-failures', async (req, res) => {
   try {
     const proxyManager = require('../services/proxyManager');
-    const stores = ['walmart','best-buy','home-depot','target','lowes','macys','tj-maxx','marshalls','kohls','costco','gamestop','office-depot','staples','nordstrom-rack'];
+    const stores = ['walmart','best-buy','home-depot','target','lowes','macys','tj-maxx','marshalls','kohls','costco','gamestop','office-depot','staples','nordstrom-rack','harbor-freight','wayfair'];
     stores.forEach(s => proxyManager.clearFailures(s));
     res.json({ cleared: stores });
   } catch (err) {
@@ -826,6 +828,7 @@ router.get('/test-discovery/:store', workerOnly, async (req, res) => {
       'kohls': 'kohlsDiscovery', 'costco': 'costcoDiscovery',
       'gamestop': 'gamestopDiscovery', 'office-depot': 'officeDepotDiscovery',
       'staples': 'staplesDiscovery', 'nordstrom-rack': 'nordstromRackDiscovery',
+      'harbor-freight': 'harborFreightDiscovery', 'wayfair': 'wayfairDiscovery',
     };
     const file = FILE_MAP[store];
     if (!file) return res.status(400).json({ error: `Unknown store: ${store}` });
@@ -1114,6 +1117,8 @@ router.post('/ensure-stores', async (req, res) => {
     { name: 'Marshalls',      slug: 'marshalls',      color: '#C41230', website_url: 'https://www.marshalls.com' },
     { name: 'Burlington',     slug: 'burlington',     color: '#CC0000', website_url: 'https://www.burlington.com' },
     { name: 'Costco',         slug: 'costco',         color: '#005DAA', website_url: 'https://www.costco.com' },
+    { name: 'Harbor Freight', slug: 'harbor-freight', color: '#E31837', website_url: 'https://www.harborfreight.com' },
+    { name: 'Wayfair',        slug: 'wayfair',        color: '#7B2D8B', website_url: 'https://www.wayfair.com' },
   ];
   const results = [];
   for (const s of STORES) {

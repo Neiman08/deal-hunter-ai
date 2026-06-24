@@ -34,6 +34,8 @@ const getGameStopScraper       = () => require('../services/scrapers/gamestop');
 const getOfficeDepotScraper    = () => require('../services/scrapers/officedepot');
 const getStaplesScraper        = () => require('../services/scrapers/staples');
 const getNordstromRackScraper  = () => require('../services/scrapers/nordstromrack');
+const getHarborFreightScraper  = () => require('../services/scrapers/harborfreight');
+const getWayfairScraper        = () => require('../services/scrapers/wayfair');
 
 const STORE_SCRAPERS = {
   'walmart':        () => getWalmartScraper().scanWalmartDeals(),
@@ -50,10 +52,12 @@ const STORE_SCRAPERS = {
   'office-depot':   () => getOfficeDepotScraper().scanOfficeDepotDeals(),
   'staples':        () => getStaplesScraper().scanStaplesDeals(),
   'nordstrom-rack': () => getNordstromRackScraper().scanNordstromRackDeals(),
+  'harbor-freight': () => getHarborFreightScraper().scanHarborFreightDeals(),
+  'wayfair':        () => getWayfairScraper().scanWayfairDeals(),
 };
 
 // All available scrapers — enable via ACTIVE_STORES env or run all by default
-const ALL_STORES = 'walmart,best-buy,home-depot,target,lowes,macys,tj-maxx,marshalls,kohls,costco,gamestop,office-depot,staples,nordstrom-rack';
+const ALL_STORES = 'walmart,best-buy,home-depot,target,lowes,macys,tj-maxx,marshalls,kohls,costco,gamestop,office-depot,staples,nordstrom-rack,harbor-freight,wayfair';
 const ACTIVE_STORES = (process.env.ACTIVE_STORES || ALL_STORES).split(',').map(s => s.trim());
 
 // Emergency kill-switch: skip all proxy-dependent scans when BrightData is suspended/off-budget
@@ -442,6 +446,8 @@ async function scanSingleProduct(storeSlug, urlOrId) {
     'office-depot':   () => getOfficeDepotScraper().scrapeOfficeDepotProduct(urlOrId),
     'staples':        () => getStaplesScraper().scrapeStaplesProduct(urlOrId),
     'nordstrom-rack': () => getNordstromRackScraper().scrapeNordstromRackProduct(urlOrId),
+    'harbor-freight': () => getHarborFreightScraper().scrapeHarborFreightProduct(urlOrId),
+    'wayfair':        () => getWayfairScraper().scrapeWayfairProduct(urlOrId),
   };
 
   const fn = scrapers[storeSlug];

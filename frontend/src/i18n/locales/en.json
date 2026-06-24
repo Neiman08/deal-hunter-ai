@@ -293,6 +293,80 @@
       "elite": "elite"
     }
   },
+  "teams": {
+    "back": "← Teams",
+    "notFound": "Team not found",
+    "pts": "pts",
+    "type": {
+      "store": "Store Team",
+      "city": "City Team",
+      "category": "Category Team",
+      "national": "National Team"
+    },
+    "stats": {
+      "points": "Points",
+      "deals": "Deals",
+      "members": "Members",
+      "today": "Today",
+      "thisWeek": "This Week",
+      "scans": "Scans",
+      "submitted": "Submitted",
+      "verified": "Verified",
+      "pts": "Points"
+    },
+    "join": "Join This Team",
+    "joining": "Joining...",
+    "joined": "You are a member",
+    "missionBrief": "Mission Brief",
+    "targetStores": "Target Stores",
+    "targetCategories": "Target Categories",
+    "minDiscount": "Min Discount",
+    "minROI": "Min ROI",
+    "aiCoach": "AI Team Coach",
+    "coachTip": "Coach Tip",
+    "activeMissions": "Active Missions",
+    "noMissions": "No active missions right now",
+    "missionProgress": "your progress",
+    "missionComplete": "Complete!",
+    "missionReward": "{{pts}} pts reward",
+    "leaderboard": "Team Leaderboard",
+    "leaderboardSub": "Human hunters only",
+    "noMembers": "No members yet. Be the first to join!",
+    "teamTotal": "Team Total",
+    "activityFeed": "Team Activity",
+    "noActivity": "No activity yet. Be the first!",
+    "actions": {
+      "scan": "Scan a Deal",
+      "submit": "Submit Deal",
+      "invite": "Invite Hunter",
+      "allTeams": "← All Teams"
+    },
+    "roles": {
+      "owner": "Founder",
+      "manager": "Manager",
+      "hunter": "Hunter",
+      "verifier": "Verifier",
+      "ai_coach": "AI Coach"
+    },
+    "activity": {
+      "scan": "scanned a deal",
+      "submit_deal": "submitted a deal",
+      "verify_deal": "verified a deal",
+      "invite_member": "invited a hunter",
+      "mission_completed": "completed a mission",
+      "coach_tip": "Team Coach Tip",
+      "member_joined": "joined the team"
+    },
+    "onboarding": {
+      "title": "Welcome to the Team!",
+      "subtitle": "Your first 4 steps to earning points:",
+      "step1": "Read the Mission Brief above",
+      "step2": "Pick an active mission to work on",
+      "step3": "Scan a clearance deal at the target store",
+      "step4": "Submit your first deal and earn points",
+      "cta": "Start Your First Mission →"
+    }
+  },
   "language": {
     "en": "English",
     "es": "Español",

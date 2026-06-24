@@ -293,6 +293,80 @@
       "elite": "elite"
     }
   },
+  "teams": {
+    "back": "← Equipos",
+    "notFound": "Equipo no encontrado",
+    "pts": "pts",
+    "type": {
+      "store": "Equipo de Tienda",
+      "city": "Equipo de Ciudad",
+      "category": "Equipo de Categoría",
+      "national": "Equipo Nacional"
+    },
+    "stats": {
+      "points": "Puntos",
+      "deals": "Deals",
+      "members": "Miembros",
+      "today": "Hoy",
+      "thisWeek": "Esta Semana",
+      "scans": "Escaneos",
+      "submitted": "Enviados",
+      "verified": "Verificados",
+      "pts": "Puntos"
+    },
+    "join": "Unirse al Equipo",
+    "joining": "Uniéndose...",
+    "joined": "Eres miembro",
+    "missionBrief": "Misión del Equipo",
+    "targetStores": "Tiendas Objetivo",
+    "targetCategories": "Categorías Objetivo",
+    "minDiscount": "Desc. Mínimo",
+    "minROI": "ROI Mínimo",
+    "aiCoach": "Coach IA del Equipo",
+    "coachTip": "Consejo del Coach",
+    "activeMissions": "Misiones Activas",
+    "noMissions": "Sin misiones activas por ahora",
+    "missionProgress": "tu progreso",
+    "missionComplete": "¡Completo!",
+    "missionReward": "{{pts}} pts de recompensa",
+    "leaderboard": "Ranking del Equipo",
+    "leaderboardSub": "Solo cazadores humanos",
+    "noMembers": "Sin miembros aún. ¡Sé el primero en unirte!",
+    "teamTotal": "Total del Equipo",
+    "activityFeed": "Actividad del Equipo",
+    "noActivity": "Sin actividad aún. ¡Sé el primero!",
+    "actions": {
+      "scan": "Escanear Deal",
+      "submit": "Enviar Deal",
+      "invite": "Invitar Cazador",
+      "allTeams": "← Todos los Equipos"
+    },
+    "roles": {
+      "owner": "Fundador",
+      "manager": "Manager",
+      "hunter": "Cazador",
+      "verifier": "Verificador",
+      "ai_coach": "Coach IA"
+    },
+    "activity": {
+      "scan": "escaneó un deal",
+      "submit_deal": "envió un deal",
+      "verify_deal": "verificó un deal",
+      "invite_member": "invitó a un cazador",
+      "mission_completed": "completó una misión",
+      "coach_tip": "Consejo del Coach",
+      "member_joined": "se unió al equipo"
+    },
+    "onboarding": {
+      "title": "¡Bienvenido al Equipo!",
+      "subtitle": "Tus primeros 4 pasos para ganar puntos:",
+      "step1": "Lee la Misión del Equipo arriba",
+      "step2": "Elige una misión activa para trabajar",
+      "step3": "Escanea un deal de clearance en la tienda objetivo",
+      "step4": "Envía tu primer deal y gana puntos",
+      "cta": "Iniciar Mi Primera Misión →"
+    }
+  },
   "language": {
     "en": "English",
     "es": "Español",

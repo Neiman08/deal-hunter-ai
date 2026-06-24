@@ -2484,6 +2484,44 @@ router.post('/ai-leaders/:id/toggle', authenticate, requireAdmin, async (req, re
   }
 });
 
+// ── GET /api/admin/teams-health ──────────────────────────────────────────────
+router.get('/teams-health', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const teams = await query(`
+      SELECT t.id, t.name, t.slug, t.team_type, t.is_active,
+             t.points, t.approved_deals_count, t.created_at,
+             COUNT(DISTINCT tm.user_id) FILTER (WHERE tm.is_active = true AND tm.role != 'ai_coach') AS member_count,
+             COUNT(DISTINCT m.id) FILTER (WHERE m.is_active = true) AS active_missions,
+             COUNT(DISTINCT ta.id) FILTER (WHERE ta.created_at > NOW() - INTERVAL '7 days') AS activity_7d,
+             u_coach.name AS coach_name
+      FROM teams t
+      LEFT JOIN team_members tm ON tm.team_id = t.id
+      LEFT JOIN team_missions m ON m.team_id = t.id
+      LEFT JOIN team_activity ta ON ta.team_id = t.id
+      LEFT JOIN users u_coach ON t.ai_coach_id = u_coach.id
+      GROUP BY t.id, u_coach.name
+      ORDER BY t.points DESC
+    `);
+
+    const totals = await query(`
+      SELECT
+        COUNT(DISTINCT t.id) AS total_teams,
+        COUNT(DISTINCT tm.user_id) FILTER (WHERE tm.is_active = true AND tm.role != 'ai_coach') AS total_members,
+        COUNT(DISTINCT m.id) FILTER (WHERE m.is_active = true) AS total_missions,
+        COUNT(DISTINCT ta.id) FILTER (WHERE ta.created_at > NOW() - INTERVAL '24 hours') AS activity_24h
+      FROM teams t
+      LEFT JOIN team_members tm ON tm.team_id = t.id
+      LEFT JOIN team_missions m ON m.team_id = t.id
+      LEFT JOIN team_activity ta ON ta.team_id = t.id
+    `);
+
+    res.json({ teams: teams.rows, totals: totals.rows[0] });
+  } catch (err) {
+    logger.error(`[Admin] teams-health: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/admin/ai-leaders/recent-posts ───────────────────────────────────
 router.get('/ai-leaders/recent-posts', authenticate, requireAdmin, async (req, res) => {
   try {

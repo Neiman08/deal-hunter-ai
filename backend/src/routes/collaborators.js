@@ -333,27 +333,79 @@ router.post('/teams', async (req, res) => {
 router.get('/teams/:id', async (req, res) => {
   try {
     const teamRes = await query(
-      `SELECT t.*, u.name AS owner_name FROM teams t
+      `SELECT t.*, u.name AS owner_name,
+              coach.name AS coach_name, coach.ai_disclosure_label AS coach_label,
+              coach.ai_persona AS coach_persona
+       FROM teams t
        LEFT JOIN users u ON t.owner_user_id = u.id
+       LEFT JOIN users coach ON t.ai_coach_id = coach.id
        WHERE t.slug = $1 OR t.id::text = $1`,
       [req.params.id]
     );
     if (!teamRes.rows[0]) return res.status(404).json({ error: 'Team not found' });
     const team = teamRes.rows[0];
 
+    // Human members only for leaderboard
     const members = await query(
       `SELECT tm.role, tm.joined_at, u.id AS user_id, u.name,
-              cp.display_name, cp.level, cp.points, cp.approved_deals_count,
-              ROW_NUMBER() OVER (ORDER BY cp.points DESC) AS rank
+              cp.display_name, cp.level, cp.points, cp.approved_deals_count
        FROM team_members tm
        JOIN users u ON tm.user_id = u.id
        LEFT JOIN collaborator_profiles cp ON cp.user_id = u.id
        WHERE tm.team_id = $1 AND tm.is_active = true
+         AND tm.role != 'ai_coach'
+         AND u.is_ai_leader IS NOT TRUE
        ORDER BY cp.points DESC NULLS LAST`,
       [team.id]
     );
 
-    res.json({ team, members: members.rows });
+    // Active missions with current user's progress
+    const missions = await query(
+      `SELECT m.*,
+              COALESCE(mp.count, 0) AS my_progress,
+              mp.completed_at AS my_completed_at
+       FROM team_missions m
+       LEFT JOIN team_mission_progress mp ON mp.mission_id = m.id AND mp.user_id = $2
+       WHERE m.team_id = $1 AND m.is_active = true
+         AND (m.ends_at IS NULL OR m.ends_at > NOW())
+       ORDER BY m.reward_points DESC`,
+      [team.id, req.user.id]
+    );
+
+    // Recent activity (last 15)
+    const activity = await query(
+      `SELECT ta.*, u.name AS user_name, cp.display_name AS user_display_name
+       FROM team_activity ta
+       LEFT JOIN users u ON ta.user_id = u.id
+       LEFT JOIN collaborator_profiles cp ON cp.user_id = ta.user_id
+       WHERE ta.team_id = $1
+       ORDER BY ta.created_at DESC
+       LIMIT 15`,
+      [team.id]
+    );
+
+    // Stats: today and this week
+    const stats = await query(
+      `SELECT
+        COUNT(*) FILTER (WHERE ta.action_type = 'scan' AND ta.created_at > NOW() - INTERVAL '1 day') AS scans_today,
+        COUNT(*) FILTER (WHERE ta.action_type = 'submit_deal' AND ta.created_at > NOW() - INTERVAL '1 day') AS deals_today,
+        COUNT(*) FILTER (WHERE ta.action_type = 'verify_deal' AND ta.created_at > NOW() - INTERVAL '1 day') AS verified_today,
+        COALESCE(SUM(ta.points_earned) FILTER (WHERE ta.created_at > NOW() - INTERVAL '1 day'), 0) AS points_today,
+        COUNT(*) FILTER (WHERE ta.action_type = 'scan' AND ta.created_at > NOW() - INTERVAL '7 days') AS scans_week,
+        COUNT(*) FILTER (WHERE ta.action_type = 'submit_deal' AND ta.created_at > NOW() - INTERVAL '7 days') AS deals_week,
+        COUNT(*) FILTER (WHERE ta.action_type = 'verify_deal' AND ta.created_at > NOW() - INTERVAL '7 days') AS verified_week,
+        COALESCE(SUM(ta.points_earned) FILTER (WHERE ta.created_at > NOW() - INTERVAL '7 days'), 0) AS points_week
+       FROM team_activity ta WHERE ta.team_id = $1`,
+      [team.id]
+    );
+
+    res.json({
+      team,
+      members: members.rows,
+      missions: missions.rows,
+      activity: activity.rows,
+      stats: stats.rows[0] || {},
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -380,7 +432,87 @@ router.post('/teams/:id/join', async (req, res) => {
       [teamId, req.user.id]
     );
 
+    // Log join activity
+    await query(
+      `INSERT INTO team_activity (team_id, user_id, action_type, description, points_earned)
+       VALUES ($1, $2, 'member_joined', $3, 5)`,
+      [teamId, req.user.id, `${req.user.name || 'A hunter'} joined the team!`]
+    ).catch(() => {});
+
     res.json({ message: 'Joined team successfully' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/collaborators/teams/:id/activity ───────────────────────────────
+router.post('/teams/:id/activity', async (req, res) => {
+  try {
+    const teamRes = await query(
+      'SELECT id FROM teams WHERE (slug = $1 OR id::text = $1) AND is_active = true',
+      [req.params.id]
+    );
+    if (!teamRes.rows[0]) return res.status(404).json({ error: 'Team not found' });
+    const teamId = teamRes.rows[0].id;
+
+    const { action_type, description, points_earned = 0, metadata } = req.body;
+    const VALID_ACTIONS = ['scan', 'submit_deal', 'verify_deal', 'invite_member', 'mission_completed', 'coach_tip'];
+    if (!VALID_ACTIONS.includes(action_type)) {
+      return res.status(400).json({ error: `Invalid action_type. Must be one of: ${VALID_ACTIONS.join(', ')}` });
+    }
+
+    await query(
+      `INSERT INTO team_activity (team_id, user_id, action_type, description, points_earned, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [teamId, req.user.id, action_type, description || null, parseInt(points_earned) || 0, metadata ? JSON.stringify(metadata) : null]
+    );
+
+    // Update mission progress if applicable
+    if (['scan', 'submit_deal', 'verify_deal', 'invite_member'].includes(action_type)) {
+      const missionType = action_type === 'scan' ? 'scan_deals'
+        : action_type === 'submit_deal' ? 'submit_deals'
+        : action_type === 'verify_deal' ? 'verify_deals'
+        : 'invite_members';
+
+      const missions = await query(
+        `SELECT id, target_count, reward_points FROM team_missions
+         WHERE team_id = $1 AND type = $2 AND is_active = true
+           AND (ends_at IS NULL OR ends_at > NOW())`,
+        [teamId, missionType]
+      );
+
+      for (const mission of missions.rows) {
+        await query(
+          `INSERT INTO team_mission_progress (mission_id, team_id, user_id, count, updated_at)
+           VALUES ($1, $2, $3, 1, NOW())
+           ON CONFLICT (mission_id, user_id)
+           DO UPDATE SET count = team_mission_progress.count + 1, updated_at = NOW()`,
+          [mission.id, teamId, req.user.id]
+        );
+
+        const prog = await query(
+          `SELECT count FROM team_mission_progress WHERE mission_id = $1 AND user_id = $2`,
+          [mission.id, req.user.id]
+        );
+
+        if (prog.rows[0]?.count >= mission.target_count) {
+          await query(
+            `UPDATE team_mission_progress SET completed_at = NOW()
+             WHERE mission_id = $1 AND user_id = $2 AND completed_at IS NULL`,
+            [mission.id, req.user.id]
+          );
+          await query(
+            `INSERT INTO team_activity (team_id, user_id, action_type, description, points_earned)
+             VALUES ($1, $2, 'mission_completed', $3, $4)`,
+            [teamId, req.user.id,
+             `${req.user.name || 'A hunter'} completed a mission!`,
+             mission.reward_points]
+          ).catch(() => {});
+        }
+      }
+    }
+
+    res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

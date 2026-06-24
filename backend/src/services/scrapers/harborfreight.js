@@ -12,7 +12,7 @@
  */
 
 const { withIspPage }    = require('../browserEngine');
-const { withRetry, respectDomainDelay, makeProduct, extractPrice, calcDiscount, saveProductData } = require('../scraperBase');
+const { withRetry, respectDomainDelay, makeProduct, extractPrice, parseTextPrice, calcDiscount, saveProductData } = require('../scraperBase');
 const { query }          = require('../../config/database');
 const logger             = require('../../utils/logger');
 
@@ -93,6 +93,7 @@ async function scrapeHarborFreightProduct(urlOrSku) {
   await respectDomainDelay(DOMAIN);
 
   return withRetry(async () => withIspPage(url, async (page) => {
+    try {
     // Wait for price or content to load
     await page.waitForTimeout(2000);
     try {
@@ -154,8 +155,9 @@ async function scrapeHarborFreightProduct(urlOrSku) {
 
     if (jsonLd) {
       const offers  = jsonLd.offers || {};
-      const current = extractPrice(offers.price ?? offers.lowPrice);
-      const regular = extractPrice(offers.highPrice);
+      // offers.price is a string/number — use parseTextPrice, NOT extractPrice(page, selectors)
+      const current = parseTextPrice(String(offers.price ?? offers.lowPrice ?? ''));
+      const regular = parseTextPrice(String(offers.highPrice ?? ''));
       if (current) {
         const discount = calcDiscount(current, regular);
         return makeProduct({
@@ -163,7 +165,7 @@ async function scrapeHarborFreightProduct(urlOrSku) {
           sku:             jsonLd.sku || sku,
           brand:           jsonLd.brand?.name || 'Harbor Freight',
           currentPrice:    current,
-          regularPrice:    regular,
+          regularPrice:    regular || null,
           discountPercent: discount,
           imageUrl:        Array.isArray(jsonLd.image) ? jsonLd.image[0] : jsonLd.image,
           productUrl:      pageUrl || url,
@@ -174,33 +176,14 @@ async function scrapeHarborFreightProduct(urlOrSku) {
       }
     }
 
-    // 3. DOM fallback
-    const priceText = await page.evaluate((selectors) => {
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el) return el.textContent.trim();
-      }
-      // Try data-price-amount attribute
-      const priceEl = document.querySelector('[data-price-amount]');
-      if (priceEl) return priceEl.getAttribute('data-price-amount');
-      return null;
-    }, PRICE_SELECTORS).catch(() => null);
-
-    const strikeText = await page.evaluate((selectors) => {
-      for (const sel of selectors) {
-        const el = document.querySelector(sel);
-        if (el) return el.textContent.trim();
-      }
-      return null;
-    }, STRIKE_SELECTORS).catch(() => null);
-
-    const current = extractPrice(priceText);
+    // 3. DOM fallback — use await extractPrice(page, selectors) not parseTextPrice
+    const current = await extractPrice(page, PRICE_SELECTORS, 'hf price').catch(() => null);
     if (!current) {
       logger.warn(`[HarborFreight] No price found for ${url}`);
       return null;
     }
 
-    const regular  = extractPrice(strikeText);
+    const regular  = await extractPrice(page, STRIKE_SELECTORS, 'hf was').catch(() => null);
     const discount = calcDiscount(current, regular);
     const name     = await page.evaluate(() =>
       document.querySelector('h1, [class*="product-name"], [itemprop="name"]')?.textContent?.trim()
@@ -215,7 +198,7 @@ async function scrapeHarborFreightProduct(urlOrSku) {
       sku:             sku,
       brand:           'Harbor Freight',
       currentPrice:    current,
-      regularPrice:    regular,
+      regularPrice:    regular || null,
       discountPercent: discount,
       imageUrl:        image,
       productUrl:      pageUrl || url,
@@ -223,6 +206,10 @@ async function scrapeHarborFreightProduct(urlOrSku) {
       store:           STORE_SLUG,
       clearance:       /clearance/i.test(url),
     });
+    } catch (err) {
+      logger.error(`[HarborFreight] Scrape error for ${url}: ${err.message}`);
+      return null;
+    }
   }), { retries: 2, delay: 3000 });
 }
 

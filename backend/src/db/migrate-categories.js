@@ -34,7 +34,8 @@ async function migrateCategoriesAndReactivate() {
   // submitted_deals missing columns (added by scanner/community routes but not in base migration)
   await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS roi_percent DECIMAL(8,2)`);
   await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS opportunity_score INTEGER`);
-  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS recommendation VARCHAR(20)`);
+  await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS recommendation TEXT`);
+  await query(`ALTER TABLE submitted_deals ALTER COLUMN recommendation TYPE TEXT`);
   await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS effective_market_price DECIMAL(10,2)`);
   await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS effective_market_source VARCHAR(30)`);
   await query(`ALTER TABLE submitted_deals ADD COLUMN IF NOT EXISTS keepa_confidence INTEGER`);

@@ -661,7 +661,7 @@ const STORE_TIMEOUTS_MS  = {
 const PAUSED_STORES = new Set(
   (process.env.PAUSED_STORES !== undefined
     ? process.env.PAUSED_STORES
-    : 'target,macys,walmart,home-depot,lowes,costco,gamestop,nordstrom-rack,kohls,tj-maxx,marshalls,burlington,wayfair,harbor-freight'
+    : 'target,macys,walmart,home-depot,lowes,costco,gamestop,nordstrom-rack,kohls,tj-maxx,marshalls,burlington'
   ).split(',').filter(Boolean)
 );
 
@@ -687,8 +687,8 @@ const SAFE_OPTS = {
   'tj-maxx':        { maxTotal:  3, maxPerPage:    1, delayMs: 3000 },
   'marshalls':      { maxTotal:  3, maxPerPage:    1, delayMs: 3000 },
   'burlington':     { maxTotal:  3, maxPerPage:    1, delayMs: 3000 },
-  'wayfair':        { maxTotal: 20,                   delayMs: 4000 }, // sitemap free; proxy for PDP only
-  'harbor-freight': { maxTotal: 20,                   delayMs: 3000 }, // ISP Playwright; conservative start
+  'wayfair':        { maxTotal:  1,                   delayMs: 4000 }, // TEST: 1-product validation run
+  'harbor-freight': { maxTotal:  1,                   delayMs: 3000 }, // TEST: 1-product validation run
 };
 
 // Merge safe limits over normal opts when SAFE_PROXY_MODE is on.
@@ -1113,7 +1113,10 @@ async function main() {
       } else if (job.store_slug === 'od-product-diag') {
         result = await runOdProductDiag();
       } else {
-        result = await runEngine(engines, job.store_slug, { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }, job.store_slug);
+        // Apply SAFE_OPTS limits so admin-enqueued jobs respect per-store caps
+        result = await runEngine(engines, job.store_slug,
+          applyLimits(job.store_slug, { maxTotal: 150, maxPerPage: 30, delayMs: 2000 }),
+          job.store_slug);
       }
 
       await markCompleted(job.id, result || {});

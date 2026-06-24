@@ -126,7 +126,7 @@ router.get('/deals', async (req, res) => {
   try {
     const limit  = Math.min(parseInt(req.query.limit)  || 20, 50);
     const offset = parseInt(req.query.offset) || 0;
-    const status = req.query.status || 'verified,official';
+    const status = req.query.status || 'verified,official,approved';
     const statusList = status.split(',').map(s => s.trim());
 
     const sort = req.query.sort || '';

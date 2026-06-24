@@ -494,19 +494,25 @@ router.post('/submitted-deals/:id/approve', async (req, res) => {
       [store.id, sub.upc || null, sub.sku || null, sub.product_name || '']
     );
 
+    // Use effective_market_price as regular_price fallback (scanner submit-deal saves it there)
+    const regularPrice = sub.regular_price || sub.effective_market_price || null;
+
     if (existingProduct.rows[0]) {
       productId = existingProduct.rows[0].id;
       await query(
         `UPDATE products SET
            name = COALESCE($1, name), brand = COALESCE($2, brand),
-           image_url = COALESCE($3, image_url), updated_at = NOW()
+           image_url = COALESCE($3, image_url),
+           quality_status = 'PASS', is_public_visible = true,
+           updated_at = NOW()
          WHERE id = $4`,
         [sub.product_name, sub.brand, sub.image_url, productId]
       );
     } else {
       const newProduct = await query(
-        `INSERT INTO products (store_id, category_id, name, brand, sku, upc, image_url, product_url)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id`,
+        `INSERT INTO products (store_id, category_id, name, brand, sku, upc, image_url, product_url,
+           quality_status, is_public_visible)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'PASS', true) RETURNING id`,
         [
           store.id, catId, sub.product_name || 'Submitted Deal',
           sub.brand, sub.sku, sub.upc, sub.image_url, sub.product_url,
@@ -519,12 +525,12 @@ router.post('/submitted-deals/:id/approve', async (req, res) => {
     await query(
       `INSERT INTO prices (product_id, regular_price, current_price, source)
        VALUES ($1, $2, $3, 'collaborator')`,
-      [productId, sub.regular_price || sub.found_price, sub.found_price]
+      [productId, regularPrice || sub.found_price, sub.found_price]
     );
 
     // Calculate discount and profit
-    const discountPct = sub.regular_price
-      ? Math.round(((sub.regular_price - sub.found_price) / sub.regular_price) * 100)
+    const discountPct = regularPrice && regularPrice > sub.found_price
+      ? Math.round(((regularPrice - sub.found_price) / regularPrice) * 100)
       : 0;
     const savings = sub.regular_price ? sub.regular_price - sub.found_price : 0;
 
@@ -539,20 +545,24 @@ router.post('/submitted-deals/:id/approve', async (req, res) => {
       await query(
         `UPDATE deals SET
            deal_price = $1, regular_price = $2, discount_percent = $3,
+           estimated_profit = $4, roi_percent = $5,
            is_active = true, data_source = 'live', last_seen_at = NOW()
-         WHERE id = $4`,
-        [sub.found_price, sub.regular_price || sub.found_price, discountPct, dealId]
+         WHERE id = $6`,
+        [sub.found_price, regularPrice || sub.found_price, discountPct,
+         sub.estimated_profit || null, sub.roi_percent || null, dealId]
       );
     } else {
       const newDeal = await query(
         `INSERT INTO deals
            (product_id, store_id, deal_price, regular_price, discount_percent,
+            estimated_profit, roi_percent,
             is_active, data_source, opportunity_score, opportunity_label)
-         VALUES ($1, $2, $3, $4, $5, true, 'live', $6, $7) RETURNING id`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, true, 'live', $8, $9) RETURNING id`,
         [
           productId, store.id, sub.found_price,
-          sub.regular_price || sub.found_price, discountPct,
-          Math.min(100, discountPct + 10),
+          regularPrice || sub.found_price, discountPct,
+          sub.estimated_profit || null, sub.roi_percent || null,
+          sub.opportunity_score || Math.min(100, discountPct + 10),
           discountPct >= 70 ? '🔥 Excellent' : discountPct >= 50 ? '✅ Good Deal' : '📦 Average',
         ]
       );

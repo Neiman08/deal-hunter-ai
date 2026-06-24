@@ -424,7 +424,7 @@ router.post('/submit-deal', authenticate, async (req, res) => {
     // ── Anti-fraud: duplicate check (same UPC + store + user within 6h) ───
     if (upc && store_slug) {
       const dupCheck = await query(`
-        SELECT id FROM submitted_deals sd
+        SELECT sd.id FROM submitted_deals sd
         JOIN stores s ON sd.store_id = s.id
         WHERE sd.user_id = $1
           AND sd.upc = $2
@@ -516,17 +516,18 @@ router.post('/submit-deal', authenticate, async (req, res) => {
     const insertRes = await query(`
       INSERT INTO submitted_deals (
         user_id, collaborator_id, store_id, product_name, brand, upc, sku,
-        found_price, estimated_profit, roi_percent, opportunity_score, recommendation,
+        found_price, regular_price, estimated_profit, roi_percent, opportunity_score, recommendation,
         effective_market_price, effective_market_source, keepa_confidence,
         store_location_id, feedback_tag, photo_url,
         city, state, latitude, longitude,
         trust_threshold, points_pending, status
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,'submitted')
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,'submitted')
       RETURNING id, created_at
     `, [
       req.user.id, collaborator_id, store_id,
       (title || 'Unknown Product').slice(0, 255), brand || null, upc || null, sku || null,
       price,
+      effective_market_price != null ? parseFloat(effective_market_price) : null,
       profit,
       roi,
       score || null,

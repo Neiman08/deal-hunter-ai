@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Brain, Star, Heart, Plus, Trash2, TrendingUp, Lightbulb, Zap } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import api from '../utils/api';
 import DealCard from '../components/DealCard';
 
@@ -7,6 +8,7 @@ const BRANDS = ['DeWalt', 'Milwaukee', 'Makita', 'Ryobi', 'Dyson', 'Apple', 'Sam
 const CATEGORIES = ['Power Tools', 'Electronics', 'Appliances', 'Kitchen', 'Outdoor', 'Automotive', 'Toys'];
 
 export default function Recommendations() {
+  const { t } = useTranslation();
   const [recommended, setRecommended] = useState([]);
   const [insights, setInsights] = useState([]);
   const [favorites, setFavorites] = useState([]);
@@ -15,9 +17,7 @@ export default function Recommendations() {
   const [error, setError] = useState(null);
   const [adding, setAdding] = useState({ type: 'brand', value: '' });
 
-  useEffect(() => {
-    fetchAll();
-  }, []);
+  useEffect(() => { fetchAll(); }, []);
 
   async function fetchAll() {
     setLoading(true);
@@ -32,7 +32,7 @@ export default function Recommendations() {
       setProfile(recRes.data.profile || {});
       setFavorites(favRes.data.favorites || []);
     } catch {
-      setError('No se pudieron cargar las recomendaciones.');
+      setError(t('common.error', 'Something went wrong'));
     } finally {
       setLoading(false);
     }
@@ -42,12 +42,10 @@ export default function Recommendations() {
     if (!adding.value) return;
     try {
       const r = await api.post('/recommendations/favorites', adding);
-      if (r.data.favorite) {
-        setFavorites(prev => [...prev, r.data.favorite]);
-      }
+      if (r.data.favorite) setFavorites(prev => [...prev, r.data.favorite]);
       setAdding({ ...adding, value: '' });
     } catch (err) {
-      alert(err.response?.data?.error || 'Error al agregar seguimiento');
+      alert(err.response?.data?.error || t('common.error'));
     }
   }
 
@@ -56,11 +54,11 @@ export default function Recommendations() {
       await api.delete(`/recommendations/favorites/${id}`);
       setFavorites(prev => prev.filter(f => f.id !== id));
     } catch {
-      alert('No se pudo eliminar el seguimiento');
+      alert(t('common.error'));
     }
   }
 
-  const typeIcon = { brand: '🏷️', category: '📦', store: '🏪', product: '🛍️' };
+  const typeIcon  = { brand: '🏷️', category: '📦', store: '🏪', product: '🛍️' };
   const typeColor = { brand: 'text-neon-green', category: 'text-neon-blue', store: 'text-yellow-400', product: 'text-purple-400' };
 
   if (loading) return (
@@ -78,38 +76,35 @@ export default function Recommendations() {
 
   return (
     <div className="p-4 lg:p-6 space-y-6">
-      {/* Header */}
       <div className="flex items-center gap-3">
         <Brain size={24} className="text-neon-blue" />
         <div>
-          <h1 className="text-2xl font-bold text-white">AI Recommendations</h1>
-          <p className="text-gray-400 text-sm">Personalized deals based on your behavior</p>
+          <h1 className="text-2xl font-bold text-white">{t('recs.title', 'AI Recommendations')}</h1>
+          <p className="text-gray-400 text-sm">{t('recs.subtitle', 'Personalized deals based on your behavior')}</p>
         </div>
       </div>
 
-      {/* Profile summary */}
       <div className="card border-neon-blue/30 bg-neon-blue/5">
-        <p className="text-gray-400 text-xs uppercase tracking-wider mb-3">Your Profile</p>
+        <p className="text-gray-400 text-xs uppercase tracking-wider mb-3">{t('recs.profile', 'Your Profile')}</p>
         <div className="grid grid-cols-3 gap-4">
           <div>
-            <p className="text-gray-400 text-xs">Top Brand</p>
+            <p className="text-gray-400 text-xs">{t('recs.top_brand', 'Top Brand')}</p>
             <p className="text-white font-semibold">{profile.topBrand || '—'}</p>
           </div>
           <div>
-            <p className="text-gray-400 text-xs">Top Category</p>
+            <p className="text-gray-400 text-xs">{t('recs.top_category', 'Top Category')}</p>
             <p className="text-white font-semibold">{profile.topCategory || '—'}</p>
           </div>
           <div>
-            <p className="text-gray-400 text-xs">Avg Profit/Deal</p>
+            <p className="text-gray-400 text-xs">{t('recs.avg_profit', 'Avg Profit/Deal')}</p>
             <p className="text-neon-green font-bold">${profile.avgProfit || 0}</p>
           </div>
         </div>
       </div>
 
-      {/* AI Insights */}
       <div className="card">
         <h2 className="text-white font-semibold mb-4 flex items-center gap-2">
-          <Lightbulb size={18} className="text-yellow-400" /> AI Insights
+          <Lightbulb size={18} className="text-yellow-400" /> {t('recs.insights', 'AI Insights')}
         </h2>
         <div className="space-y-3">
           {insights.map((ins, i) => (
@@ -121,22 +116,20 @@ export default function Recommendations() {
         </div>
       </div>
 
-      {/* Favorites manager */}
       <div className="card">
         <h2 className="text-white font-semibold mb-4 flex items-center gap-2">
-          <Heart size={18} className="text-red-400" /> Following
+          <Heart size={18} className="text-red-400" /> {t('recs.following', 'Following')}
         </h2>
 
-        {/* Add new */}
         <div className="flex gap-2 mb-4">
           <select
             value={adding.type}
             onChange={e => setAdding({ ...adding, type: e.target.value })}
             className="bg-dark-800 border border-dark-700 text-white text-sm rounded-xl px-3 py-2"
           >
-            <option value="brand">Brand</option>
-            <option value="category">Category</option>
-            <option value="store">Store</option>
+            <option value="brand">{t('recs.brand', 'Brand')}</option>
+            <option value="category">{t('recs.category', 'Category')}</option>
+            <option value="store">{t('recs.store', 'Store')}</option>
           </select>
           <input
             value={adding.value}
@@ -149,11 +142,10 @@ export default function Recommendations() {
           <datalist id="brand-list">{BRANDS.map(b => <option key={b} value={b} />)}</datalist>
           <datalist id="category-list">{CATEGORIES.map(c => <option key={c} value={c} />)}</datalist>
           <button onClick={addFavorite} className="btn-primary flex items-center gap-1 text-sm px-4">
-            <Plus size={15} /> Follow
+            <Plus size={15} /> {t('recs.follow', 'Follow')}
           </button>
         </div>
 
-        {/* List */}
         <div className="flex flex-wrap gap-2">
           {favorites.map(fav => (
             <div key={fav.id} className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-dark-800 border border-dark-700">
@@ -165,14 +157,15 @@ export default function Recommendations() {
               </button>
             </div>
           ))}
-          {favorites.length === 0 && <p className="text-gray-400 text-sm">Follow brands, categories, or stores to get personalized deals.</p>}
+          {favorites.length === 0 && (
+            <p className="text-gray-400 text-sm">{t('recs.no_data', 'Follow brands, categories, or stores to get personalized deals.')}</p>
+          )}
         </div>
       </div>
 
-      {/* Recommended deals */}
       <div>
         <h2 className="text-white font-semibold mb-4 flex items-center gap-2">
-          <Zap size={18} className="text-neon-green" /> Recommended For You
+          <Zap size={18} className="text-neon-green" /> {t('recs.recommended', 'Recommended For You')}
         </h2>
         {recommended.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
@@ -181,7 +174,7 @@ export default function Recommendations() {
         ) : (
           <div className="card text-center text-gray-400 py-10">
             <Brain size={32} className="mx-auto mb-3 opacity-40" />
-            <p>Follow some brands or save deals to get personalized recommendations.</p>
+            <p>{t('recs.no_data', 'Not enough data yet. Start scanning products to get personalized recommendations.')}</p>
           </div>
         )}
       </div>

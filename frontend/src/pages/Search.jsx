@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Search as SearchIcon, X, Loader, SlidersHorizontal, Store, Tag } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import api from '../utils/api';
 import DealCard from '../components/DealCard';
 
@@ -13,6 +14,7 @@ const QUICK_CATS = [
 ];
 
 export default function Search() {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [searchMode, setSearchMode] = useState('keyword'); // 'keyword' | 'upc'
   const [filters, setFilters] = useState({ store: '', category: '', min_discount: 0 });
@@ -170,15 +172,15 @@ export default function Search() {
 
       {/* Header */}
       <div>
-        <h1 className="text-2xl font-black mb-1 text-white">Search Deals</h1>
-        <p className="text-gray-400 text-sm">Search by name, brand, store, category, UPC or SKU</p>
+        <h1 className="text-2xl font-black mb-1 text-white">{t('search.title', 'Search Deals')}</h1>
+        <p className="text-gray-400 text-sm">{t('common.search_hint', 'Search by name, brand, store, category, UPC or SKU')}</p>
       </div>
 
       {/* Mode toggle */}
       <div className="flex gap-2">
         {[
-          { id: 'keyword', label: 'Keyword' },
-          { id: 'upc', label: 'UPC / SKU' },
+          { id: 'keyword', label: t('search.keyword', 'Keyword') },
+          { id: 'upc', label: t('search.upc_sku', 'UPC / SKU') },
         ].map(m => (
           <button
             key={m.id}
@@ -228,7 +230,7 @@ export default function Search() {
               disabled={loading}
               className="absolute right-3 top-1/2 -translate-y-1/2 btn-primary py-2 px-5 text-sm"
             >
-              {loading ? <Loader size={16} className="animate-spin" /> : 'Search'}
+              {loading ? <Loader size={16} className="animate-spin" /> : t('common.search', 'Search')}
             </button>
           </div>
 
@@ -277,7 +279,7 @@ export default function Search() {
               }`}
             >
               <SlidersHorizontal size={13} />
-              Filters {activeFiltersCount > 0 && `(${activeFiltersCount})`}
+              {t('search.filters', 'Filters')} {activeFiltersCount > 0 && `(${activeFiltersCount})`}
             </button>
 
             {/* Active filter chips */}
@@ -306,38 +308,38 @@ export default function Search() {
         {showFilters && searchMode === 'keyword' && (
           <div className="bg-dark-800 border border-dark-700 rounded-xl p-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="text-gray-400 text-xs mb-1.5 block">Store</label>
+              <label className="text-gray-400 text-xs mb-1.5 block">{t('search.store', 'Store')}</label>
               <select
                 value={filters.store}
                 onChange={e => setFilters(f => ({ ...f, store: e.target.value }))}
                 disabled={storesLoading}
                 className="w-full bg-dark-900 border border-dark-700 text-white text-sm rounded-xl px-3 py-2 disabled:opacity-50"
               >
-                <option value="">{storesLoading ? 'Loading…' : 'All stores'}</option>
+                <option value="">{storesLoading ? t('common.loading', 'Loading…') : t('search.all_stores', 'All stores')}</option>
                 {stores.map(s => (
                   <option key={s.slug} value={s.slug}>{s.name}</option>
                 ))}
               </select>
             </div>
             <div>
-              <label className="text-gray-400 text-xs mb-1.5 block">Category</label>
+              <label className="text-gray-400 text-xs mb-1.5 block">{t('search.category', 'Category')}</label>
               <select
                 value={filters.category}
                 onChange={e => setFilters(f => ({ ...f, category: e.target.value }))}
                 className="w-full bg-dark-900 border border-dark-700 text-white text-sm rounded-xl px-3 py-2"
               >
-                <option value="">All categories</option>
-                <option value="electronics">Electronics</option>
-                <option value="appliances">Appliances</option>
-                <option value="clothing">Clothing & Accessories</option>
-                <option value="handbags">Handbags & Accessories</option>
-                <option value="jewelry">Jewelry</option>
+                <option value="">{t('search.all_categories', 'All categories')}</option>
+                <option value="electronics">{t('categories.electronics', 'Electronics')}</option>
+                <option value="appliances">{t('categories.appliances', 'Appliances')}</option>
+                <option value="clothing">{t('categories.clothing', 'Clothing')}</option>
+                <option value="handbags">{t('categories.handbags', 'Handbags')}</option>
+                <option value="jewelry">{t('categories.jewelry', 'Jewelry')}</option>
               </select>
             </div>
             <div>
               <label className="text-gray-400 text-xs mb-1.5 flex justify-between">
-                <span>Min Discount</span>
-                <span className="text-white font-medium">{filters.min_discount > 0 ? `${filters.min_discount}%+` : 'Any'}</span>
+                <span>{t('search.min_discount', 'Min Discount')}</span>
+                <span className="text-white font-medium">{filters.min_discount > 0 ? `${filters.min_discount}%+` : t('search.any', 'Any')}</span>
               </label>
               <input
                 type="range" min={0} max={80} step={5} value={filters.min_discount}
@@ -354,7 +356,7 @@ export default function Search() {
         <div className="space-y-3">
           {stores.length > 0 && (
             <div>
-              <p className="text-gray-500 text-xs uppercase tracking-wider font-mono mb-2">Browse by store</p>
+              <p className="text-gray-500 text-xs uppercase tracking-wider font-mono mb-2">{t('search.browse_store', 'Browse by store')}</p>
               <div className="flex flex-wrap gap-2">
                 {stores
                   .filter(s => parseInt(s.active_deals) > 0)
@@ -372,7 +374,7 @@ export default function Search() {
             </div>
           )}
           <div>
-            <p className="text-gray-500 text-xs uppercase tracking-wider font-mono mb-2">Browse by category</p>
+            <p className="text-gray-500 text-xs uppercase tracking-wider font-mono mb-2">{t('search.browse_category', 'Browse by category')}</p>
             <div className="flex flex-wrap gap-2">
               {QUICK_CATS.map(({ label, category }) => (
                 <button
@@ -433,12 +435,12 @@ export default function Search() {
           ) : (
             <div className="text-center py-16">
               <p className="text-4xl mb-4">🔍</p>
-              <p className="text-gray-300 font-semibold">No results found</p>
+              <p className="text-gray-300 font-semibold">{t('search.no_results', 'No results found')}</p>
               <p className="text-gray-500 text-sm mt-1">
-                Try a different term, check spelling, or browse by store
+                {t('common.try_different', 'Try a different term, check spelling, or browse by store')}
               </p>
               <button onClick={clearSearch} className="btn-ghost text-sm mt-4 px-4 py-2">
-                Clear search
+                {t('search.clear_search', 'Clear search')}
               </button>
             </div>
           )}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Eye, Plus, Trash2, Bell, Search, Tag, Barcode, Hash } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import api from '../utils/api';
 import DealCard from '../components/DealCard';
 import { useAuth } from '../context/AuthContext';
@@ -25,6 +26,7 @@ const POPULAR = [
 
 export default function Watchlist() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [items, setItems] = useState([]);
   const [matches, setMatches] = useState([]);
   const [loadingItems, setLoadingItems] = useState(true);
@@ -105,18 +107,18 @@ export default function Watchlist() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-            <Eye size={22} className="text-neon-green" /> Watchlist
+            <Eye size={22} className="text-neon-green" /> {t('watchlist.title', 'Watchlist')}
           </h1>
-          <p className="text-gray-400 text-sm mt-0.5">Track brands, products, and UPCs — get alerted when deals appear</p>
+          <p className="text-gray-400 text-sm mt-0.5">{t('watchlist.empty_hint', 'Add brands, UPCs, or stores to track and get notified when deals appear.')}</p>
         </div>
         <button onClick={() => setShowAdd(!showAdd)} className="btn-primary flex items-center gap-2 text-sm">
-          <Plus size={15} /> Watch New
+          <Plus size={15} /> {t('watchlist.watch_new', 'Watch New')}
         </button>
       </div>
 
       {/* Quick-add popular */}
       <div className="card">
-        <p className="text-gray-400 text-xs uppercase tracking-wider mb-3">Popular Watches</p>
+        <p className="text-gray-400 text-xs uppercase tracking-wider mb-3">{t('watchlist.popular', 'Popular Watches')}</p>
         <div className="flex flex-wrap gap-2">
           {POPULAR.map(p => {
             const watching = items.some(i => i.type === p.type && i.value === p.value);
@@ -138,7 +140,7 @@ export default function Watchlist() {
       {/* Add form */}
       {showAdd && (
         <div className="card border-neon-green/20 bg-neon-green/5 space-y-4 animate-fade-in">
-          <h3 className="text-white font-semibold">Add to Watchlist</h3>
+          <h3 className="text-white font-semibold">{t('watchlist.add', 'Add to Watchlist')}</h3>
 
           {/* Type selector */}
           <div className="flex flex-wrap gap-2">
@@ -162,7 +164,7 @@ export default function Watchlist() {
 
           <div className="flex flex-wrap items-center gap-4">
             <div className="flex-1">
-              <label className="text-gray-400 text-xs mb-1 block">Min discount: {form.min_discount}%</label>
+              <label className="text-gray-400 text-xs mb-1 block">{t('watchlist.min_discount', 'Min discount:')} {form.min_discount}%</label>
               <input type="range" min="10" max="80" value={form.min_discount}
                 onChange={e => setForm({ ...form, min_discount: parseInt(e.target.value) })}
                 className="w-full accent-neon-green" />
@@ -186,9 +188,9 @@ export default function Watchlist() {
 
           <div className="flex gap-2">
             <button onClick={addItem} disabled={adding || !form.value} className="btn-primary text-sm disabled:opacity-50">
-              {adding ? 'Adding...' : 'Add to Watchlist'}
+              {adding ? t('watchlist.adding', 'Adding...') : t('watchlist.add', 'Add to Watchlist')}
             </button>
-            <button onClick={() => setShowAdd(false)} className="btn-ghost text-sm">Cancel</button>
+            <button onClick={() => setShowAdd(false)} className="btn-ghost text-sm">{t('watchlist.cancel', 'Cancel')}</button>
           </div>
         </div>
       )}
@@ -196,8 +198,8 @@ export default function Watchlist() {
       {/* Tabs */}
       <div className="flex gap-2 border-b border-dark-700">
         {[
-          ['watching', `Watching (${items.length})`],
-          ['alerts', `Live Alerts ${totalAlerts > 0 ? `(${totalAlerts})` : ''}`],
+          ['watching', `${t('watchlist.watching', 'Watching')} (${items.length})`],
+          ['alerts', `${t('watchlist.live_alerts', 'Live Alerts')} ${totalAlerts > 0 ? `(${totalAlerts})` : ''}`],
         ].map(([id, label]) => (
           <button key={id} onClick={() => setTab(id)}
             className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
@@ -224,8 +226,19 @@ export default function Watchlist() {
           ) : items.length === 0 ? (
             <div className="text-center py-12">
               <Eye size={40} className="mx-auto text-gray-500 mb-3" />
-              <p className="text-gray-400">Your watchlist is empty.</p>
-              <p className="text-gray-500 text-sm mt-1">Add brands, UPCs, or keywords to track.</p>
+              <p className="text-gray-400 font-semibold">{t('watchlist.empty', 'Your watchlist is empty')}</p>
+              <p className="text-gray-500 text-sm mt-1">{t('watchlist.empty_hint', 'Add brands, UPCs, or stores to track and get notified when deals appear.')}</p>
+              <div className="mt-4">
+                <p className="text-xs text-gray-600 mb-2">{t('watchlist.quick_add', 'Quick add:')}</p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  {POPULAR.slice(0, 5).map(p => (
+                    <button key={`${p.type}-${p.value}`} onClick={() => quickAdd(p)}
+                      className="text-xs px-3 py-1.5 rounded-full border border-dark-600 text-gray-400 hover:border-neon-green/30 hover:text-white transition-all">
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : null}
           {!loadingItems && !error && items.map(item => {
@@ -272,8 +285,8 @@ export default function Watchlist() {
           ) : matches.length === 0 ? (
             <div className="text-center py-12">
               <Bell size={40} className="mx-auto text-gray-500 mb-3" />
-              <p className="text-gray-400">No matching deals right now.</p>
-              <p className="text-gray-500 text-sm mt-1">We'll notify you when deals appear for your watched items.</p>
+              <p className="text-gray-400">{t('watchlist.no_deals', 'No matching deals right now')}</p>
+              <p className="text-gray-500 text-sm mt-1">{t('common.notify_when_available', "We'll notify you when deals appear for your watched items.")}</p>
             </div>
           ) : matches.map(match => (
             <div key={match.watchItem.id}>

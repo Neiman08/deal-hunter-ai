@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   GraduationCap, BookOpen, CheckCircle, Clock, Zap, Award,
-  ChevronRight, ChevronLeft, Star, ArrowLeft, Play, Lock, AlertTriangle,
+  ChevronRight, ChevronLeft, ArrowLeft, AlertTriangle,
 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import api from '../utils/api';
 
 const CATEGORY_META = {
@@ -17,6 +18,7 @@ const CATEGORY_META = {
 };
 
 function CourseCard({ course, onClick }) {
+  const { t } = useTranslation();
   const cat   = CATEGORY_META[course.category] || { label: course.category, color: '#94A3B8' };
   const pct   = course.progress_percent || 0;
   const done  = course.is_completed;
@@ -38,12 +40,12 @@ function CourseCard({ course, onClick }) {
             </span>
             {done && (
               <span className="text-[10px] text-neon-green flex items-center gap-0.5">
-                <CheckCircle size={9} /> Done
+                <CheckCircle size={9} /> {t('university.completed', 'Done')}
               </span>
             )}
             {course.has_certificate && (
               <span className="text-[10px] text-yellow-400 flex items-center gap-0.5">
-                <Award size={9} /> Cert
+                <Award size={9} /> {t('university.certificates', 'Cert')}
               </span>
             )}
           </div>
@@ -51,7 +53,7 @@ function CourseCard({ course, onClick }) {
           <p className="text-gray-500 text-xs mt-0.5 line-clamp-2">{course.description}</p>
           <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
             <span className="flex items-center gap-1">
-              <BookOpen size={10} /> {course.total_lessons} lessons
+              <BookOpen size={10} /> {course.total_lessons} {t('university.lessons', 'lessons')}
             </span>
             <span className="flex items-center gap-1 text-neon-green font-semibold">
               <Zap size={10} /> +{course.xp_reward} XP
@@ -65,7 +67,7 @@ function CourseCard({ course, onClick }) {
           <div className="h-1.5 rounded-full bg-dark-700">
             <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: cat.color }} />
           </div>
-          <p className="text-[10px] text-gray-500 mt-0.5">{pct}% complete</p>
+          <p className="text-[10px] text-gray-500 mt-0.5">{pct}% {t('university.complete_pct', 'complete')}</p>
         </div>
       )}
     </button>
@@ -73,6 +75,7 @@ function CourseCard({ course, onClick }) {
 }
 
 function LessonView({ course, lessons, onBack, onComplete }) {
+  const { t } = useTranslation();
   const [activeIdx, setActiveIdx]     = useState(() => {
     const firstIncomplete = lessons.findIndex(l => !l.is_completed);
     return firstIncomplete >= 0 ? firstIncomplete : 0;
@@ -137,7 +140,7 @@ function LessonView({ course, lessons, onBack, onComplete }) {
           <span className="text-gray-500 text-xs">{lesson.duration_minutes} min</span>
           {isMarkedDone && (
             <span className="ml-auto text-neon-green text-xs flex items-center gap-1">
-              <CheckCircle size={11} /> Completed
+              <CheckCircle size={11} /> {t('university.completed', 'Completed')}
             </span>
           )}
         </div>
@@ -168,7 +171,7 @@ function LessonView({ course, lessons, onBack, onComplete }) {
         {activeIdx > 0 && (
           <button onClick={() => setActiveIdx(i => i - 1)}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-dark-700 text-gray-300 text-sm hover:bg-dark-600 transition-colors">
-            <ChevronLeft size={14} /> Prev
+            <ChevronLeft size={14} /> {t('university.prev', 'Prev')}
           </button>
         )}
 
@@ -178,20 +181,20 @@ function LessonView({ course, lessons, onBack, onComplete }) {
             style={{ background: '#4ADE80', color: '#0A0A0A' }}>
             {completing
               ? <span className="w-4 h-4 border-2 border-dark-900 border-t-transparent rounded-full animate-spin" />
-              : <><CheckCircle size={15} /> Mark Complete</>
+              : <><CheckCircle size={15} /> {t('university.mark_complete', 'Mark Complete')}</>
             }
           </button>
         ) : (
           <div className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold bg-neon-green/10 border border-neon-green/20"
             style={{ color: '#4ADE80' }}>
-            <CheckCircle size={15} /> Completed
+            <CheckCircle size={15} /> {t('university.completed', 'Completed')}
           </div>
         )}
 
         {activeIdx < lessons.length - 1 && (
           <button onClick={() => setActiveIdx(i => i + 1)}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-dark-700 text-gray-300 text-sm hover:bg-dark-600 transition-colors">
-            Next <ChevronRight size={14} />
+            {t('university.next', 'Next')} <ChevronRight size={14} />
           </button>
         )}
       </div>
@@ -201,6 +204,7 @@ function LessonView({ course, lessons, onBack, onComplete }) {
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function University() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
 
   const [courses, setCourses]           = useState([]);
@@ -222,7 +226,7 @@ export default function University() {
       })
       .catch(err => {
         if (err.response?.status === 401) navigate('/login');
-        else setError('Failed to load University.');
+        else setError(t('university.load_error', 'Failed to load University.'));
       })
       .finally(() => setLoading(false));
   }, [navigate]);
@@ -284,7 +288,7 @@ export default function University() {
       <div className="p-6 text-center">
         <AlertTriangle size={28} className="mx-auto text-yellow-400 mb-2" />
         <p className="text-gray-400 text-sm">{error}</p>
-        <button onClick={() => window.location.reload()} className="btn-primary mt-3 text-sm px-5">Retry</button>
+        <button onClick={() => window.location.reload()} className="btn-primary mt-3 text-sm px-5">{t('university.retry', 'Retry')}</button>
       </div>
     );
   }
@@ -314,7 +318,7 @@ export default function University() {
           <div className="flex items-center gap-2">
             <GraduationCap size={20} className="text-neon-green" />
             <h1 className="text-xl font-black text-white">
-              {selectedCourse ? selectedCourse.course.title : 'Deal Hunter University'}
+              {selectedCourse ? selectedCourse.course.title : t('university.title', 'Deal Hunter University')}
             </h1>
           </div>
           {!selectedCourse && (
@@ -338,9 +342,9 @@ export default function University() {
           {/* Stats row */}
           <div className="grid grid-cols-3 gap-3">
             {[
-              { label: 'Completed',     value: completedCourses,    color: '#4ADE80', icon: '🎓' },
-              { label: 'In Progress',   value: inProgressCourses,   color: '#60A5FA', icon: '📖' },
-              { label: 'Certificates',  value: certs.length,        color: '#FBBF24', icon: '🏆' },
+              { label: t('university.completed',    'Completed'),    value: completedCourses,    color: '#4ADE80', icon: '🎓' },
+              { label: t('university.in_progress',  'In Progress'),  value: inProgressCourses,   color: '#60A5FA', icon: '📖' },
+              { label: t('university.certificates', 'Certificates'), value: certs.length,        color: '#FBBF24', icon: '🏆' },
             ].map(s => (
               <div key={s.label} className="rounded-2xl p-3 bg-dark-800/60 border border-dark-700 text-center">
                 <p className="text-lg">{s.icon}</p>
@@ -354,7 +358,7 @@ export default function University() {
           {certs.length > 0 && (
             <div className="rounded-2xl border border-yellow-400/20 bg-yellow-400/5 p-4">
               <p className="text-yellow-400 text-sm font-bold flex items-center gap-2 mb-2">
-                <Award size={14} /> Certificates Earned
+                <Award size={14} /> {t('university.certs_earned', 'Certificates Earned')}
               </p>
               <div className="space-y-2">
                 {certs.map(c => (
@@ -375,7 +379,7 @@ export default function University() {
           {/* Course list */}
           <div className="space-y-3">
             <h2 className="text-white font-bold flex items-center gap-2 text-sm">
-              <BookOpen size={14} className="text-neon-green" /> All Courses
+              <BookOpen size={14} className="text-neon-green" /> {t('university.all_courses', 'All Courses')}
             </h2>
             {courseLoading && (
               <div className="flex items-center justify-center py-8">
@@ -388,7 +392,7 @@ export default function University() {
             {courses.length === 0 && (
               <div className="rounded-2xl border border-dark-700 bg-dark-800/40 p-8 text-center">
                 <GraduationCap size={28} className="mx-auto text-gray-600 mb-2" />
-                <p className="text-gray-400 text-sm">No courses available yet.</p>
+                <p className="text-gray-400 text-sm">{t('university.no_courses', 'No courses available yet.')}</p>
               </div>
             )}
           </div>

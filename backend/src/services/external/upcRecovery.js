@@ -17,7 +17,7 @@
 const axios = require('axios');
 const logger = require('../../utils/logger');
 
-const TIMEOUT_MS = 6000;
+const TIMEOUT_MS = 4500;
 const TRUSTED_MERCHANTS = ['walmart.com', 'target.com', 'bestbuy.com', 'amazon.com', 'costco.com', 'homedepot.com'];
 
 function extractMarketPricing(item) {

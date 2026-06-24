@@ -14,6 +14,7 @@ const STORE_OPTIONS = [
   'Burlington','Nordstrom Rack','Office Depot','Staples',
   'GameStop','Best Buy','Home Depot','Lowe\'s','Costco',
   'Macy\'s','Kohl\'s','Big Lots','Dollar General','Five Below',
+  'Wayfair','Harbor Freight',
 ];
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -423,12 +424,18 @@ export default function Scanner() {
     setQuery(term);
     setLoading(true);
 
+    // Safety AbortController — guarantees loading ends even if axios timeout misfires
+    const controller = new AbortController();
+    const safetyTimer = setTimeout(() => controller.abort(), 22000);
+
     try {
       const isUpc = (lookupMode || mode) === 'upc' || /^\d{8,14}$/.test(term);
 
       if (isUpc) {
-        // Use new scanner endpoint for UPC — enriches with Keepa
-        const r = await api.get(`/scanner/lookup/${encodeURIComponent(term)}`);
+        const r = await api.get(`/scanner/lookup/${encodeURIComponent(term)}`, {
+          signal: controller.signal,
+          timeout: 20000,
+        });
         setLookupResult(r.data);
 
         if (r.data.scan_status === 'NOT_FOUND') {
@@ -437,8 +444,11 @@ export default function Scanner() {
 
         addHistory(term, r.data);
       } else {
-        // SKU — search internal DB
-        const r = await api.get('/search', { params: { sku: term, limit: 20 } });
+        const r = await api.get('/search', {
+          params: { sku: term, limit: 20 },
+          signal: controller.signal,
+          timeout: 15000,
+        });
         const results = r.data.results || [];
         if (!results.length) {
           setError(`No deals found for SKU "${term}".`);
@@ -450,8 +460,15 @@ export default function Scanner() {
       }
     } catch (err) {
       if (err.response?.status === 401) return;
-      setError('Lookup failed. Check your connection and try again.');
+      if (err.name === 'CanceledError' || err.code === 'ERR_CANCELED' || err.name === 'AbortError') {
+        setError('Request timed out. The server is taking too long — please try again.');
+      } else if (err.response?.status === 504 || err.response?.status === 502) {
+        setError('Server timeout. Please try again in a moment.');
+      } else {
+        setError('Lookup failed. Check your connection and try again.');
+      }
     } finally {
+      clearTimeout(safetyTimer);
       setLoading(false);
       isSearchingRef.current = false;
     }
@@ -616,6 +633,7 @@ export default function Scanner() {
   function handleExampleClick(ex) { setMode('sku'); doLookup(ex, 'sku'); }
 
   // Derived data from lookupResult
+  const product    = lookupResult?.product;
   const keepa      = lookupResult?.keepa;
   const ebay       = lookupResult?.ebay;
   const recovery   = lookupResult?.recovery;

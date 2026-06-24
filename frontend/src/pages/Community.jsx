@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Users, TrendingUp, Clock, Star, CheckCircle, MapPin,
-  Award, AlertTriangle, Wallet, Gift, ChevronRight,
-  Scan, RefreshCw, Filter, Zap, Shield,
+  Users, TrendingUp, Clock, CheckCircle, MapPin,
+  Award, AlertTriangle, Wallet, Gift, ChevronDown,
+  Scan, Shield, BarChart2,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 
@@ -23,16 +24,25 @@ function timeAgo(dateStr) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
-const STATUS_META = {
-  submitted:            { label: 'Submitted',       color: '#00D4FF', bg: 'bg-neon-blue/10  border-neon-blue/30' },
-  pending_confirmation: { label: 'Needs Confirm',   color: '#FACC15', bg: 'bg-yellow-400/10 border-yellow-400/30' },
-  verified:             { label: 'Verified ✓',      color: '#4ADE80', bg: 'bg-neon-green/10 border-neon-green/30' },
-  official:             { label: 'Official ⭐',      color: '#8B5CF6', bg: 'bg-purple-400/10 border-purple-400/30' },
-  rejected:             { label: 'Rejected',         color: '#F87171', bg: 'bg-red-400/10    border-red-400/30' },
-  expired:              { label: 'Expired',           color: '#6B7280', bg: 'bg-gray-700/10   border-gray-600/30' },
+const STATUS_COLORS = {
+  submitted:            { color: '#00D4FF', bg: 'bg-neon-blue/10  border-neon-blue/30' },
+  pending_confirmation: { color: '#FACC15', bg: 'bg-yellow-400/10 border-yellow-400/30' },
+  verified:             { color: '#4ADE80', bg: 'bg-neon-green/10 border-neon-green/30' },
+  official:             { color: '#8B5CF6', bg: 'bg-purple-400/10 border-purple-400/30' },
+  rejected:             { color: '#F87171', bg: 'bg-red-400/10    border-red-400/30' },
+  expired:              { color: '#6B7280', bg: 'bg-gray-700/10   border-gray-600/30' },
 };
 
-const CONFIRM_BUTTONS = [
+const STATUS_LABELS_EN = {
+  submitted: 'Submitted', pending_confirmation: 'Needs Confirm',
+  verified: 'Verified ✓', official: 'Official ⭐', rejected: 'Rejected', expired: 'Expired',
+};
+const STATUS_LABELS_ES = {
+  submitted: 'Enviado', pending_confirmation: 'Necesita Confirmación',
+  verified: 'Verificado ✓', official: 'Oficial ⭐', rejected: 'Rechazado', expired: 'Expirado',
+};
+
+const CONFIRM_BUTTONS_EN = [
   { type: 'price_confirmed', label: '✅ Price OK',     pos: true  },
   { type: 'in_stock',        label: '📦 In Stock',     pos: true  },
   { type: 'great_deal',      label: '🔥 Great Deal',   pos: true  },
@@ -42,13 +52,23 @@ const CONFIRM_BUTTONS = [
   { type: 'wrong_product',   label: '📦 Wrong Item',   pos: false },
   { type: 'expired',         label: '⏰ Expired',       pos: false },
 ];
+const CONFIRM_BUTTONS_ES = [
+  { type: 'price_confirmed', label: '✅ Precio OK',    pos: true  },
+  { type: 'in_stock',        label: '📦 En Stock',     pos: true  },
+  { type: 'great_deal',      label: '🔥 Gran Deal',    pos: true  },
+  { type: 'out_of_stock',    label: '❌ Sin Stock',    pos: false },
+  { type: 'price_mismatch',  label: '⚠️ Precio Mal',  pos: false },
+  { type: 'not_found',       label: '🚫 No Encontrado',pos: false },
+  { type: 'wrong_product',   label: '📦 Producto Mal', pos: false },
+  { type: 'expired',         label: '⏰ Expirado',      pos: false },
+];
 
 const FEED_FILTERS = [
-  { id: 'all',       label: 'All',         status: 'submitted,pending_confirmation,verified,official' },
-  { id: 'newest',    label: 'Newest',      status: 'submitted,pending_confirmation,verified,official', sort: 'newest' },
-  { id: 'verified',  label: 'Verified',    status: 'verified,official' },
-  { id: 'roi',       label: 'Highest ROI', status: 'submitted,pending_confirmation,verified,official', sort: 'roi' },
-  { id: 'confirm',   label: 'Needs Vote',  status: 'submitted,pending_confirmation' },
+  { id: 'all',      status: 'submitted,pending_confirmation,verified,official' },
+  { id: 'newest',   status: 'submitted,pending_confirmation,verified,official', sort: 'newest' },
+  { id: 'verified', status: 'verified,official' },
+  { id: 'roi',      status: 'submitted,pending_confirmation,verified,official', sort: 'roi' },
+  { id: 'confirm',  status: 'submitted,pending_confirmation' },
 ];
 
 const LEVEL_COLOR = {
@@ -58,16 +78,30 @@ const LEVEL_COLOR = {
 };
 
 const TABS = ['feed', 'leaderboard', 'my_deals', 'wallet'];
-const TAB_LABELS = { feed: '🏠 Feed', leaderboard: '🏆 Leaderboard', my_deals: '📋 My Deals', wallet: '💰 Wallet' };
+
+const TIER_META = [
+  { bg: 'bg-dark-800',        border: 'border-dark-600',         color: 'text-gray-300',    icon: '🎁' },
+  { bg: 'bg-neon-blue/5',    border: 'border-neon-blue/20',     color: 'text-neon-blue',   icon: '💵' },
+  { bg: 'bg-yellow-400/5',   border: 'border-yellow-400/20',    color: 'text-yellow-400',  icon: '💰' },
+  { bg: 'bg-purple-400/5',   border: 'border-purple-400/20',    color: 'text-purple-400',  icon: '💎' },
+  { bg: 'bg-neon-green/5',   border: 'border-neon-green/20',    color: 'text-neon-green',  icon: '👑' },
+];
 
 // ── Deal Card ──────────────────────────────────────────────────────────────────
 function DealCard({ deal, onConfirm, currentUserId }) {
+  const { t, i18n } = useTranslation();
+  const es = i18n.language?.startsWith('es');
   const [expanded, setExpanded] = useState(false);
   const [confirming, setConfirming] = useState(null);
   const [confirmed, setConfirmed] = useState(null);
   const [confErr, setConfErr] = useState('');
 
-  const sm = STATUS_META[deal.status] || STATUS_META.submitted;
+  const statusColors = STATUS_COLORS[deal.status] || STATUS_COLORS.submitted;
+  const statusLabel  = es
+    ? (STATUS_LABELS_ES[deal.status] || deal.status)
+    : (STATUS_LABELS_EN[deal.status] || deal.status);
+  const confirmButtons = es ? CONFIRM_BUTTONS_ES : CONFIRM_BUTTONS_EN;
+
   const profit = parseFloat(deal.estimated_profit);
   const roi    = parseFloat(deal.roi_percent);
   const isOwn  = deal.user_id === currentUserId || deal.submitter_name === 'me';
@@ -82,8 +116,9 @@ function DealCard({ deal, onConfirm, currentUserId }) {
       onConfirm?.(deal.id, r.data);
     } catch (err) {
       const msg = err.response?.data?.error || 'Failed';
-      setConfErr(msg === 'You cannot confirm your own deal.' ? 'Cannot confirm your own deal.' :
-                 msg === 'You have already confirmed this deal.' ? 'Already confirmed.' : msg);
+      if (msg === 'You cannot confirm your own deal.') setConfErr(t('community.cant_confirm_own'));
+      else if (msg === 'You have already confirmed this deal.') setConfErr(t('community.already_confirmed'));
+      else setConfErr(msg);
     } finally {
       setConfirming(null);
     }
@@ -91,12 +126,11 @@ function DealCard({ deal, onConfirm, currentUserId }) {
 
   return (
     <div className="card space-y-3">
-      {/* Header row */}
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${sm.bg}`} style={{ color: sm.color }}>
-              {sm.label}
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${statusColors.bg}`} style={{ color: statusColors.color }}>
+              {statusLabel}
             </span>
             {deal.store_name && (
               <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-dark-700 text-gray-300">
@@ -117,30 +151,28 @@ function DealCard({ deal, onConfirm, currentUserId }) {
             <p className="text-xl font-black" style={{ color: deal.opportunity_score >= 70 ? '#4ADE80' : deal.opportunity_score >= 40 ? '#FACC15' : '#F87171' }}>
               {deal.opportunity_score}
             </p>
-            <p className="text-[9px] text-gray-500">score</p>
+            <p className="text-[9px] text-gray-500">{t('community.score_label', 'score')}</p>
           </div>
         )}
       </div>
 
-      {/* Price row */}
       <div className="grid grid-cols-3 gap-2 text-xs">
         <div className="bg-dark-800/60 rounded-lg p-2 text-center">
-          <p className="text-gray-500 text-[10px]">Store price</p>
+          <p className="text-gray-500 text-[10px]">{t('community.store_price', 'Store price')}</p>
           <p className="text-white font-bold">{fmt(deal.found_price) || '—'}</p>
         </div>
         <div className="bg-dark-800/60 rounded-lg p-2 text-center">
-          <p className="text-gray-500 text-[10px]">Market price</p>
+          <p className="text-gray-500 text-[10px]">{t('community.market_price', 'Market price')}</p>
           <p className="text-neon-blue font-bold">{fmt(deal.effective_market_price) || '—'}</p>
         </div>
         <div className="bg-dark-800/60 rounded-lg p-2 text-center">
-          <p className="text-gray-500 text-[10px]">Profit</p>
+          <p className="text-gray-500 text-[10px]">{es ? 'Ganancia' : 'Profit'}</p>
           <p className={`font-bold ${profit > 0 ? 'text-neon-green' : 'text-red-400'}`}>
             {fmt(deal.estimated_profit) || '—'}
           </p>
         </div>
       </div>
 
-      {/* ROI + confirmations */}
       <div className="flex items-center justify-between text-xs">
         <div className="flex items-center gap-3">
           {roi > 0 && (
@@ -157,57 +189,53 @@ function DealCard({ deal, onConfirm, currentUserId }) {
         <div className="flex items-center gap-2 text-gray-400">
           <span className="flex items-center gap-1">
             <CheckCircle size={10} />
-            {deal.confirmation_count || 0}/{deal.trust_threshold || 2} confirmations
+            {deal.confirmation_count || 0}/{deal.trust_threshold || 2} {t('community.confirmations', 'confirmations')}
           </span>
         </div>
       </div>
 
-      {/* Confirmation buttons */}
       {!isOwn && (
         <div>
           {confirmed ? (
             <p className="text-neon-green text-xs flex items-center gap-1.5 py-1">
-              <CheckCircle size={12} /> Confirmed! +5 pts
+              <CheckCircle size={12} /> {t('community.confirmed', 'Confirmed! +5 pts')}
             </p>
           ) : confErr ? (
             <p className="text-yellow-400 text-xs flex items-center gap-1.5 py-1">
               <AlertTriangle size={12} /> {confErr}
             </p>
           ) : (
-            <>
-              <div className="flex flex-wrap gap-1.5">
-                {CONFIRM_BUTTONS.slice(0, expanded ? undefined : 3).map(btn => (
-                  <button
-                    key={btn.type}
-                    onClick={() => handleConfirm(btn.type)}
-                    disabled={!!confirming}
-                    className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 ${
-                      confirming === btn.type
-                        ? 'bg-neon-green/20 text-neon-green border-neon-green/40'
-                        : btn.pos
-                          ? 'bg-dark-800 text-gray-300 border-dark-600 hover:border-neon-green/40 hover:text-neon-green'
-                          : 'bg-dark-800 text-gray-400 border-dark-600 hover:border-red-400/40 hover:text-red-400'
-                    }`}
-                  >
-                    {confirming === btn.type ? '…' : btn.label}
-                  </button>
-                ))}
-                {!expanded && (
-                  <button onClick={() => setExpanded(true)}
-                    className="text-[11px] px-2.5 py-1 rounded-full border border-dark-600 text-gray-500 hover:text-gray-300">
-                    +{CONFIRM_BUTTONS.length - 3} more
-                  </button>
-                )}
-              </div>
-            </>
+            <div className="flex flex-wrap gap-1.5">
+              {confirmButtons.slice(0, expanded ? undefined : 3).map(btn => (
+                <button
+                  key={btn.type}
+                  onClick={() => handleConfirm(btn.type)}
+                  disabled={!!confirming}
+                  className={`text-[11px] px-2.5 py-1 rounded-full border transition-colors disabled:opacity-50 ${
+                    confirming === btn.type
+                      ? 'bg-neon-green/20 text-neon-green border-neon-green/40'
+                      : btn.pos
+                        ? 'bg-dark-800 text-gray-300 border-dark-600 hover:border-neon-green/40 hover:text-neon-green'
+                        : 'bg-dark-800 text-gray-400 border-dark-600 hover:border-red-400/40 hover:text-red-400'
+                  }`}
+                >
+                  {confirming === btn.type ? '…' : btn.label}
+                </button>
+              ))}
+              {!expanded && (
+                <button onClick={() => setExpanded(true)}
+                  className="text-[11px] px-2.5 py-1 rounded-full border border-dark-600 text-gray-500 hover:text-gray-300">
+                  +{confirmButtons.length - 3} {es ? 'más' : 'more'}
+                </button>
+              )}
+            </div>
           )}
         </div>
       )}
 
-      {/* Footer */}
       <div className="flex items-center justify-between text-[10px] text-gray-500 pt-1 border-t border-dark-700/50">
         <span>
-          {deal.submitter_name && `by ${deal.submitter_name}`}
+          {deal.submitter_name && `${t('community.by_user', 'by')} ${deal.submitter_name}`}
           {deal.submitter_level && ` · ${deal.submitter_level}`}
         </span>
         <span>{timeAgo(deal.created_at)}</span>
@@ -218,12 +246,21 @@ function DealCard({ deal, onConfirm, currentUserId }) {
 
 // ── Feed Tab ───────────────────────────────────────────────────────────────────
 function FeedTab({ currentUserId }) {
+  const { t } = useTranslation();
   const [deals, setDeals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState('all');
   const [page, setPage] = useState(0);
   const [total, setTotal] = useState(0);
   const LIMIT = 10;
+
+  const filterLabels = {
+    all:      t('community.all',        'All'),
+    newest:   t('community.newest',     'Newest'),
+    verified: t('community.verified',   'Verified'),
+    roi:      t('community.highest_roi','Highest ROI'),
+    confirm:  t('community.needs_vote', 'Needs Vote'),
+  };
 
   const load = useCallback(async (f, p) => {
     setLoading(true);
@@ -252,7 +289,6 @@ function FeedTab({ currentUserId }) {
 
   return (
     <div className="space-y-4">
-      {/* Filter chips */}
       <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-hide">
         {FEED_FILTERS.map(f => (
           <button key={f.id} onClick={() => setFilter(f.id)}
@@ -261,7 +297,7 @@ function FeedTab({ currentUserId }) {
                 ? 'bg-neon-green text-dark-900 border-neon-green'
                 : 'text-gray-400 border-dark-600 hover:text-white bg-dark-800'
             }`}>
-            {f.label}
+            {filterLabels[f.id]}
           </button>
         ))}
       </div>
@@ -273,15 +309,15 @@ function FeedTab({ currentUserId }) {
       ) : deals.length === 0 ? (
         <div className="card py-14 text-center space-y-3">
           <p className="text-4xl">🏪</p>
-          <p className="text-white font-semibold">No community deals yet</p>
-          <p className="text-gray-500 text-sm">Be the first to submit a deal from the Scanner</p>
+          <p className="text-white font-semibold">{t('community.no_deals', 'No community deals yet')}</p>
+          <p className="text-gray-500 text-sm">{t('community.no_deals_hint', 'Be the first to submit a deal from the Scanner')}</p>
           <Link to="/scanner" className="btn-primary inline-flex items-center gap-2 text-sm px-5 mt-1">
-            <Scan size={14} /> Go to Scanner
+            <Scan size={14} /> {t('community.go_scanner', 'Go to Scanner')}
           </Link>
         </div>
       ) : (
         <>
-          <p className="text-gray-500 text-xs">{total} deal{total !== 1 ? 's' : ''}</p>
+          <p className="text-gray-500 text-xs">{total} {total !== 1 ? 'deals' : 'deal'}</p>
           <div className="space-y-3">
             {deals.map(d => (
               <DealCard key={d.id} deal={d} onConfirm={handleConfirm} currentUserId={currentUserId} />
@@ -292,7 +328,7 @@ function FeedTab({ currentUserId }) {
               onClick={() => { const p = page + 1; setPage(p); load(filter, p); }}
               disabled={loading}
               className="w-full btn-ghost text-sm py-3 disabled:opacity-50">
-              {loading ? 'Loading…' : `Load more (${total - deals.length} remaining)`}
+              {loading ? t('common.loading', 'Loading...') : `${t('community.load_more', 'Load more')} (${total - deals.length})`}
             </button>
           )}
         </>
@@ -303,6 +339,7 @@ function FeedTab({ currentUserId }) {
 
 // ── Leaderboard Tab ────────────────────────────────────────────────────────────
 function LeaderboardTab() {
+  const { t } = useTranslation();
   const [entries, setEntries] = useState([]);
   const [period, setPeriod] = useState('all');
   const [loading, setLoading] = useState(true);
@@ -315,7 +352,11 @@ function LeaderboardTab() {
       .finally(() => setLoading(false));
   }, [period]);
 
-  const PERIOD_OPTIONS = [{ id: 'all', label: 'All Time' }, { id: 'month', label: 'This Month' }, { id: 'week', label: 'This Week' }];
+  const PERIOD_OPTIONS = [
+    { id: 'all',   label: t('community.all_time',   'All Time') },
+    { id: 'month', label: t('community.this_month', 'This Month') },
+    { id: 'week',  label: t('community.this_week',  'This Week') },
+  ];
 
   return (
     <div className="space-y-4">
@@ -334,7 +375,7 @@ function LeaderboardTab() {
         <div className="space-y-2">{[1,2,3].map(i => <div key={i} className="card h-16 animate-pulse bg-dark-800/60" />)}</div>
       ) : entries.length === 0 ? (
         <div className="card py-10 text-center">
-          <p className="text-gray-400">No hunters yet. Start submitting deals to appear here!</p>
+          <p className="text-gray-400">{t('community.no_hunters_hint', 'Start submitting deals to appear here!')}</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -352,7 +393,7 @@ function LeaderboardTab() {
                     </span>
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 text-[10px] text-gray-500">
-                    <span>{e.approved_deals_count || 0} verified deals</span>
+                    <span>{e.approved_deals_count || 0} {t('community.verified_deals', 'verified deals')}</span>
                     {e.trust_score != null && (
                       <span className="flex items-center gap-0.5"><Shield size={9} /> Trust {e.trust_score}</span>
                     )}
@@ -360,7 +401,7 @@ function LeaderboardTab() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="font-black text-lg" style={{ color: lvlColor }}>{(e.points || 0).toLocaleString()}</p>
-                  <p className="text-[10px] text-gray-500">pts</p>
+                  <p className="text-[10px] text-gray-500">{t('community.pts', 'pts')}</p>
                 </div>
               </div>
             );
@@ -373,6 +414,8 @@ function LeaderboardTab() {
 
 // ── My Deals Tab ───────────────────────────────────────────────────────────────
 function MyDealsTab() {
+  const { t, i18n } = useTranslation();
+  const es = i18n.language?.startsWith('es');
   const [deals, setDeals] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -389,10 +432,10 @@ function MyDealsTab() {
     return (
       <div className="card py-14 text-center space-y-3">
         <p className="text-4xl">📤</p>
-        <p className="text-white font-semibold">No submissions yet</p>
-        <p className="text-gray-500 text-sm">Use the Scanner to find deals and submit them to the community</p>
+        <p className="text-white font-semibold">{t('community.no_submissions', 'No submissions yet')}</p>
+        <p className="text-gray-500 text-sm">{t('community.no_submissions_hint', 'Use the Scanner to find deals and submit them to the community')}</p>
         <Link to="/scanner" className="btn-primary inline-flex items-center gap-2 text-sm px-5 mt-1">
-          <Scan size={14} /> Open Scanner
+          <Scan size={14} /> {t('community.open_scanner', 'Open Scanner')}
         </Link>
       </div>
     );
@@ -400,10 +443,13 @@ function MyDealsTab() {
 
   return (
     <div className="space-y-3">
-      <p className="text-gray-500 text-xs">{deals.length} submission{deals.length !== 1 ? 's' : ''}</p>
+      <p className="text-gray-500 text-xs">
+        {deals.length} {deals.length !== 1 ? (es ? 'envíos' : 'submissions') : (es ? 'envío' : 'submission')}
+      </p>
       {deals.map(d => {
-        const sm = STATUS_META[d.status] || STATUS_META.submitted;
-        const needsConf = d.trust_threshold - (d.confirmation_count || 0);
+        const sm = STATUS_COLORS[d.status] || STATUS_COLORS.submitted;
+        const sl = es ? (STATUS_LABELS_ES[d.status] || d.status) : (STATUS_LABELS_EN[d.status] || d.status);
+        const needsConf = (d.trust_threshold || 2) - (d.confirmation_count || 0);
         return (
           <div key={d.id} className="card space-y-2">
             <div className="flex items-start justify-between gap-2">
@@ -412,7 +458,7 @@ function MyDealsTab() {
                 <p className="text-gray-500 text-xs">{d.store_name} · {fmt(d.found_price)}</p>
               </div>
               <span className={`flex-shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full border ${sm.bg}`} style={{ color: sm.color }}>
-                {sm.label}
+                {sl}
               </span>
             </div>
 
@@ -422,21 +468,23 @@ function MyDealsTab() {
                 <p className="text-white font-semibold">{d.roi_percent ? `${Math.round(d.roi_percent)}%` : '—'}</p>
               </div>
               <div>
-                <p className="text-gray-500 text-[10px]">Score</p>
+                <p className="text-gray-500 text-[10px]">{es ? 'Puntaje' : 'Score'}</p>
                 <p className="text-white font-semibold">{d.opportunity_score || '—'}</p>
               </div>
               <div>
-                <p className="text-gray-500 text-[10px]">Confirmations</p>
+                <p className="text-gray-500 text-[10px]">{t('community.confirmations', 'Confirmations')}</p>
                 <p className="text-white font-semibold">{d.confirmation_count || 0}/{d.trust_threshold || 2}</p>
               </div>
             </div>
 
             {d.points_awarded ? (
-              <p className="text-neon-green text-xs flex items-center gap-1"><CheckCircle size={11} /> Points awarded!</p>
+              <p className="text-neon-green text-xs flex items-center gap-1">
+                <CheckCircle size={11} /> {t('community.points_awarded', 'Points awarded!')}
+              </p>
             ) : d.points_pending > 0 ? (
               <p className="text-yellow-400 text-xs flex items-center gap-1">
-                <Clock size={11} /> +{d.points_pending} pts pending
-                {needsConf > 0 && ` · needs ${needsConf} more confirmation${needsConf > 1 ? 's' : ''}`}
+                <Clock size={11} /> +{d.points_pending} {es ? 'pts pendientes' : 'pts pending'}
+                {needsConf > 0 && ` · ${es ? `necesita ${needsConf} confirmación${needsConf > 1 ? 'es' : ''} más` : `needs ${needsConf} more confirmation${needsConf > 1 ? 's' : ''}`}`}
               </p>
             ) : null}
 
@@ -449,15 +497,9 @@ function MyDealsTab() {
 }
 
 // ── Wallet + Redemption Tab ────────────────────────────────────────────────────
-const TIER_META = [
-  { bg: 'bg-dark-800',        border: 'border-dark-600',         color: 'text-gray-300',    icon: '🎁' },
-  { bg: 'bg-neon-blue/5',    border: 'border-neon-blue/20',     color: 'text-neon-blue',   icon: '💵' },
-  { bg: 'bg-yellow-400/5',   border: 'border-yellow-400/20',    color: 'text-yellow-400',  icon: '💰' },
-  { bg: 'bg-purple-400/5',   border: 'border-purple-400/20',    color: 'text-purple-400',  icon: '💎' },
-  { bg: 'bg-neon-green/5',   border: 'border-neon-green/20',    color: 'text-neon-green',  icon: '👑' },
-];
-
 function WalletTab() {
+  const { t, i18n } = useTranslation();
+  const es = i18n.language?.startsWith('es');
   const [walletData, setWalletData] = useState(null);
   const [tiers, setTiers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -469,12 +511,12 @@ function WalletTab() {
   async function loadAll() {
     setLoading(true);
     try {
-      const [w, t] = await Promise.all([
+      const [w, tr] = await Promise.all([
         api.get('/community/wallet'),
         api.get('/community/redemption-tiers'),
       ]);
       setWalletData(w.data);
-      setTiers(t.data.tiers || []);
+      setTiers(tr.data.tiers || []);
     } catch {} finally {
       setLoading(false);
     }
@@ -485,10 +527,10 @@ function WalletTab() {
     setRedeemMsg('');
     try {
       const r = await api.post('/community/redeem', { tier_id: tierId });
-      setRedeemMsg(`✅ Redeemed: ${r.data.tier}! ${r.data.remaining_points} pts remaining.`);
+      setRedeemMsg(`✅ ${es ? 'Canjeado' : 'Redeemed'}: ${r.data.tier}! ${r.data.remaining_points} ${t('community.pts', 'pts')} ${es ? 'restantes' : 'remaining'}.`);
       await loadAll();
     } catch (err) {
-      setRedeemMsg(`❌ ${err.response?.data?.error || 'Redemption failed'}`);
+      setRedeemMsg(`❌ ${err.response?.data?.error || (es ? 'Error al canjear' : 'Redemption failed')}`);
     } finally {
       setRedeeming(null);
     }
@@ -500,13 +542,26 @@ function WalletTab() {
   const profile = walletData?.profile;
   const earnings = walletData?.recent_earnings || [];
 
+  const earnItems = es ? [
+    ['Enviar un deal (COMPRAR)', '+10 a +100 pts (pendiente)'],
+    ['Deal verificado', 'Puntos desbloqueados'],
+    ['Deal Oficial', '+50 pts bono'],
+    ['Confirmar un deal', '+5 pts (inmediato)'],
+    ['Deal ROI alto (>100%)', '+100 pts bono'],
+  ] : [
+    ['Submit a deal (BUY)', '+10 to +100 pts (pending)'],
+    ['Deal gets verified', 'Points unlocked'],
+    ['Deal goes Official', '+50 bonus pts'],
+    ['Confirm a deal', '+5 pts (immediate)'],
+    ['High ROI deal (>100%)', '+100 pts bonus'],
+  ];
+
   return (
     <div className="space-y-5">
-      {/* Points summary */}
       <div className="card p-5 space-y-4">
         <div className="flex items-center gap-2">
           <Wallet size={18} className="text-neon-green" />
-          <p className="text-white font-bold">Points Wallet</p>
+          <p className="text-white font-bold">{t('community.points_wallet', 'Points Wallet')}</p>
           {profile?.level && (
             <span className="text-xs ml-auto font-bold" style={{ color: LEVEL_COLOR[profile.level] || '#6b7280' }}>
               {profile.level}
@@ -517,49 +572,48 @@ function WalletTab() {
         <div className="grid grid-cols-3 gap-3 text-center">
           <div className="bg-dark-800/60 rounded-xl p-3">
             <p className="text-2xl font-black text-neon-green">{wallet?.points_available || 0}</p>
-            <p className="text-[10px] text-gray-500 mt-0.5">Available</p>
+            <p className="text-[10px] text-gray-500 mt-0.5">{t('community.available', 'Available')}</p>
           </div>
           <div className="bg-dark-800/60 rounded-xl p-3">
             <p className="text-2xl font-black text-yellow-400">{wallet?.points_pending || 0}</p>
-            <p className="text-[10px] text-gray-500 mt-0.5">Pending</p>
+            <p className="text-[10px] text-gray-500 mt-0.5">{t('community.pending', 'Pending')}</p>
           </div>
           <div className="bg-dark-800/60 rounded-xl p-3">
             <p className="text-2xl font-black text-neon-blue">{wallet?.lifetime_points || 0}</p>
-            <p className="text-[10px] text-gray-500 mt-0.5">Lifetime</p>
+            <p className="text-[10px] text-gray-500 mt-0.5">{t('community.lifetime', 'Lifetime')}</p>
           </div>
         </div>
 
         {(wallet?.credit_balance > 0) && (
           <div className="bg-neon-green/5 border border-neon-green/20 rounded-xl px-4 py-2 text-center">
-            <p className="text-neon-green font-bold">${parseFloat(wallet.credit_balance).toFixed(2)} account credit</p>
+            <p className="text-neon-green font-bold">${parseFloat(wallet.credit_balance).toFixed(2)} {t('community.account_credit', 'account credit')}</p>
           </div>
         )}
 
         <p className="text-gray-500 text-xs text-center">
-          Pending points unlock when your submitted deals get verified by the community.
+          {t('community.pending_unlock', 'Pending points unlock when your submitted deals get verified by the community.')}
         </p>
       </div>
 
-      {/* Redemption message */}
       {redeemMsg && (
         <div className={`rounded-xl px-4 py-3 text-sm font-medium ${redeemMsg.startsWith('✅') ? 'bg-neon-green/10 text-neon-green border border-neon-green/20' : 'bg-red-400/10 text-red-400 border border-red-400/20'}`}>
           {redeemMsg}
         </div>
       )}
 
-      {/* Redemption tiers */}
       <div>
-        <p className="text-white font-semibold mb-3 flex items-center gap-2"><Gift size={15} className="text-neon-green" /> Redeem Points</p>
+        <p className="text-white font-semibold mb-3 flex items-center gap-2"><Gift size={15} className="text-neon-green" /> {t('community.redeem', 'Redeem Points')}</p>
         <div className="space-y-2">
           {tiers.map((tier, i) => {
             const m = TIER_META[i] || TIER_META[0];
             const isRedeeming = redeeming === tier.id;
+            const needMore = tier.points - (wallet?.points_available || 0);
             return (
               <div key={tier.id} className={`flex items-center gap-3 p-3 rounded-xl border ${m.bg} ${m.border} ${!tier.can_redeem ? 'opacity-60' : ''}`}>
                 <span className="text-2xl w-8 text-center flex-shrink-0">{m.icon}</span>
                 <div className="flex-1 min-w-0">
                   <p className={`text-sm font-bold ${m.color}`}>{tier.label}</p>
-                  <p className="text-gray-500 text-xs">{tier.points.toLocaleString()} points</p>
+                  <p className="text-gray-500 text-xs">{tier.points.toLocaleString()} {t('community.pts', 'pts')}</p>
                 </div>
                 {tier.can_redeem ? (
                   <button
@@ -567,11 +621,11 @@ function WalletTab() {
                     disabled={!!redeeming}
                     className="btn-primary text-xs px-3 py-1.5 disabled:opacity-50 flex-shrink-0"
                   >
-                    {isRedeeming ? '…' : 'Redeem'}
+                    {isRedeeming ? '…' : t('community.redeem_btn', 'Redeem')}
                   </button>
                 ) : (
                   <span className="text-gray-500 text-xs flex-shrink-0 text-right">
-                    Need {(tier.points - (wallet?.points_available || 0)).toLocaleString()} more
+                    {es ? `Necesitas ${needMore.toLocaleString()} más` : `Need ${needMore.toLocaleString()} more`}
                   </span>
                 )}
               </div>
@@ -580,10 +634,9 @@ function WalletTab() {
         </div>
       </div>
 
-      {/* Recent earnings */}
       {earnings.length > 0 && (
         <div className="card">
-          <p className="text-white font-semibold mb-3 text-sm">Recent Earnings</p>
+          <p className="text-white font-semibold mb-3 text-sm">{t('community.recent_earnings', 'Recent Earnings')}</p>
           <div className="space-y-2">
             {earnings.slice(0, 8).map((e, i) => (
               <div key={i} className="flex items-center justify-between py-1.5 border-b border-dark-700/50 last:border-0">
@@ -592,7 +645,7 @@ function WalletTab() {
                   <p className="text-gray-600 text-[10px]">{timeAgo(e.created_at)}</p>
                 </div>
                 <span className={`text-xs font-bold ${e.status === 'available' ? 'text-neon-green' : 'text-yellow-400'}`}>
-                  +{e.points} pts {e.status === 'pending' ? '(pending)' : ''}
+                  +{e.points} {t('community.pts', 'pts')} {e.status === 'pending' ? `(${t('community.pending', 'pending')})` : ''}
                 </span>
               </div>
             ))}
@@ -600,17 +653,10 @@ function WalletTab() {
         </div>
       )}
 
-      {/* How to earn */}
       <div className="card bg-dark-800/40">
-        <p className="text-gray-400 text-xs font-semibold mb-2 uppercase tracking-wider">How to earn points</p>
+        <p className="text-gray-400 text-xs font-semibold mb-2 uppercase tracking-wider">{t('community.how_to_earn', 'How to earn points')}</p>
         <div className="space-y-1.5 text-xs text-gray-400">
-          {[
-            ['Submit a deal (BUY)', '+10 to +100 pts (pending)'],
-            ['Deal gets verified', 'Points unlocked'],
-            ['Deal goes Official', '+50 bonus pts'],
-            ['Confirm a deal', '+5 pts (immediate)'],
-            ['High ROI deal (>100%)', '+100 pts bonus'],
-          ].map(([action, pts]) => (
+          {earnItems.map(([action, pts]) => (
             <div key={action} className="flex justify-between">
               <span>{action}</span>
               <span className="text-neon-green font-medium">{pts}</span>
@@ -625,31 +671,36 @@ function WalletTab() {
 // ── Main Community Page ────────────────────────────────────────────────────────
 export default function Community() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [tab, setTab] = useState('feed');
+
+  const TAB_LABELS = {
+    feed:        `🏠 ${t('community.feed',        'Feed')}`,
+    leaderboard: `🏆 ${t('community.leaderboard', 'Leaderboard')}`,
+    my_deals:    `📋 ${t('community.my_deals',    'My Deals')}`,
+    wallet:      `💰 ${t('community.wallet',      'Wallet')}`,
+  };
 
   return (
     <div className="p-4 lg:p-6 space-y-4 max-w-2xl mx-auto">
-      {/* Header */}
       <div>
         <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-          <Users size={22} className="text-neon-green" /> Community
+          <Users size={22} className="text-neon-green" /> {t('community.title', 'Community')}
         </h1>
-        <p className="text-gray-400 text-sm mt-0.5">Real deals found by real hunters · Confirm · Earn · Level up</p>
+        <p className="text-gray-400 text-sm mt-0.5">{t('community.subtitle', 'Real deals found by real hunters · Confirm · Earn · Level up')}</p>
       </div>
 
-      {/* Tab bar */}
       <div className="flex gap-1 bg-dark-800 p-1 rounded-xl overflow-x-auto scrollbar-hide">
-        {TABS.map(t => (
-          <button key={t} onClick={() => setTab(t)}
+        {TABS.map(tabKey => (
+          <button key={tabKey} onClick={() => setTab(tabKey)}
             className={`flex-shrink-0 px-3 py-2 rounded-lg text-xs font-semibold transition-colors ${
-              tab === t ? 'bg-neon-green text-dark-900' : 'text-gray-400 hover:text-white'
+              tab === tabKey ? 'bg-neon-green text-dark-900' : 'text-gray-400 hover:text-white'
             }`}>
-            {TAB_LABELS[t]}
+            {TAB_LABELS[tabKey]}
           </button>
         ))}
       </div>
 
-      {/* Tab content */}
       {tab === 'feed'        && <FeedTab currentUserId={user?.id} />}
       {tab === 'leaderboard' && <LeaderboardTab />}
       {tab === 'my_deals'    && <MyDealsTab />}

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import {
   Trophy, TrendingUp, Users, MapPin, Star, Zap, Award,
   ArrowLeft, AlertTriangle, RefreshCw, ChevronRight, Shield,
@@ -16,22 +17,6 @@ const LEVEL_COLOR = {
 };
 
 const MEDAL = { 1: '🥇', 2: '🥈', 3: '🥉' };
-
-const TABS = [
-  { id: 'hunters',   label: 'Top Hunters',  icon: Zap       },
-  { id: 'teams',     label: 'Top Teams',    icon: Users     },
-  { id: 'cities',    label: 'Top Cities',   icon: MapPin    },
-  { id: 'deals',     label: 'Top Deals',    icon: TrendingUp },
-  { id: 'referrers', label: 'Referrers',   icon: Gift      },
-  { id: 'learners',  label: 'Learners',    icon: GraduationCap },
-  { id: 'rising',    label: 'Rising Stars', icon: Flame     },
-];
-
-const PERIODS = [
-  { id: 'week',     label: 'This Week' },
-  { id: 'month',    label: 'This Month' },
-  { id: 'all_time', label: 'All Time' },
-];
 
 // ── Shared components ──────────────────────────────────────────────────────────
 
@@ -257,6 +242,23 @@ function LearnerRow({ l }) {
 // ── Main component ─────────────────────────────────────────────────────────────
 export default function HallOfFame() {
   const navigate = useNavigate();
+  const { t } = useTranslation();
+
+  const TABS = [
+    { id: 'hunters',   label: t('hallofame.top_hunters',  'Top Hunters'),   icon: Zap         },
+    { id: 'teams',     label: t('hallofame.top_teams',    'Top Teams'),     icon: Users       },
+    { id: 'cities',    label: t('hallofame.top_cities',   'Top Cities'),    icon: MapPin      },
+    { id: 'deals',     label: t('hallofame.top_deals',    'Top Deals'),     icon: TrendingUp  },
+    { id: 'referrers', label: t('hallofame.referrers',    'Referrers'),     icon: Gift        },
+    { id: 'learners',  label: t('hallofame.learners',     'Learners'),      icon: GraduationCap },
+    { id: 'rising',    label: t('hallofame.rising_stars', 'Rising Stars'),  icon: Flame       },
+  ];
+
+  const PERIODS = [
+    { id: 'week',     label: t('hallofame.this_week',  'This Week') },
+    { id: 'month',    label: t('hallofame.this_month', 'This Month') },
+    { id: 'all_time', label: t('hallofame.all_time',   'All Time') },
+  ];
 
   const [activeTab, setActiveTab]     = useState('hunters');
   const [period, setPeriod]           = useState('all_time');
@@ -275,7 +277,7 @@ export default function HallOfFame() {
       .then(r => setSummary(r.data))
       .catch(err => {
         if (err.response?.status === 401) navigate('/login');
-        else setError('Failed to load Hall of Fame.');
+        else setError(t('hallofame.load_error', 'Failed to load Hall of Fame.'));
       })
       .finally(() => setLoading(false));
   }, [navigate]);
@@ -344,7 +346,7 @@ export default function HallOfFame() {
     <div className="p-6 text-center">
       <AlertTriangle size={28} className="mx-auto text-yellow-400 mb-2" />
       <p className="text-gray-400 text-sm">{error}</p>
-      <button onClick={() => window.location.reload()} className="btn-primary mt-3 text-sm px-5">Retry</button>
+      <button onClick={() => window.location.reload()} className="btn-primary mt-3 text-sm px-5">{t('common.retry', 'Retry')}</button>
     </div>
   );
 
@@ -359,13 +361,13 @@ export default function HallOfFame() {
         <div>
           <div className="flex items-center gap-2">
             <Trophy size={20} className="text-yellow-400" />
-            <h1 className="text-xl font-black text-white">Hall of Fame</h1>
+            <h1 className="text-xl font-black text-white">{t('hallofame.title', 'Hall of Fame')}</h1>
           </div>
-          <p className="text-gray-400 text-xs mt-0.5">Rankings for hunters, teams, cities & deals</p>
+          <p className="text-gray-400 text-xs mt-0.5">{t('hallofame.subtitle', 'Rankings for hunters, teams, cities & deals')}</p>
         </div>
         {summary?.my_rank && (
           <div className="ml-auto text-right flex-shrink-0">
-            <p className="text-gray-500 text-[10px]">Your Rank</p>
+            <p className="text-gray-500 text-[10px]">{t('hallofame.your_rank', 'Your Rank')}</p>
             <p className="text-white font-black text-lg">#{summary.my_rank}</p>
           </div>
         )}
@@ -412,13 +414,13 @@ export default function HallOfFame() {
       {/* City / State filters */}
       <div className="flex gap-2">
         <input
-          type="text" placeholder="Filter by city…"
+          type="text" placeholder={t('hallofame.filter_city', 'Filter by city…')}
           value={cityFilter}
           onChange={e => setCityFilter(e.target.value.slice(0, 50))}
           className="flex-1 bg-dark-700 border border-dark-600 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-neon-green/40"
         />
         <input
-          type="text" placeholder="State…"
+          type="text" placeholder={t('hallofame.state', 'State…')}
           value={stateFilter}
           onChange={e => setStateFilter(e.target.value.slice(0, 5).toUpperCase())}
           className="w-20 bg-dark-700 border border-dark-600 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-neon-green/40"
@@ -449,19 +451,7 @@ export default function HallOfFame() {
       {tabLoading ? (
         <Spinner />
       ) : rows.length === 0 ? (
-        <EmptyState msg={
-          activeTab === 'cities'
-            ? 'No city data yet. Submit deals with your location to appear here.'
-            : activeTab === 'deals'
-            ? 'No deals found for this period. Submit deals to appear in the ranking.'
-            : activeTab === 'referrers'
-            ? 'No referrals yet. Share your referral link to earn a spot!'
-            : activeTab === 'learners'
-            ? 'No University graduates yet. Complete a course to appear here!'
-            : activeTab === 'rising'
-            ? 'No XP earned this month yet. Start scanning and completing missions!'
-            : 'No Hunters ranked yet.'
-        } />
+        <EmptyState msg={t('hallofame.no_data', 'No data yet for this period.')} />
       ) : (
         <div className="space-y-2">
           {activeTab === 'hunters' && rows.map(h => (
@@ -490,7 +480,7 @@ export default function HallOfFame() {
 
       {/* Footer tip */}
       <p className="text-center text-gray-600 text-[10px] pb-4">
-        Rankings update in real time · XP earned by scanning, submitting and confirming deals
+        {t('hallofame.footer', 'Rankings update in real time · XP earned by scanning, submitting and confirming deals')}
       </p>
     </div>
   );

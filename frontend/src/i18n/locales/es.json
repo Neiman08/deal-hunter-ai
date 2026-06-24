@@ -293,6 +293,23 @@
       "elite": "elite"
     }
   },
+  "aiLeaders": {
+    "missionOfDay": "Misión del Día",
+    "startMission": "Iniciar Misión →",
+    "target": "Objetivo: {{count}}",
+    "recommendations": "Recomendaciones del Equipo",
+    "faq": "Pregúntale al Coach",
+    "faqHint": "Toca una pregunta para ver la respuesta",
+    "topHunters": "Top Cazadores Esta Semana",
+    "topHuntersSub": "Basado en actividad del equipo de los últimos 7 días",
+    "noTopHunters": "Sin actividad esta semana aún — ¡sé el primero!",
+    "missionType": {
+      "scan_deals":    "Escanear",
+      "submit_deals":  "Enviar",
+      "verify_deals":  "Verificar",
+      "invite_members":"Invitar"
+    }
+  },
   "teams": {
     "back": "← Equipos",
     "notFound": "Equipo no encontrado",
@@ -355,6 +372,9 @@
       "invite_member": "invitó a un cazador",
       "mission_completed": "completó una misión",
       "coach_tip": "Consejo del Coach",
+      "coach_recognition": "reconoció a un cazador",
+      "week_recognition": "Top Cazador Semanal",
+      "daily_tip": "Consejo Diario",
       "member_joined": "se unió al equipo"
     },
     "onboarding": {

@@ -293,6 +293,23 @@
       "elite": "elite"
     }
   },
+  "aiLeaders": {
+    "missionOfDay": "Mission of the Day",
+    "startMission": "Start Mission →",
+    "target": "Target: {{count}}",
+    "recommendations": "Team Recommendations",
+    "faq": "Ask the Coach",
+    "faqHint": "Tap a question to see the answer",
+    "topHunters": "Top Hunters This Week",
+    "topHuntersSub": "Based on team activity in the last 7 days",
+    "noTopHunters": "No activity this week yet — be the first!",
+    "missionType": {
+      "scan_deals":    "Scan",
+      "submit_deals":  "Submit",
+      "verify_deals":  "Verify",
+      "invite_members":"Invite"
+    }
+  },
   "teams": {
     "back": "← Teams",
     "notFound": "Team not found",
@@ -355,6 +372,9 @@
       "invite_member": "invited a hunter",
       "mission_completed": "completed a mission",
       "coach_tip": "Team Coach Tip",
+      "coach_recognition": "recognized a hunter",
+      "week_recognition": "Weekly Top Hunter",
+      "daily_tip": "Daily Tip",
       "member_joined": "joined the team"
     },
     "onboarding": {

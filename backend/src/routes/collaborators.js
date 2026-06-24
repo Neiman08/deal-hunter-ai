@@ -1,6 +1,7 @@
 const express = require('express');
 const { query } = require('../config/database');
 const { authenticate } = require('../middleware/auth');
+const aiContent = require('../services/ai-leader-content');
 
 const router = express.Router();
 
@@ -335,7 +336,7 @@ router.get('/teams/:id', async (req, res) => {
     const teamRes = await query(
       `SELECT t.*, u.name AS owner_name,
               coach.name AS coach_name, coach.ai_disclosure_label AS coach_label,
-              coach.ai_persona AS coach_persona
+              coach.ai_persona AS coach_persona, coach.ai_role AS coach_ai_role
        FROM teams t
        LEFT JOIN users u ON t.owner_user_id = u.id
        LEFT JOIN users coach ON t.ai_coach_id = coach.id
@@ -372,7 +373,7 @@ router.get('/teams/:id', async (req, res) => {
       [team.id, req.user.id]
     );
 
-    // Recent activity (last 15)
+    // Recent activity (last 20 — more room for coach content)
     const activity = await query(
       `SELECT ta.*, u.name AS user_name, cp.display_name AS user_display_name
        FROM team_activity ta
@@ -380,7 +381,7 @@ router.get('/teams/:id', async (req, res) => {
        LEFT JOIN collaborator_profiles cp ON cp.user_id = ta.user_id
        WHERE ta.team_id = $1
        ORDER BY ta.created_at DESC
-       LIMIT 15`,
+       LIMIT 20`,
       [team.id]
     );
 
@@ -399,12 +400,108 @@ router.get('/teams/:id', async (req, res) => {
       [team.id]
     );
 
+    // ── AI Leader coach content (Fases 1-7) ────────────────────────────────
+    let coach_content = null;
+    if (team.ai_coach_id && team.coach_ai_role) {
+      const aiRole = team.coach_ai_role;
+
+      // Read feature flags
+      const flagRows = await query(
+        `SELECT key, value FROM ai_leader_settings WHERE key IN (
+          'AI_DAILY_TIPS_ENABLED','AI_RECOGNITION_ENABLED','AI_WELCOME_ENABLED',
+          'AI_TOP_HUNTERS_ENABLED','AI_MISSION_OF_DAY_ENABLED','AI_FAQ_ENABLED',
+          'AI_LEADERS_ENABLED'
+        )`
+      ).catch(() => ({ rows: [] }));
+      const flags = Object.fromEntries(flagRows.rows.map(r => [r.key, r.value]));
+      const leadersOn = flags.AI_LEADERS_ENABLED !== 'false';
+
+      if (leadersOn) {
+        // [Fase 1] Daily tip — post to team_activity at most once per 20h
+        const dailyTip = flags.AI_DAILY_TIPS_ENABLED !== 'false'
+          ? aiContent.getDailyTip(aiRole)
+          : null;
+
+        if (dailyTip) {
+          await query(
+            `INSERT INTO team_activity (team_id, user_id, action_type, description, points_earned, metadata)
+             SELECT $1, $2, 'daily_tip', $3, 0, $4
+             WHERE NOT EXISTS (
+               SELECT 1 FROM team_activity
+               WHERE team_id=$1 AND action_type='daily_tip'
+                 AND created_at > NOW() - INTERVAL '20 hours'
+             )`,
+            [team.id, team.ai_coach_id, dailyTip.en, JSON.stringify({ en: dailyTip.en, es: dailyTip.es })]
+          ).catch(() => {});
+        }
+
+        // [Fase 7] Weekly top hunters — compute + auto-post recognition once per week
+        const topHunters = [];
+        if (flags.AI_TOP_HUNTERS_ENABLED !== 'false') {
+          const topRes = await query(
+            `SELECT ta.user_id, u.name AS user_name, cp.display_name,
+                    SUM(ta.points_earned) AS points_earned,
+                    COUNT(*) AS action_count
+             FROM team_activity ta
+             JOIN users u ON ta.user_id = u.id
+             LEFT JOIN collaborator_profiles cp ON cp.user_id = ta.user_id
+             WHERE ta.team_id = $1
+               AND ta.user_id IS NOT NULL
+               AND ta.created_at > NOW() - INTERVAL '7 days'
+               AND ta.action_type NOT IN ('daily_tip','coach_tip','coach_recognition','week_recognition')
+               AND u.is_ai_leader IS NOT TRUE
+             GROUP BY ta.user_id, u.name, cp.display_name
+             ORDER BY points_earned DESC
+             LIMIT 3`,
+            [team.id]
+          ).catch(() => ({ rows: [] }));
+
+          topHunters.push(...topRes.rows.map((h, i) => ({ ...h, rank: i + 1 })));
+
+          // Auto-post weekly recognition if top hunters exist and not posted this week
+          if (topHunters.length > 0) {
+            const isoWeek = (() => {
+              const d = new Date();
+              d.setHours(0, 0, 0, 0);
+              d.setDate(d.getDate() + 4 - (d.getDay() || 7));
+              const y = new Date(d.getFullYear(), 0, 1);
+              return Math.ceil((((d - y) / 86400000) + 1) / 7);
+            })();
+            const topName = topHunters[0].display_name || topHunters[0].user_name || 'our top hunter';
+            const weekMsg = {
+              en: `🏆 Week ${isoWeek} top hunter: ${topName}! Outstanding contribution to the team.`,
+              es: `🏆 Cazador de la semana ${isoWeek}: ¡${topName}! Contribución sobresaliente al equipo.`,
+            };
+            await query(
+              `INSERT INTO team_activity (team_id, user_id, action_type, description, points_earned, metadata)
+               SELECT $1, $2, 'week_recognition', $3, 0, $4
+               WHERE NOT EXISTS (
+                 SELECT 1 FROM team_activity
+                 WHERE team_id=$1 AND action_type='week_recognition'
+                   AND created_at > NOW() - INTERVAL '6 days'
+               )`,
+              [team.id, team.ai_coach_id, weekMsg.en, JSON.stringify({ en: weekMsg.en, es: weekMsg.es, week: isoWeek })]
+            ).catch(() => {});
+          }
+        }
+
+        coach_content = {
+          daily_tip:       dailyTip,
+          mission_of_day:  flags.AI_MISSION_OF_DAY_ENABLED !== 'false' ? aiContent.getMissionOfDay(aiRole) : null,
+          recommendations: aiContent.getRecommendations(aiRole),
+          faq:             flags.AI_FAQ_ENABLED !== 'false' ? aiContent.getFAQ() : null,
+          top_hunters:     topHunters,
+        };
+      }
+    }
+
     res.json({
       team,
       members: members.rows,
       missions: missions.rows,
       activity: activity.rows,
       stats: stats.rows[0] || {},
+      coach_content,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -415,11 +512,14 @@ router.get('/teams/:id', async (req, res) => {
 router.post('/teams/:id/join', async (req, res) => {
   try {
     const teamRes = await query(
-      'SELECT id FROM teams WHERE (slug = $1 OR id::text = $1) AND is_active = true',
+      `SELECT t.id, t.name, t.ai_coach_id, coach.ai_role AS coach_ai_role
+       FROM teams t
+       LEFT JOIN users coach ON t.ai_coach_id = coach.id
+       WHERE (t.slug = $1 OR t.id::text = $1) AND t.is_active = true`,
       [req.params.id]
     );
     if (!teamRes.rows[0]) return res.status(404).json({ error: 'Team not found' });
-    const teamId = teamRes.rows[0].id;
+    const { id: teamId, name: teamName, ai_coach_id, coach_ai_role } = teamRes.rows[0];
 
     await query(
       `INSERT INTO team_members (team_id, user_id, role) VALUES ($1, $2, 'hunter')
@@ -432,12 +532,27 @@ router.post('/teams/:id/join', async (req, res) => {
       [teamId, req.user.id]
     );
 
-    // Log join activity
-    await query(
+    // [Fase 6] Log join + AI welcome (fire-and-forget)
+    const hunterName = req.user.name || 'A hunter';
+    query(
       `INSERT INTO team_activity (team_id, user_id, action_type, description, points_earned)
        VALUES ($1, $2, 'member_joined', $3, 5)`,
-      [teamId, req.user.id, `${req.user.name || 'A hunter'} joined the team!`]
+      [teamId, req.user.id, `${hunterName} joined the team!`]
     ).catch(() => {});
+
+    if (ai_coach_id && coach_ai_role) {
+      const flagRow = await query(`SELECT value FROM ai_leader_settings WHERE key='AI_WELCOME_ENABLED'`).catch(() => ({ rows: [] }));
+      const welcomeOn = flagRow.rows[0]?.value !== 'false';
+      if (welcomeOn) {
+        const welcome = aiContent.getWelcomeMessage(coach_ai_role);
+        const msg = `@${hunterName} — ${welcome.en}`;
+        query(
+          `INSERT INTO team_activity (team_id, user_id, action_type, description, points_earned, metadata)
+           VALUES ($1, $2, 'coach_tip', $3, 0, $4)`,
+          [teamId, ai_coach_id, msg, JSON.stringify({ en: msg, es: `@${hunterName} — ${welcome.es}`, is_welcome: true })]
+        ).catch(() => {});
+      }
+    }
 
     res.json({ message: 'Joined team successfully' });
   } catch (err) {
@@ -449,11 +564,14 @@ router.post('/teams/:id/join', async (req, res) => {
 router.post('/teams/:id/activity', async (req, res) => {
   try {
     const teamRes = await query(
-      'SELECT id FROM teams WHERE (slug = $1 OR id::text = $1) AND is_active = true',
+      `SELECT t.id, t.ai_coach_id, coach.ai_role AS coach_ai_role
+       FROM teams t
+       LEFT JOIN users coach ON t.ai_coach_id = coach.id
+       WHERE (t.slug = $1 OR t.id::text = $1) AND t.is_active = true`,
       [req.params.id]
     );
     if (!teamRes.rows[0]) return res.status(404).json({ error: 'Team not found' });
-    const teamId = teamRes.rows[0].id;
+    const { id: teamId, ai_coach_id, coach_ai_role } = teamRes.rows[0];
 
     const { action_type, description, points_earned = 0, metadata } = req.body;
     const VALID_ACTIONS = ['scan', 'submit_deal', 'verify_deal', 'invite_member', 'mission_completed', 'coach_tip'];
@@ -508,6 +626,22 @@ router.post('/teams/:id/activity', async (req, res) => {
              `${req.user.name || 'A hunter'} completed a mission!`,
              mission.reward_points]
           ).catch(() => {});
+
+          // [Fase 2] AI coach recognition on mission completion
+          if (ai_coach_id && coach_ai_role) {
+            const flagRow = await query(`SELECT value FROM ai_leader_settings WHERE key='AI_RECOGNITION_ENABLED'`).catch(() => ({ rows: [] }));
+            if (flagRow.rows[0]?.value !== 'false') {
+              const msg = aiContent.getRecognitionMessage('mission_completed');
+              const hunterName = req.user.name || 'Hunter';
+              const fullEn = `@${hunterName} — ${msg.en}`;
+              const fullEs = `@${hunterName} — ${msg.es}`;
+              query(
+                `INSERT INTO team_activity (team_id, user_id, action_type, description, points_earned, metadata)
+                 VALUES ($1, $2, 'coach_recognition', $3, 0, $4)`,
+                [teamId, ai_coach_id, fullEn, JSON.stringify({ en: fullEn, es: fullEs, event: 'mission_completed' })]
+              ).catch(() => {});
+            }
+          }
         }
       }
     }

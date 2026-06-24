@@ -3,7 +3,8 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
   Trophy, MapPin, CheckCircle, Crown, Shield, UserPlus,
   Star, Zap, Bot, Target, Flame, Clock, Activity,
-  TrendingUp, Search, Award, UserCheck,
+  TrendingUp, Search, Award, UserCheck, ChevronDown, ChevronUp,
+  MessageSquare, Lightbulb,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import api from '../utils/api';
@@ -33,7 +34,10 @@ const ACTIVITY_ICON = {
   invite_member:     <UserPlus size={12} />,
   mission_completed: <Award size={12} />,
   coach_tip:         <Bot size={12} />,
+  coach_recognition: <Bot size={12} />,
+  week_recognition:  <Trophy size={12} />,
   member_joined:     <UserPlus size={12} />,
+  daily_tip:         <Lightbulb size={12} />,
 };
 
 const ACTIVITY_COLOR = {
@@ -43,7 +47,10 @@ const ACTIVITY_COLOR = {
   invite_member:     '#FACC15',
   mission_completed: '#f59e0b',
   coach_tip:         '#4ADE80',
+  coach_recognition: '#4ADE80',
+  week_recognition:  '#FACC15',
   member_joined:     '#00D4FF',
+  daily_tip:         '#4ADE80',
 };
 
 const RANK_MEDAL = { 0: '🥇', 1: '🥈', 2: '🥉' };
@@ -67,6 +74,7 @@ export default function TeamDetail() {
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [faqOpen, setFaqOpen] = useState(null);
 
   const lang = i18n.language === 'es' ? 'es' : 'en';
 
@@ -115,10 +123,11 @@ export default function TeamDetail() {
     );
   }
 
-  const { team, members = [], missions = [], activity = [], stats = {} } = data;
+  const { team, members = [], missions = [], activity = [], stats = {}, coach_content } = data;
   const isMember = members.some(m => m.user_id === user?.id);
   const totalPoints = members.reduce((s, m) => s + parseInt(m.points || 0), 0);
   const teamTypeLabel = t(`teams.type.${team.team_type || 'national'}`);
+  const cc = coach_content;
 
   return (
     <div className="p-4 lg:p-6 max-w-xl mx-auto space-y-4">
@@ -277,6 +286,52 @@ export default function TeamDetail() {
               <p className="text-sm leading-relaxed" style={{ color: '#CBD5E1' }}>"{tipText}"</p>
             ) : null;
           })()}
+        </div>
+      )}
+
+      {/* ── SECTION 3b: Mission of the Day (Fase 4) ──────────────────────── */}
+      {cc?.mission_of_day && (
+        <div className="card p-4 space-y-3"
+          style={{ border: '1px solid rgba(250,204,21,0.25)', background: 'rgba(250,204,21,0.03)' }}>
+          <div className="flex items-center gap-2">
+            <Lightbulb size={15} style={{ color: '#FACC15' }} />
+            <span className="text-white font-bold text-sm">{t('aiLeaders.missionOfDay')}</span>
+            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold ml-auto"
+              style={{ background: 'rgba(250,204,21,0.12)', color: '#FACC15' }}>
+              {t(`aiLeaders.missionType.${cc.mission_of_day[lang]?.type || 'scan_deals'}`)}
+            </span>
+          </div>
+          <p className="text-sm leading-relaxed font-semibold" style={{ color: '#CBD5E1' }}>
+            "{lang === 'es' && cc.mission_of_day.es ? cc.mission_of_day.es.text : cc.mission_of_day.en?.text}"
+          </p>
+          {(cc.mission_of_day.en?.target > 1) && (
+            <p className="text-xs" style={{ color: '#64748B' }}>
+              {t('aiLeaders.target', { count: lang === 'es' ? cc.mission_of_day.es?.target : cc.mission_of_day.en?.target })}
+            </p>
+          )}
+          <Link to="/scanner"
+            className="inline-flex items-center gap-1.5 text-xs font-bold py-1.5 px-3 rounded-lg"
+            style={{ background: 'rgba(250,204,21,0.12)', color: '#FACC15' }}>
+            {t('aiLeaders.startMission')}
+          </Link>
+        </div>
+      )}
+
+      {/* ── SECTION 3c: Team Recommendations (Fase 3) ────────────────────── */}
+      {cc?.recommendations && (
+        <div className="card p-4 space-y-2">
+          <h2 className="text-white font-semibold flex items-center gap-2 text-sm">
+            <Star size={14} style={{ color: '#8b5cf6' }} />
+            {t('aiLeaders.recommendations')}
+          </h2>
+          <ul className="space-y-1.5">
+            {(lang === 'es' ? cc.recommendations.es : cc.recommendations.en).map((rec, i) => (
+              <li key={i} className="flex items-start gap-2 text-xs" style={{ color: '#94A3B8' }}>
+                <span className="mt-0.5 flex-shrink-0" style={{ color: '#8b5cf6' }}>›</span>
+                {rec}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -472,17 +527,26 @@ export default function TeamDetail() {
           {t('teams.activityFeed')}
         </h2>
 
-        {activity.filter(a => a.action_type !== 'coach_tip').length === 0 ? (
+        {activity.filter(a => a.action_type !== 'daily_tip').length === 0 ? (
           <p className="text-sm text-center py-6" style={{ color: '#64748B' }}>{t('teams.noActivity')}</p>
         ) : (
           <div className="space-y-1">
             {activity
-              .filter(a => a.action_type !== 'coach_tip')
-              .slice(0, 12)
+              .filter(a => a.action_type !== 'daily_tip')
+              .slice(0, 14)
               .map(a => {
                 const icon  = ACTIVITY_ICON[a.action_type] || <Zap size={12} />;
                 const color = ACTIVITY_COLOR[a.action_type] || '#94A3B8';
-                const who   = a.user_display_name || a.user_name || 'A hunter';
+                const who   = a.user_display_name || a.user_name || (
+                  ['coach_tip','coach_recognition','week_recognition','daily_tip'].includes(a.action_type)
+                    ? team.coach_name || 'AI Coach'
+                    : 'A hunter'
+                );
+                const meta = a.metadata
+                  ? (typeof a.metadata === 'string' ? (() => { try { return JSON.parse(a.metadata); } catch { return {}; } })() : a.metadata)
+                  : null;
+                const displayDesc = meta?.[lang] || a.description;
+                const isCoach = ['coach_tip','coach_recognition','week_recognition'].includes(a.action_type);
 
                 return (
                   <div key={a.id} className="flex items-start gap-3 py-2"
@@ -493,7 +557,7 @@ export default function TeamDetail() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-xs" style={{ color: '#CBD5E1' }}>
-                        <span className="font-semibold text-white">{who}</span>{' '}
+                        <span className="font-semibold" style={{ color: isCoach ? '#4ADE80' : 'white' }}>{who}</span>{' '}
                         {t(`teams.activity.${a.action_type}`, { defaultValue: a.action_type })}
                         {a.points_earned > 0 && (
                           <span className="ml-1 font-bold" style={{ color: '#FACC15' }}>
@@ -501,8 +565,8 @@ export default function TeamDetail() {
                           </span>
                         )}
                       </p>
-                      {a.description && (
-                        <p className="text-[11px] mt-0.5 line-clamp-2" style={{ color: '#64748B' }}>{a.description}</p>
+                      {displayDesc && (
+                        <p className="text-[11px] mt-0.5 line-clamp-2" style={{ color: isCoach ? '#94A3B8' : '#64748B' }}>{displayDesc}</p>
                       )}
                     </div>
                     <span className="text-[10px] flex-shrink-0 mt-0.5" style={{ color: '#475569' }}>
@@ -514,6 +578,68 @@ export default function TeamDetail() {
           </div>
         )}
       </div>
+
+      {/* ── SECTION 7: Top Hunters Weekly (Fase 7) ───────────────────────── */}
+      {cc?.top_hunters?.length > 0 && (
+        <div className="card p-4 space-y-3">
+          <h2 className="text-white font-semibold flex items-center gap-2 text-sm">
+            <Trophy size={15} style={{ color: '#f59e0b' }} />
+            {t('aiLeaders.topHunters')}
+          </h2>
+          <div className="space-y-2">
+            {cc.top_hunters.map((h, i) => (
+              <div key={h.user_id || i} className="flex items-center gap-3 p-2.5 rounded-xl" style={{ background: '#0F172A' }}>
+                <span className="text-sm w-6 text-center flex-shrink-0" style={{ color: i === 0 ? '#f59e0b' : '#64748B' }}>
+                  {RANK_MEDAL[i] || `#${i+1}`}
+                </span>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0"
+                  style={{ background: 'rgba(250,204,21,0.12)', color: '#FACC15' }}>
+                  {(h.display_name || h.user_name || 'H')[0].toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-white text-xs font-semibold truncate">{h.display_name || h.user_name}</p>
+                  <p className="text-[10px]" style={{ color: '#64748B' }}>{h.action_count} actions</p>
+                </div>
+                <p className="text-sm font-black flex-shrink-0" style={{ color: '#FACC15' }}>
+                  +{parseInt(h.points_earned || 0)} {t('teams.pts')}
+                </p>
+              </div>
+            ))}
+          </div>
+          <p className="text-[10px] text-center" style={{ color: '#475569' }}>{t('aiLeaders.topHuntersSub')}</p>
+        </div>
+      )}
+
+      {/* ── SECTION 5: Ask the Coach FAQ (Fase 5) ────────────────────────── */}
+      {cc?.faq && (
+        <div className="card p-4 space-y-3">
+          <h2 className="text-white font-semibold flex items-center gap-2 text-sm">
+            <MessageSquare size={15} style={{ color: '#00D4FF' }} />
+            {t('aiLeaders.faq')}
+          </h2>
+          <p className="text-xs" style={{ color: '#64748B' }}>{t('aiLeaders.faqHint')}</p>
+          <div className="space-y-1">
+            {(lang === 'es' ? cc.faq.es : cc.faq.en).map((item, i) => (
+              <div key={i} className="rounded-xl overflow-hidden" style={{ background: '#0F172A' }}>
+                <button
+                  onClick={() => setFaqOpen(faqOpen === i ? null : i)}
+                  className="w-full flex items-center justify-between p-3 text-left">
+                  <span className="text-xs font-semibold text-white pr-2">{item.q}</span>
+                  {faqOpen === i
+                    ? <ChevronUp size={13} style={{ color: '#00D4FF', flexShrink: 0 }} />
+                    : <ChevronDown size={13} style={{ color: '#64748B', flexShrink: 0 }} />
+                  }
+                </button>
+                {faqOpen === i && (
+                  <div className="px-3 pb-3">
+                    <p className="text-xs leading-relaxed" style={{ color: '#94A3B8' }}>{item.a}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── SECTION 8: Action Buttons ─────────────────────────────────────── */}
       {isMember && (

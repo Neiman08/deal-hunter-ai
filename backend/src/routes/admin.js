@@ -2450,6 +2450,8 @@ router.post('/ai-leaders/settings', authenticate, requireAdmin, async (req, res)
     const ALLOWED = [
       'AI_LEADERS_ENABLED', 'AI_AUTO_POSTS_ENABLED', 'AI_AUTO_COMMENTS_ENABLED',
       'AI_MAX_COMMENTS_PER_DAY', 'AI_MAX_POSTS_PER_DAY',
+      'AI_DAILY_TIPS_ENABLED', 'AI_RECOGNITION_ENABLED', 'AI_WELCOME_ENABLED',
+      'AI_TOP_HUNTERS_ENABLED', 'AI_MISSION_OF_DAY_ENABLED', 'AI_FAQ_ENABLED',
     ];
     const updates = [];
     for (const [key, value] of Object.entries(req.body)) {

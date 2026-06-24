@@ -535,9 +535,15 @@ export default function Admin() {
             <div className="card space-y-3">
               <h3 className="text-white font-semibold flex items-center gap-2"><Zap size={14} className="text-yellow-400" /> Global Controls</h3>
               {[
-                { key: 'AI_LEADERS_ENABLED',       label: 'AI Leaders Enabled',        desc: 'Show AI leaders in the feed' },
-                { key: 'AI_AUTO_POSTS_ENABLED',    label: 'Auto Posts Enabled',         desc: 'AI leaders publish seed posts' },
-                { key: 'AI_AUTO_COMMENTS_ENABLED', label: 'Auto Comments Enabled',      desc: 'AI leaders auto-comment on new deals' },
+                { key: 'AI_LEADERS_ENABLED',         label: 'AI Leaders Enabled',          desc: 'Master switch — show AI leaders everywhere' },
+                { key: 'AI_AUTO_POSTS_ENABLED',      label: 'Auto Posts Enabled',           desc: 'AI leaders publish seed posts to the feed' },
+                { key: 'AI_AUTO_COMMENTS_ENABLED',   label: 'Auto Comments Enabled',        desc: 'AI leaders auto-comment on new deals' },
+                { key: 'AI_DAILY_TIPS_ENABLED',      label: 'Daily Tips Enabled',           desc: 'AI coach posts one daily tip per team' },
+                { key: 'AI_RECOGNITION_ENABLED',     label: 'Recognition Enabled',          desc: 'AI coach recognizes mission completions' },
+                { key: 'AI_WELCOME_ENABLED',         label: 'Welcome Messages Enabled',     desc: 'AI coach sends welcome when hunter joins' },
+                { key: 'AI_TOP_HUNTERS_ENABLED',     label: 'Weekly Top Hunters Enabled',   desc: 'Auto-post weekly top hunter recognition' },
+                { key: 'AI_MISSION_OF_DAY_ENABLED',  label: 'Mission of the Day Enabled',   desc: 'Show daily mission in team detail page' },
+                { key: 'AI_FAQ_ENABLED',             label: 'FAQ / Ask the Coach Enabled',  desc: 'Show coach FAQ section in team page' },
               ].map(({ key, label, desc }) => {
                 const isOn = aiLeaders.settings[key] === 'true';
                 return (

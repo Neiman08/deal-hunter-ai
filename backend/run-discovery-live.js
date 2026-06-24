@@ -687,8 +687,8 @@ const SAFE_OPTS = {
   'tj-maxx':        { maxTotal:  3, maxPerPage:    1, delayMs: 3000 },
   'marshalls':      { maxTotal:  3, maxPerPage:    1, delayMs: 3000 },
   'burlington':     { maxTotal:  3, maxPerPage:    1, delayMs: 3000 },
-  'wayfair':        { maxTotal:  1,                   delayMs: 4000 }, // TEST: 1-product validation run
-  'harbor-freight': { maxTotal:  1,                   delayMs: 3000 }, // TEST: 1-product validation run
+  'wayfair':        { maxTotal: 20,                   delayMs: 4000 }, // sitemap free; ISP proxy for PDP
+  'harbor-freight': { maxTotal: 20,                   delayMs: 3000 }, // ISP Playwright category crawl
 };
 
 // Merge safe limits over normal opts when SAFE_PROXY_MODE is on.

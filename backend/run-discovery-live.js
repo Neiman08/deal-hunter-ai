@@ -632,6 +632,8 @@ function loadEngines() {
     'burlington':     './src/services/discovery/burlingtonDiscovery',
     'costco':         './src/services/discovery/costcoDiscovery',
     'walmart':        './src/services/discovery/walmartDiscovery',
+    'harbor-freight': './src/services/discovery/harborFreightDiscovery',
+    'wayfair':        './src/services/discovery/wayfairDiscovery',
   };
 
   for (const [slug, path] of Object.entries(paths)) {
@@ -685,6 +687,8 @@ const SAFE_OPTS = {
   'tj-maxx':        { maxTotal:  3, maxPerPage:    1, delayMs: 3000 },
   'marshalls':      { maxTotal:  3, maxPerPage:    1, delayMs: 3000 },
   'burlington':     { maxTotal:  3, maxPerPage:    1, delayMs: 3000 },
+  'wayfair':        { maxTotal: 20,                   delayMs: 4000 }, // sitemap free; proxy for PDP only
+  'harbor-freight': { maxTotal: 20,                   delayMs: 3000 }, // ISP Playwright; conservative start
 };
 
 // Merge safe limits over normal opts when SAFE_PROXY_MODE is on.
@@ -1229,6 +1233,12 @@ async function main() {
 
     cycleStats['walmart'] = await runEngine(engines, 'walmart',
       { maxTotal: 200, maxPerPage: 30, delayMs: 2000 }, 'Walmart', budget);
+
+    // ── Tier 4: New stores (ISP Playwright) ──────────────────────────────────
+    cycleStats['wayfair'] = await runEngine(engines, 'wayfair',
+      { maxTotal: 20, delayMs: 4000 }, 'Wayfair', budget);
+    cycleStats['harbor-freight'] = await runEngine(engines, 'harbor-freight',
+      { maxTotal: 20, delayMs: 3000 }, 'Harbor Freight', budget);
 
     // ── Cleanup ───────────────────────────────────────────────────────────────
     await cleanupDeals().catch(e => console.error('Cleanup error:', e.message));

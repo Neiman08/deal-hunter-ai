@@ -9,7 +9,7 @@ const router = express.Router();
 // POST /api/auth/register
 router.post('/register', async (req, res) => {
   try {
-    const { email, password, name, zip_code } = req.body;
+    const { email, password, name, zip_code, ref_code } = req.body;
 
     if (!email || !password || !name) {
       return res.status(400).json({ error: 'Email, contraseña y nombre son requeridos' });
@@ -24,21 +24,38 @@ router.post('/register', async (req, res) => {
       return res.status(409).json({ error: 'Este email ya está registrado' });
     }
 
+    // Resolve referral code → referrer user id
+    let referrerId = null;
+    if (ref_code) {
+      const refRow = await query('SELECT user_id FROM referrals WHERE code = $1', [ref_code.toUpperCase()]);
+      if (refRow.rows[0]) referrerId = refRow.rows[0].user_id;
+    }
+
     const passwordHash = await bcrypt.hash(password, 12);
 
     const result = await query(
-      `INSERT INTO users (email, password_hash, name, zip_code, plan)
-       VALUES ($1, $2, $3, $4, 'free')
+      `INSERT INTO users (email, password_hash, name, zip_code, plan, referred_by)
+       VALUES ($1, $2, $3, $4, 'free', $5)
        RETURNING id, email, name, plan, zip_code, created_at`,
-      [email.toLowerCase(), passwordHash, name, zip_code]
+      [email.toLowerCase(), passwordHash, name, zip_code, ref_code || null]
     );
 
     const user = result.rows[0];
+
+    // Record referral event (fire-and-forget)
+    if (referrerId) {
+      query(`
+        INSERT INTO referral_events (referrer_id, referee_id, converted_to_paid, reward_months)
+        VALUES ($1, $2, false, 0)
+        ON CONFLICT DO NOTHING
+      `, [referrerId, user.id]).catch(() => {});
+    }
+
     const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET, {
       expiresIn: process.env.JWT_EXPIRES_IN || '7d'
     });
 
-    res.status(201).json({ token, user });
+    res.status(201).json({ token, user, referred_by: ref_code || null });
   } catch (err) {
     res.status(500).json({ error: 'Error al registrar usuario' });
   }

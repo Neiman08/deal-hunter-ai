@@ -193,6 +193,7 @@ export default function CollaboratorDashboard() {
   const repScore = parseFloat(profile.reputation_score || 100).toFixed(0);
   const trustScore = profile.trust_score != null ? profile.trust_score : 50;
   const totalSubmissions = (profile.approved_deals_count || 0) + (profile.pending_deals_count || 0) + (profile.rejected_deals_count || 0);
+  const accuracyPct = totalSubmissions > 0 ? Math.round((profile.approved_deals_count || 0) / totalSubmissions * 100) : null;
   const commissionEst = parseFloat(profile.total_commission_estimated || 0).toFixed(2);
 
   const STATUS_COLOR = {
@@ -223,15 +224,17 @@ export default function CollaboratorDashboard() {
       {/* Stats grid */}
       <div className="grid grid-cols-2 gap-3">
         <StatCard label="Verified Deals" value={profile.approved_deals_count || 0}
-          icon={<CheckCircle size={18} style={{ color: '#4ADE80' }} />} color="#4ADE80" />
-        <StatCard label="Pending" value={profile.pending_deals_count || 0}
-          icon={<Clock size={18} style={{ color: '#FACC15' }} />} color="#FACC15" />
+          icon={<CheckCircle size={18} style={{ color: '#4ADE80' }} />} color="#4ADE80"
+          sub={totalSubmissions ? `${totalSubmissions} total submitted` : ''} />
+        <StatCard label="Accuracy" value={accuracyPct !== null ? `${accuracyPct}%` : '—'}
+          icon={<Star size={18} style={{ color: '#F59E0B' }} />} color="#F59E0B"
+          sub={accuracyPct !== null ? (accuracyPct >= 70 ? 'High accuracy' : accuracyPct >= 40 ? 'Getting better' : 'Keep going') : 'No deals yet'} />
         <StatCard label="Trust Score" value={`${trustScore}`}
           icon={<Shield size={18} style={{ color: '#8B5CF6' }} />} color="#8B5CF6"
           sub={trustScore >= 70 ? 'High trust' : trustScore >= 40 ? 'Building trust' : 'Low trust'} />
-        <StatCard label="Reputation" value={`${repScore}%`}
-          icon={<Star size={18} style={{ color: '#F59E0B' }} />} color="#F59E0B"
-          sub={totalSubmissions ? `${totalSubmissions} total` : ''} />
+        <StatCard label="Pending" value={profile.pending_deals_count || 0}
+          icon={<Clock size={18} style={{ color: '#FACC15' }} />} color="#FACC15"
+          sub="Awaiting community vote" />
       </div>
 
       {/* Wallet */}

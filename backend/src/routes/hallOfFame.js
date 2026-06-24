@@ -65,7 +65,7 @@ async function fetchHunters({ period = 'all_time', city = null, state = null, li
       LEFT JOIN hunter_badges hb        ON hb.user_id = cp.user_id
       LEFT JOIN university_certificates uc ON uc.user_id = cp.user_id
       LEFT JOIN pd ON pd.user_id = cp.user_id
-      WHERE cp.is_active = true ${cityWhere} ${stateWhere}
+      WHERE cp.is_active = true AND u.is_ai_leader IS NOT TRUE ${cityWhere} ${stateWhere}
         AND COALESCE(pd.pxp, 0) > 0
       GROUP BY cp.user_id, cp.display_name, u.name, u.email, cp.city, cp.state,
                cp.points, cp.trust_score, cp.approved_deals_count, cp.scan_count,
@@ -96,7 +96,7 @@ async function fetchHunters({ period = 'all_time', city = null, state = null, li
     LEFT JOIN teams t    ON t.id  = cp.team_id
     LEFT JOIN hunter_badges hb        ON hb.user_id = cp.user_id
     LEFT JOIN university_certificates uc ON uc.user_id = cp.user_id
-    WHERE cp.is_active = true ${extraWhere} ${cityWhere} ${stateWhere}
+    WHERE cp.is_active = true AND u.is_ai_leader IS NOT TRUE ${extraWhere} ${cityWhere} ${stateWhere}
     GROUP BY cp.user_id, cp.display_name, u.name, u.email, cp.city, cp.state,
              cp.points, cp.trust_score, cp.approved_deals_count, cp.scan_count,
              t.name, ${scoreExpr}

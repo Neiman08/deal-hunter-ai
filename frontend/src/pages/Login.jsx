@@ -1,17 +1,27 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Eye, EyeOff, Zap, TrendingUp, Bell } from 'lucide-react';
+import { Eye, EyeOff, Zap, TrendingUp, Bell, Gift } from 'lucide-react';
 
 export default function Login() {
-  const [mode, setMode] = useState('login');
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
+  const urlRef  = params.get('ref') || '';
+  const urlMode = params.get('mode') === 'register' ? 'register' : 'login';
+
+  const [mode, setMode] = useState(urlMode);
   const [showPass, setShowPass] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ name: '', email: '', password: '', zip_code: '' });
+  const [form, setForm] = useState({ name: '', email: '', password: '', zip_code: '', ref_code: urlRef });
 
   const { login, register } = useAuth();
   const navigate = useNavigate();
+
+  // If ref code present, default to register mode
+  useEffect(() => {
+    if (urlRef && mode === 'login') setMode('register');
+  }, []);
 
   const handle = (e) => setForm({ ...form, [e.target.name]: e.target.value });
 
@@ -22,7 +32,7 @@ export default function Login() {
       if (mode === 'login') {
         await login(form.email, form.password);
       } else {
-        await register(form.name, form.email, form.password, form.zip_code);
+        await register({ name: form.name, email: form.email, password: form.password, zip_code: form.zip_code, ref_code: form.ref_code || undefined });
       }
       navigate('/');
     } catch (err) {
@@ -104,6 +114,14 @@ export default function Login() {
             {mode === 'login' ? 'Sign in to your account' : 'Start hunting deals for free'}
           </p>
 
+          {/* Referral banner */}
+          {mode === 'register' && form.ref_code && (
+            <div className="flex items-center gap-2 bg-neon-green/10 border border-neon-green/30 text-neon-green rounded-xl px-4 py-3 text-sm mb-4">
+              <Gift size={14} />
+              <span>Invitado con código <strong>{form.ref_code}</strong> — ¡bienvenido!</span>
+            </div>
+          )}
+
           {error && (
             <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-xl px-4 py-3 text-sm mb-6">
               {error}
@@ -163,6 +181,18 @@ export default function Login() {
                   onChange={handle}
                   placeholder="77001"
                   className="w-full bg-dark-800 border border-dark-700 rounded-xl px-4 py-3 text-white placeholder-dark-400 focus:outline-none focus:border-neon-green/50 transition-colors"
+                />
+              </div>
+            )}
+            {mode === 'register' && (
+              <div>
+                <label className="text-dark-200 text-sm mb-1.5 block">Referral Code <span className="text-dark-400">(optional)</span></label>
+                <input
+                  name="ref_code"
+                  value={form.ref_code}
+                  onChange={handle}
+                  placeholder="NEIMAN123"
+                  className="w-full bg-dark-800 border border-dark-700 rounded-xl px-4 py-3 text-white placeholder-dark-400 focus:outline-none focus:border-neon-green/50 transition-colors uppercase"
                 />
               </div>
             )}

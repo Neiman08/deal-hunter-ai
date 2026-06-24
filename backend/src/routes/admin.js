@@ -2276,6 +2276,139 @@ router.get('/data-health', authenticate, requireAdmin, async (req, res) => {
   }
 });
 
+// ── GET /api/admin/beta-metrics ──────────────────────────────────────────────
+router.get('/beta-metrics', authenticate, requireAdmin, async (req, res) => {
+  try {
+    const [
+      usersRes, activeRes, regPerDayRes,
+      scansRes, dealsRes, approvedRes,
+      upcRes, referralRes, aiExcludeCheck,
+    ] = await Promise.all([
+      // Total human users (non-AI)
+      query(`SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE created_at >= NOW()-INTERVAL '7 days') AS new_7d,
+             COUNT(*) FILTER (WHERE created_at >= NOW()-INTERVAL '24 hours') AS new_24h
+             FROM users WHERE is_ai_leader IS NOT TRUE AND is_active=true`),
+      // Active users = logged in / created token last 7 days (proxy: recent scan or deal or post)
+      query(`
+        SELECT COUNT(DISTINCT user_id) AS active_7d,
+               COUNT(DISTINCT user_id) FILTER (WHERE created_at >= NOW()-INTERVAL '24 hours') AS active_24h
+        FROM (
+          SELECT user_id, created_at FROM collaborator_points_log
+          UNION ALL
+          SELECT user_id, created_at FROM deal_posts WHERE is_ai_post IS NOT TRUE
+          UNION ALL
+          SELECT u.id AS user_id, u.created_at FROM users u
+            WHERE u.created_at >= NOW()-INTERVAL '7 days' AND u.is_ai_leader IS NOT TRUE
+        ) activity
+        WHERE created_at >= NOW()-INTERVAL '7 days'
+      `),
+      // Registrations per day last 7 days
+      query(`
+        SELECT DATE(created_at) AS day, COUNT(*) AS count
+        FROM users WHERE is_ai_leader IS NOT TRUE AND created_at >= NOW()-INTERVAL '7 days'
+        GROUP BY DATE(created_at) ORDER BY day ASC
+      `),
+      // Scans (scanner logs / points_log action=scan)
+      query(`
+        SELECT COUNT(*) AS total_scans,
+               COUNT(*) FILTER (WHERE created_at >= NOW()-INTERVAL '24 hours') AS scans_24h,
+               COUNT(*) FILTER (WHERE created_at >= NOW()-INTERVAL '7 days') AS scans_7d
+        FROM collaborator_points_log WHERE action = 'scan'
+      `),
+      // Deal posts (human only)
+      query(`
+        SELECT COUNT(*) AS total,
+               COUNT(*) FILTER (WHERE created_at >= NOW()-INTERVAL '24 hours') AS today,
+               COUNT(*) FILTER (WHERE created_at >= NOW()-INTERVAL '7 days') AS this_week
+        FROM deal_posts WHERE is_ai_post IS NOT TRUE AND status != 'hidden'
+      `),
+      // Submitted deals approved/verified
+      query(`
+        SELECT COUNT(*) AS total_submitted,
+               COUNT(*) FILTER (WHERE status IN ('verified','approved','official')) AS approved,
+               COUNT(*) FILTER (WHERE created_at >= NOW()-INTERVAL '7 days') AS submitted_7d,
+               ROUND(
+                 COUNT(*) FILTER (WHERE status IN ('verified','approved','official'))::numeric /
+                 NULLIF(COUNT(*), 0) * 100, 1
+               ) AS approval_rate_pct
+        FROM submitted_deals
+      `),
+      // UPC recognition rate
+      query(`
+        SELECT COUNT(*) AS total_scanned,
+               COUNT(*) FILTER (WHERE quality_status NOT IN ('HIDDEN_NO_UPC','HIDDEN_UNCLASSIFIED') OR quality_status IS NULL) AS recognized,
+               ROUND(
+                 COUNT(*) FILTER (WHERE quality_status NOT IN ('HIDDEN_NO_UPC','HIDDEN_UNCLASSIFIED') OR quality_status IS NULL)::numeric /
+                 NULLIF(COUNT(*), 0) * 100, 1
+               ) AS recognition_rate_pct
+        FROM products WHERE upc IS NOT NULL
+      `),
+      // Referral stats
+      query(`
+        SELECT COUNT(*) AS total_referrals,
+               COUNT(*) FILTER (WHERE converted_to_paid) AS converted,
+               COUNT(*) FILTER (WHERE created_at >= NOW()-INTERVAL '7 days') AS new_7d
+        FROM referral_events
+      `),
+      // AI leader exclusion check — confirm none in hunter queries
+      query(`SELECT COUNT(*) AS ai_with_collab_profile
+             FROM collaborator_profiles cp JOIN users u ON cp.user_id=u.id WHERE u.is_ai_leader=true`),
+    ]);
+
+    const u  = usersRes.rows[0];
+    const a  = activeRes.rows[0];
+    const sc = scansRes.rows[0];
+    const dp = dealsRes.rows[0];
+    const sd = approvedRes.rows[0];
+    const ur = upcRes.rows[0];
+    const rf = referralRes.rows[0];
+
+    res.json({
+      users: {
+        total_human:     parseInt(u.total) || 0,
+        new_last_24h:    parseInt(u.new_24h) || 0,
+        new_last_7d:     parseInt(u.new_7d) || 0,
+        active_last_24h: parseInt(a.active_24h) || 0,
+        active_last_7d:  parseInt(a.active_7d) || 0,
+        registrations_per_day: regPerDayRes.rows.map(r => ({ day: r.day, count: parseInt(r.count) })),
+      },
+      scans: {
+        total:    parseInt(sc.total_scans) || 0,
+        last_24h: parseInt(sc.scans_24h) || 0,
+        last_7d:  parseInt(sc.scans_7d) || 0,
+      },
+      deal_posts: {
+        total:     parseInt(dp.total) || 0,
+        today:     parseInt(dp.today) || 0,
+        this_week: parseInt(dp.this_week) || 0,
+      },
+      submitted_deals: {
+        total:            parseInt(sd.total_submitted) || 0,
+        approved:         parseInt(sd.approved) || 0,
+        submitted_7d:     parseInt(sd.submitted_7d) || 0,
+        approval_rate_pct: parseFloat(sd.approval_rate_pct) || 0,
+      },
+      upc_recognition: {
+        total_products:      parseInt(ur.total_scanned) || 0,
+        recognized:          parseInt(ur.recognized) || 0,
+        recognition_rate_pct: parseFloat(ur.recognition_rate_pct) || 0,
+      },
+      referrals: {
+        total:     parseInt(rf.total_referrals) || 0,
+        converted: parseInt(rf.converted) || 0,
+        new_7d:    parseInt(rf.new_7d) || 0,
+      },
+      ai_integrity: {
+        ai_leaders_in_collab_profiles: parseInt(aiExcludeCheck.rows[0].ai_with_collab_profile) || 0,
+        leaderboard_clean: parseInt(aiExcludeCheck.rows[0].ai_with_collab_profile) === 0,
+      },
+    });
+  } catch (err) {
+    logger.error(`[Admin] beta-metrics: ${err.message}`);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── GET /api/admin/ai-leaders ─────────────────────────────────────────────────
 router.get('/ai-leaders', authenticate, requireAdmin, async (req, res) => {
   try {

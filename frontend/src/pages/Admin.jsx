@@ -74,6 +74,7 @@ export default function Admin() {
   const [aiLeaders, setAiLeaders] = useState(null);
   const [aiLeadersLoading, setAiLeadersLoading] = useState(false);
   const [aiSaveMsg, setAiSaveMsg] = useState('');
+  const [betaMetrics, setBetaMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState('');
   const [msg, setMsg] = useState('');
@@ -118,6 +119,7 @@ export default function Admin() {
     loadHealth();
     loadDataHealth();
     loadAiLeaders();
+    api.get('/admin/beta-metrics').then(r => setBetaMetrics(r.data)).catch(() => {});
   }, [loadHealth, loadDataHealth, loadAiLeaders]);
 
   async function scan(store) {
@@ -181,6 +183,7 @@ export default function Admin() {
 
   const TABS = [
     { id: 'overview',    label: 'Overview' },
+    { id: 'beta',        label: '🚀 Beta' },
     { id: 'data-health', label: 'Data Health' },
     { id: 'ai-leaders',  label: '🤖 AI Leaders' },
     { id: 'health',      label: 'Scanner Health' },
@@ -285,6 +288,60 @@ export default function Admin() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── BETA METRICS ── */}
+      {tab === 'beta' && (
+        <div className="space-y-5">
+          {!betaMetrics && <p className="text-gray-400 text-sm">Loading beta metrics...</p>}
+          {betaMetrics && (<>
+            {/* Users */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <StatCard icon={<Users size={16} />} title="Human Users" value={betaMetrics.users.total_human} sub={`+${betaMetrics.users.new_last_7d} this week`} color="green" />
+              <StatCard icon={<Activity size={16} />} title="Active (7d)" value={betaMetrics.users.active_last_7d} sub={`${betaMetrics.users.active_last_24h} last 24h`} color="blue" />
+              <StatCard icon={<ScanLine size={16} />} title="Scans (7d)" value={betaMetrics.scans.last_7d} sub={`${betaMetrics.scans.last_24h} today`} color="purple" />
+              <StatCard icon={<TrendingUp size={16} />} title="Deal Posts" value={betaMetrics.deal_posts.total} sub={`${betaMetrics.deal_posts.today} today`} color="yellow" />
+            </div>
+
+            {/* Deal verification */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <StatCard icon={<CheckCircle size={16} />} title="Submitted Deals" value={betaMetrics.submitted_deals.total} sub={`${betaMetrics.submitted_deals.submitted_7d} this week`} color="blue" />
+              <StatCard icon={<Star size={16} />} title="Approved Deals" value={betaMetrics.submitted_deals.approved} sub={`${betaMetrics.submitted_deals.approval_rate_pct}% approval rate`} color="green" />
+              <StatCard icon={<Database size={16} />} title="UPC Recognition" value={`${betaMetrics.upc_recognition.recognition_rate_pct}%`} sub={`${betaMetrics.upc_recognition.recognized}/${betaMetrics.upc_recognition.total_products}`} color="purple" />
+              <StatCard icon={<Users size={16} />} title="Referrals" value={betaMetrics.referrals.total} sub={`${betaMetrics.referrals.converted} converted`} color="yellow" />
+            </div>
+
+            {/* Registrations per day chart */}
+            {betaMetrics.users.registrations_per_day.length > 0 && (
+              <div className="card space-y-3">
+                <h3 className="text-white font-semibold flex items-center gap-2"><TrendingUp size={14} className="text-neon-green" /> Registrations Last 7 Days</h3>
+                <div className="space-y-2">
+                  {betaMetrics.users.registrations_per_day.map(d => (
+                    <div key={d.day} className="flex items-center gap-3">
+                      <span className="text-xs w-20 flex-shrink-0" style={{ color: '#94A3B8' }}>{new Date(d.day).toLocaleDateString('en', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                      <div className="flex-1 h-4 rounded-full" style={{ background: '#1E293B' }}>
+                        <div className="h-full rounded-full" style={{ width: `${Math.min(100, d.count * 20)}%`, background: '#4ADE80' }} />
+                      </div>
+                      <span className="text-xs font-bold text-white w-4">{d.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* AI integrity */}
+            <div className="card p-4">
+              <h3 className="text-white font-semibold mb-2 flex items-center gap-2"><Bot size={14} className="text-purple-400" /> Leaderboard Integrity</h3>
+              <div className="flex items-center gap-2">
+                {betaMetrics.ai_integrity.leaderboard_clean ? (
+                  <><CheckCircle size={14} className="text-neon-green" /><span className="text-sm text-neon-green">AI leaders correctly excluded from human rankings</span></>
+                ) : (
+                  <><AlertCircle size={14} className="text-red-400" /><span className="text-sm text-red-400">{betaMetrics.ai_integrity.ai_leaders_in_collab_profiles} AI leaders found in collaborator profiles — review</span></>
+                )}
+              </div>
+            </div>
+          </>)}
         </div>
       )}
 

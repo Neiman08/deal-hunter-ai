@@ -1,4 +1,4 @@
-const { query } = require('./index');
+const { query } = require('../config/database');
 
 async function migrateI18n() {
   // preferred_language on users

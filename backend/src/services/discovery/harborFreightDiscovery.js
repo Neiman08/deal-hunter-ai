@@ -20,6 +20,7 @@ const { shouldSkipStore }    = require('../proxyManager');
 const { writeStoreRun }      = require('../../utils/storeRunStats');
 const { scanSingleProduct }  = require('../../jobs/scanJob');
 const { isStopRequested }    = require('../discoveryLock');
+const { checkIspProxy407 }   = require('../proxyHealthCheck');
 const logger = require('../../utils/logger');
 
 const STORE_SLUG  = 'harbor-freight';
@@ -102,6 +103,16 @@ async function runDiscovery({ maxTotal = 80, delayMs = 3000, cycleNum = 0 } = {}
     return stats;
   }
 
+  // ── Proxy 407 guard — before any browser is opened ────────────────────────
+  const proxyCheck = await checkIspProxy407();
+  if (!proxyCheck.ok) {
+    logger.warn(`[Discovery:${STORE_LABEL}] ISP proxy unavailable (${proxyCheck.reason}) — aborting before category browse`);
+    stats.blocked   = true;
+    stats.blockType = proxyCheck.reason;
+    await writeStoreRun(STORE_SLUG, startedAt, stats);
+    return stats;
+  }
+
   logger.info('\n' + '═'.repeat(60));
   logger.info(`🔧 ${STORE_LABEL.toUpperCase()} DISCOVERY`);
   logger.info(`   maxTotal=${maxTotal} cycle=${cycleNum}`);
@@ -128,11 +139,20 @@ async function runDiscovery({ maxTotal = 80, delayMs = 3000, cycleNum = 0 } = {}
     logger.info(`[Discovery:${STORE_LABEL}] Browsing category: ${catUrl}`);
     try {
       const links = await withIspPage(catUrl, async (page) => {
-        // Wait for product grid to render
+        // Wait for product cards — HF is a React SPA, products render after JS hydration
+        const PRODUCT_SELECTORS = [
+          'article[class*="product"]',
+          '[class*="ProductCard"] a[href]',
+          '[data-testid*="product"] a[href]',
+          '.grid-item a[href*=".html"]',
+          'a[href*="-"][href$=".html"][class*="product"]',
+        ].join(', ');
         try {
-          await page.waitForSelector('a[href*=".html"]', { timeout: 12000 });
+          await page.waitForSelector(PRODUCT_SELECTORS, { timeout: 15000 });
         } catch {
-          logger.warn(`[Discovery:${STORE_LABEL}] Selector timeout on ${catUrl}`);
+          // Fall back: wait extra time for SPA hydration then try anyway
+          await page.waitForTimeout(3000);
+          logger.warn(`[Discovery:${STORE_LABEL}] Product card selector timeout on ${catUrl} — scraping what's available`);
         }
         return extractProductLinksFromPage(page);
       });

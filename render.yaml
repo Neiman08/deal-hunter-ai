@@ -80,13 +80,13 @@ services:
       - key: NODE_ENV
         value: production
       - key: PROXY_KILL_SWITCH
-        value: "false"
+        value: "true"
       - key: SAFE_PROXY_MODE
         value: "true"
       - key: CYCLE_MAX_PROXY_REQ
-        value: "50"
+        value: "0"
       - key: PROXY_ENABLED
-        value: "true"
+        value: "false"
       - key: PLAYWRIGHT_BROWSERS_PATH
         value: "./pw-browsers"
       - key: PLAYWRIGHT_HEADLESS

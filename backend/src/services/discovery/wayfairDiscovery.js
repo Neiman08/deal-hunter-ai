@@ -21,6 +21,7 @@ const { shouldSkipStore }  = require('../proxyManager');
 const { writeStoreRun }    = require('../../utils/storeRunStats');
 const { scanSingleProduct } = require('../../jobs/scanJob');
 const { isStopRequested }  = require('../discoveryLock');
+const { checkIspProxy407 } = require('../proxyHealthCheck');
 const logger = require('../../utils/logger');
 
 const STORE_SLUG  = 'wayfair';
@@ -206,6 +207,16 @@ async function runDiscovery({ maxTotal = 60, delayMs = 4000, cycleNum = 0 } = {}
 
   if (!toProcess.length) {
     logger.info(`[Discovery:${STORE_LABEL}] All URLs already in DB`);
+    await writeStoreRun(STORE_SLUG, startedAt, stats);
+    return stats;
+  }
+
+  // ── Proxy 407 guard — check before opening any browser ────────────────────
+  const proxyCheck = await checkIspProxy407();
+  if (!proxyCheck.ok) {
+    logger.warn(`[Discovery:${STORE_LABEL}] ISP proxy unavailable (${proxyCheck.reason}) — aborting before PDP scrape`);
+    stats.blocked   = true;
+    stats.blockType = proxyCheck.reason;
     await writeStoreRun(STORE_SLUG, startedAt, stats);
     return stats;
   }

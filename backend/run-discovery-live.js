@@ -661,7 +661,7 @@ const STORE_TIMEOUTS_MS  = {
 const PAUSED_STORES = new Set(
   (process.env.PAUSED_STORES !== undefined
     ? process.env.PAUSED_STORES
-    : 'target,macys,walmart,home-depot,lowes,costco,gamestop,nordstrom-rack,kohls,tj-maxx,marshalls,burlington'
+    : 'target,macys,walmart,home-depot,lowes,costco,gamestop,nordstrom-rack,kohls,tj-maxx,marshalls,burlington,wayfair,harbor-freight'
   ).split(',').filter(Boolean)
 );
 

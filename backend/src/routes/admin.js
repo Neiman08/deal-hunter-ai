@@ -803,6 +803,23 @@ router.post('/stop-discovery', (req, res) => {
   res.json({ ok: true, message: `Stop requested for ${before.store}`, status: getStatus() });
 });
 
+// GET /admin/wayfair-dry-run — sitemap-only scan, ZERO proxy cost
+// Safe to call with PROXY_KILL_SWITCH=true. Returns URL counts + samples.
+// Query params: deduplicate=true|false  sitemapCount=1..10  cycleNum=0..953
+router.get('/wayfair-dry-run', async (req, res) => {
+  const deduplicate  = req.query.deduplicate  !== 'false';
+  const sitemapCount = Math.min(parseInt(req.query.sitemapCount  || '3'), 10);
+  const cycleNum     = parseInt(req.query.cycleNum || '0') || 0;
+  const start        = Date.now();
+  try {
+    const { runWayfairDryRun } = require('../services/discovery/wayfairDryRun');
+    const result = await runWayfairDryRun({ deduplicate, sitemapCount, cycleNum });
+    res.json({ ok: true, result, elapsed_ms: Date.now() - start });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message, elapsed_ms: Date.now() - start });
+  }
+});
+
 // GET /admin/test-discovery/:store — run ONE store's discovery synchronously, return full result
 // Protected by global lock — rejects if another discovery is already running.
 router.get('/test-discovery/:store', workerOnly, async (req, res) => {

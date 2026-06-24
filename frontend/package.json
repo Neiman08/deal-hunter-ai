@@ -10,10 +10,13 @@
   "dependencies": {
     "@zxing/browser": "^0.2.0",
     "axios": "^1.6.0",
+    "i18next": "^26.3.1",
+    "i18next-browser-languagedetector": "^8.2.1",
     "leaflet": "^1.9.4",
     "lucide-react": "^0.303.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-i18next": "^17.0.8",
     "react-leaflet": "^4.2.1",
     "react-router-dom": "^6.21.0",
     "recharts": "^2.10.3"

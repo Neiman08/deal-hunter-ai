@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Flame, MessageCircle, CheckCircle, XCircle, ChevronDown, Loader, MapPin, Tag, Clock, Users, Bot, Target } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from 'react-i18next';
 
 const LEVEL_COLOR = {
   'Legend Hunter': '#f59e0b',
@@ -50,6 +51,7 @@ function PostCard({ post: initialPost }) {
   const [comments, setComments] = useState([]);
   const [reacting, setReacting] = useState(null);
   const { user } = useAuth();
+  const { t } = useTranslation();
 
   async function loadComments() {
     try {
@@ -250,7 +252,7 @@ function PostCard({ post: initialPost }) {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ml-auto"
           style={{ background: '#1E293B', border: '1px solid #273449', color: '#94A3B8' }}>
           <MessageCircle size={12} />
-          {parseInt(post.comment_count || 0) > 0 ? post.comment_count : ''} Comment
+          {parseInt(post.comment_count || 0) > 0 ? post.comment_count : ''} {t('feed.comments')}
           <ChevronDown size={12} className={`transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </button>
       </div>
@@ -289,13 +291,13 @@ function PostCard({ post: initialPost }) {
             <form onSubmit={postComment} className="flex gap-2">
               <input
                 value={comment} onChange={e => setComment(e.target.value)}
-                placeholder="Write a comment..."
+                placeholder={t('feed.addComment')}
                 className="flex-1 rounded-xl px-3 py-2 text-sm focus:outline-none"
                 style={{ background: '#1E293B', border: '1px solid #334155', color: 'white' }}
               />
               <button type="submit" disabled={submittingComment || !comment.trim()}
                 className="btn-primary px-4 text-sm disabled:opacity-50">
-                {submittingComment ? '...' : 'Post'}
+                {submittingComment ? '...' : t('feed.post')}
               </button>
             </form>
           )}
@@ -308,6 +310,7 @@ function PostCard({ post: initialPost }) {
 function MissionsWidget() {
   const [missions, setMissions] = useState([]);
   const { user } = useAuth();
+  const { t } = useTranslation();
 
   useEffect(() => {
     if (!user) return;
@@ -325,7 +328,7 @@ function MissionsWidget() {
     <div className="rounded-xl p-4 space-y-3" style={{ background: 'rgba(74,222,128,0.05)', border: '1px solid rgba(74,222,128,0.15)' }}>
       <div className="flex items-center gap-2">
         <Target size={14} className="text-neon-green" />
-        <span className="text-xs font-bold text-neon-green">Misiones Activas</span>
+        <span className="text-xs font-bold text-neon-green">{t('feed.missions')}</span>
       </div>
       {display.map(m => {
         const pct = m.target > 0 ? Math.min(100, Math.round((m.progress / m.target) * 100)) : 0;
@@ -349,8 +352,9 @@ function MissionsWidget() {
 }
 
 function FeedSection({ posts, loading }) {
+  const { t } = useTranslation();
   if (loading) return <div className="flex justify-center py-8"><Loader size={20} className="animate-spin text-neon-green" /></div>;
-  if (!posts.length) return <p className="text-center py-8" style={{ color: '#94A3B8' }}>No posts yet. Be the first to share a deal!</p>;
+  if (!posts.length) return <p className="text-center py-8" style={{ color: '#94A3B8' }}>{t('feed.noPosts')}</p>;
   return (
     <div className="space-y-4">
       {posts.map(p => <PostCard key={p.id} post={p} />)}
@@ -365,6 +369,7 @@ export default function Feed() {
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const LIMIT = 10;
+  const { t } = useTranslation();
 
   async function loadPosts(reset = false) {
     setLoading(true);
@@ -397,7 +402,7 @@ export default function Feed() {
     <div className="p-4 lg:p-6 max-w-2xl mx-auto space-y-5">
       <div>
         <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-          <Flame size={24} className="text-neon-green" /> Deal Feed
+          <Flame size={24} className="text-neon-green" /> {t('feed.title')}
         </h1>
         <p style={{ color: '#CBD5E1' }} className="text-sm mt-1">Community-reported deals in real time</p>
       </div>
@@ -420,7 +425,7 @@ export default function Feed() {
         <button onClick={() => loadPosts(false)}
           className="w-full py-3 rounded-xl text-sm font-semibold transition-colors"
           style={{ background: '#1E293B', border: '1px solid #273449', color: '#94A3B8' }}>
-          Load more
+          {t('feed.loadMore')}
         </button>
       )}
       {loading && posts.length > 0 && (

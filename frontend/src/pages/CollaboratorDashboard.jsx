@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { Star, Award, CheckCircle, Clock, XCircle, Users, ChevronRight, Zap, Plus, Wallet, Shield, AlertCircle } from 'lucide-react';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from 'react-i18next';
 
 const LEVEL_CONFIG = {
   'Legend Hunter': { color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', min: 5000, next: null },
@@ -14,6 +15,7 @@ const LEVEL_CONFIG = {
 };
 
 function LevelBadge({ level, points }) {
+  const { t } = useTranslation();
   const cfg = LEVEL_CONFIG[level] || LEVEL_CONFIG['Rookie Hunter'];
   const nextLevel = cfg.next;
   const progress = nextLevel ? Math.round(((points - cfg.min) / (nextLevel - cfg.min)) * 100) : 100;
@@ -26,16 +28,16 @@ function LevelBadge({ level, points }) {
           <Award size={28} style={{ color: cfg.color }} />
         </div>
         <div className="flex-1">
-          <p style={{ color: '#94A3B8' }} className="text-xs uppercase tracking-wider mb-0.5">Current Level</p>
+          <p style={{ color: '#94A3B8' }} className="text-xs uppercase tracking-wider mb-0.5">{t('collaborator.level.label')}</p>
           <h2 className="text-xl font-black" style={{ color: cfg.color }}>{level}</h2>
           <p className="text-xs mt-0.5" style={{ color: '#94A3B8' }}>
-            {points.toLocaleString()} points
+            {points.toLocaleString()} {t('collaborator.level.pts')}
             {nextLevel && ` · ${(nextLevel - points).toLocaleString()} to ${Object.entries(LEVEL_CONFIG).find(([, v]) => v.min === nextLevel)?.[0] || ''}`}
           </p>
         </div>
         <div className="text-right">
           <p className="text-3xl font-black" style={{ color: cfg.color }}>{points.toLocaleString()}</p>
-          <p style={{ color: '#94A3B8' }} className="text-xs">pts</p>
+          <p style={{ color: '#94A3B8' }} className="text-xs">{t('collaborator.level.pts')}</p>
         </div>
       </div>
       {nextLevel && (
@@ -71,6 +73,7 @@ function StatCard({ label, value, icon, color = '#4ADE80', sub }) {
 
 export default function CollaboratorDashboard() {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [profile, setProfile] = useState(null);
   const [wallet, setWallet] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -158,22 +161,22 @@ export default function CollaboratorDashboard() {
             <Star size={32} className="text-neon-green" />
           </div>
           <div>
-            <h1 className="text-2xl font-black text-white">Join as a Collaborator</h1>
+            <h1 className="text-2xl font-black text-white">{t('collaborator.joinTitle')}</h1>
             <p className="mt-2 text-sm" style={{ color: '#CBD5E1' }}>
-              Report deals, earn points, level up, and help your community find the best deals.
+              {t('collaborator.joinDesc')}
             </p>
           </div>
           <input
             value={displayName}
             onChange={e => setDisplayName(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && createProfile()}
-            placeholder="Your hunter name..."
+            placeholder={t('collaborator.hunterPlaceholder')}
             className="w-full rounded-xl px-4 py-3 text-sm focus:outline-none text-white"
             style={{ background: '#1E293B', border: '1px solid #334155' }}
           />
           <button onClick={createProfile} disabled={creatingProfile || !displayName.trim()}
             className="btn-primary w-full py-3 font-bold disabled:opacity-50">
-            {creatingProfile ? 'Creating...' : 'Create collaborator profile →'}
+            {creatingProfile ? t('common.loading') : t('collaborator.joinBtn')}
           </button>
           <div className="grid grid-cols-3 gap-3 pt-2">
             {[['Rookie', '0 pts'], ['Bronze', '100 pts'], ['Legend', '5,000 pts']].map(([l, p]) => (
@@ -210,11 +213,11 @@ export default function CollaboratorDashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Collaborator Dashboard</h1>
-          <p style={{ color: '#94A3B8' }} className="text-sm mt-0.5">Welcome, {profile.display_name}</p>
+          <h1 className="text-2xl font-bold text-white">{t('collaborator.dashboard')}</h1>
+          <p style={{ color: '#94A3B8' }} className="text-sm mt-0.5">{t('collaborator.welcome', { name: profile.display_name })}</p>
         </div>
         <Link to="/collaborator/submit" className="btn-primary flex items-center gap-2 px-4 py-2 text-sm">
-          <Plus size={14} /> Submit Deal
+          <Plus size={14} /> {t('collaborator.submitDeal')}
         </Link>
       </div>
 
@@ -223,18 +226,18 @@ export default function CollaboratorDashboard() {
 
       {/* Stats grid */}
       <div className="grid grid-cols-2 gap-3">
-        <StatCard label="Verified Deals" value={profile.approved_deals_count || 0}
+        <StatCard label={t('collaborator.stats.verified')} value={profile.approved_deals_count || 0}
           icon={<CheckCircle size={18} style={{ color: '#4ADE80' }} />} color="#4ADE80"
           sub={totalSubmissions ? `${totalSubmissions} total submitted` : ''} />
-        <StatCard label="Accuracy" value={accuracyPct !== null ? `${accuracyPct}%` : '—'}
+        <StatCard label={t('collaborator.stats.accuracy')} value={accuracyPct !== null ? `${accuracyPct}%` : '—'}
           icon={<Star size={18} style={{ color: '#F59E0B' }} />} color="#F59E0B"
-          sub={accuracyPct !== null ? (accuracyPct >= 70 ? 'High accuracy' : accuracyPct >= 40 ? 'Getting better' : 'Keep going') : 'No deals yet'} />
-        <StatCard label="Trust Score" value={`${trustScore}`}
+          sub={accuracyPct !== null ? (accuracyPct >= 70 ? t('collaborator.accuracy.high') : accuracyPct >= 40 ? t('collaborator.accuracy.getting') : t('collaborator.accuracy.keep')) : 'No deals yet'} />
+        <StatCard label={t('collaborator.stats.trust')} value={`${trustScore}`}
           icon={<Shield size={18} style={{ color: '#8B5CF6' }} />} color="#8B5CF6"
           sub={trustScore >= 70 ? 'High trust' : trustScore >= 40 ? 'Building trust' : 'Low trust'} />
-        <StatCard label="Pending" value={profile.pending_deals_count || 0}
+        <StatCard label={t('collaborator.stats.pending')} value={profile.pending_deals_count || 0}
           icon={<Clock size={18} style={{ color: '#FACC15' }} />} color="#FACC15"
-          sub="Awaiting community vote" />
+          sub={t('collaborator.stats.pendingDesc')} />
       </div>
 
       {/* Wallet */}
@@ -242,20 +245,20 @@ export default function CollaboratorDashboard() {
         <div className="card p-4 space-y-2">
           <div className="flex items-center gap-2 mb-1">
             <Wallet size={16} className="text-neon-green" />
-            <p className="text-white font-semibold text-sm">Points Wallet</p>
+            <p className="text-white font-semibold text-sm">{t('collaborator.wallet.title')}</p>
           </div>
           <div className="grid grid-cols-3 gap-3 text-center">
             <div>
               <p className="text-xl font-black text-neon-green">{wallet.points_available || 0}</p>
-              <p className="text-xs text-gray-500">Available</p>
+              <p className="text-xs text-gray-500">{t('collaborator.wallet.available')}</p>
             </div>
             <div>
               <p className="text-xl font-black text-yellow-400">{wallet.points_pending || 0}</p>
-              <p className="text-xs text-gray-500">Pending</p>
+              <p className="text-xs text-gray-500">{t('collaborator.wallet.pending')}</p>
             </div>
             <div>
               <p className="text-xl font-black text-neon-blue">{wallet.lifetime_points || 0}</p>
-              <p className="text-xs text-gray-500">Lifetime</p>
+              <p className="text-xs text-gray-500">{t('collaborator.wallet.lifetime')}</p>
             </div>
           </div>
           {(wallet.credit_balance > 0) && (
@@ -356,8 +359,8 @@ export default function CollaboratorDashboard() {
       {recentSubmissions.length > 0 && (
         <div className="card">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-white font-semibold">Recent Submissions</h3>
-            <Link to="/collaborator/submissions" className="text-xs text-neon-blue hover:underline">View all</Link>
+            <h3 className="text-white font-semibold">{t('collaborator.submissions')}</h3>
+            <Link to="/collaborator/submissions" className="text-xs text-neon-blue hover:underline">{t('common.viewAll')}</Link>
           </div>
           <div className="space-y-2">
             {recentSubmissions.map(s => (

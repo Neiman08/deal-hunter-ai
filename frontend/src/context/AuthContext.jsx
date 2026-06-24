@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import api from '../utils/api';
+import i18n from '../i18n';
 
 const AuthContext = createContext(null);
 
@@ -10,11 +11,19 @@ export function AuthProvider({ children }) {
   });
   const [loading, setLoading] = useState(false);
 
+  function applyUserLanguage(userData) {
+    if (userData?.preferred_language) {
+      i18n.changeLanguage(userData.preferred_language);
+      localStorage.setItem('dealhunter_language', userData.preferred_language);
+    }
+  }
+
   const login = async (email, password) => {
     const res = await api.post('/auth/login', { email, password });
     localStorage.setItem('dh_token', res.data.token);
     localStorage.setItem('dh_user', JSON.stringify(res.data.user));
     setUser(res.data.user);
+    applyUserLanguage(res.data.user);
     return res.data;
   };
 
@@ -23,6 +32,7 @@ export function AuthProvider({ children }) {
     localStorage.setItem('dh_token', res.data.token);
     localStorage.setItem('dh_user', JSON.stringify(res.data.user));
     setUser(res.data.user);
+    applyUserLanguage(res.data.user);
     return res.data;
   };
 

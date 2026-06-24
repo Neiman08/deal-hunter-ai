@@ -1,0 +1,320 @@
+{
+  "nav": {
+    "dashboard": "Dashboard",
+    "search": "Search",
+    "proHunter": "Pro Hunter",
+    "map": "Map",
+    "scanner": "Scanner",
+    "tools": "Tools",
+    "alerts": "Alerts",
+    "watchlist": "Watchlist",
+    "aiRecs": "AI Recs",
+    "analytics": "Analytics",
+    "business": "Business",
+    "businessHome": "Business Home",
+    "university": "University",
+    "aiCoach": "AI Coach",
+    "hallOfFame": "Hall of Fame",
+    "stats": "Stats",
+    "teamCRM": "Team CRM",
+    "notifications": "Notifications",
+    "referEarn": "Refer & Earn",
+    "teams": "Teams",
+    "ranking": "Ranking",
+    "community": "Community",
+    "dealFeed": "Deal Feed",
+    "collaborator": "Collaborator",
+    "pricing": "Pricing",
+    "adminPanel": "Admin Panel",
+    "offeredDeals": "Offered Deals"
+  },
+  "upgrade": {
+    "cta": "Upgrade to Pro — $19/mo",
+    "desc": "Pro Hunter, unlimited alerts, map view, AI recs.",
+    "btn": "Start Free Trial →"
+  },
+  "login": {
+    "tagline": "Find hidden deals before anyone else.",
+    "description": "AI-powered price monitoring across Walmart, Home Depot, Target & more.",
+    "features": {
+      "realtime": "Real-time deal detection",
+      "calculator": "Resale profit calculator",
+      "alerts": "Instant deal alerts"
+    },
+    "welcomeBack": "Welcome back",
+    "createAccount": "Create your account",
+    "signInDesc": "Sign in to your account",
+    "startFree": "Start hunting deals for free",
+    "referralBanner": "Invited with code {{code}} — welcome!",
+    "fields": {
+      "name": "Full Name",
+      "email": "Email",
+      "password": "Password",
+      "zipCode": "ZIP Code",
+      "referralCode": "Referral Code",
+      "optional": "(optional)"
+    },
+    "loading": "Loading...",
+    "signIn": "Sign In",
+    "createBtn": "Create Account",
+    "demo": {
+      "title": "Demo credentials:",
+      "admin": "Admin: admin@dealhunter.ai / admin123",
+      "user": "User: demo@dealhunter.ai / user123"
+    },
+    "noAccount": "Don't have an account?",
+    "hasAccount": "Already have an account?",
+    "signUpFree": "Sign up free",
+    "signInLink": "Sign in"
+  },
+  "dashboard": {
+    "title": "Deal Dashboard",
+    "dealsAvailable": "deals available",
+    "today": "today",
+    "refresh": "Refresh",
+    "tabs": {
+      "all": "All Deals",
+      "top": "Top Deals",
+      "error": "Error Prices"
+    },
+    "stats": {
+      "searchable": "Searchable Deals",
+      "highScore": "High-Score Deals",
+      "profit": "Potential Profit",
+      "errorPrices": "Error Prices",
+      "errorPricesSub": "Pricing mistakes",
+      "score71": "Score 71+"
+    },
+    "freshness": {
+      "verified": "Verified Today",
+      "week": "This Week",
+      "recheck": "Needs Recheck",
+      "historical": "Historical"
+    },
+    "scores": {
+      "excellent": "Excellent",
+      "good": "Good",
+      "fair": "Fair",
+      "skip": "Skip"
+    },
+    "charts": {
+      "byStore": "Deals by Store",
+      "trend": "7-Day Deal Trend",
+      "categories": "Top Categories",
+      "noStore": "No store data yet",
+      "noTrend": "No trend data yet",
+      "deals": "Deals",
+      "profit": "Profit"
+    },
+    "search": {
+      "placeholder": "Search deals… laptop, Sony, Milwaukee, DeWalt"
+    },
+    "loadMore": "Load More",
+    "noDeals": "No deals found",
+    "labels": {
+      "cataloged": "Cataloged",
+      "products": "Products",
+      "searchable20": "Searchable ≥20%",
+      "lowDiscount": "Low Discount <20%",
+      "errorPricesLabel": "Error Prices",
+      "storesActive": "Stores Active"
+    }
+  },
+  "scanner": {
+    "title": "UPC Scanner",
+    "subtitle": "Scan any barcode or enter UPC manually",
+    "placeholder": "Enter UPC, EAN, barcode...",
+    "scan": "Scan",
+    "camera": "Camera",
+    "history": "History",
+    "submitDeal": "Submit Deal",
+    "noHistory": "No scan history yet",
+    "enterUPC": "Enter a UPC to get started",
+    "recommendation": {
+      "BUY": "BUY",
+      "MAYBE": "MAYBE",
+      "SKIP": "SKIP",
+      "INSUFFICIENT_DATA": "INSUFFICIENT DATA"
+    },
+    "priceType": {
+      "live": "Live Price",
+      "estimated": "Estimated Price",
+      "ebay": "eBay Estimate",
+      "recovery": "Market Estimate"
+    },
+    "labels": {
+      "score": "Score",
+      "dealPrice": "Deal Price",
+      "retailPrice": "Retail Price",
+      "discount": "Discount",
+      "profitEst": "Profit Estimate",
+      "resalePrice": "Resale Price",
+      "store": "Store",
+      "selectStore": "Select store",
+      "price": "Price",
+      "roi": "ROI",
+      "fees": "Fees"
+    }
+  },
+  "feed": {
+    "title": "Deal Feed",
+    "postPlaceholder": "Share a deal you found...",
+    "post": "Post",
+    "comments": "comments",
+    "like": "Like",
+    "missions": "Active Missions",
+    "aiLabel": "AI Leader",
+    "noMissions": "No active missions right now",
+    "comment": "Comment",
+    "addComment": "Add a comment...",
+    "loadMore": "Load More",
+    "noPosts": "No posts yet. Be the first!",
+    "progress": "Progress",
+    "complete": "Complete"
+  },
+  "collaborator": {
+    "dashboard": "Collaborator Dashboard",
+    "welcome": "Welcome, {{name}}",
+    "joinTitle": "Join as a Collaborator",
+    "joinDesc": "Scan clearance deals, earn points, build your reputation.",
+    "hunterPlaceholder": "Your hunter name...",
+    "joinBtn": "Join Collaborator Program",
+    "submitDeal": "Submit Deal",
+    "stats": {
+      "verified": "Verified Deals",
+      "accuracy": "Accuracy",
+      "trust": "Trust Score",
+      "pending": "Pending",
+      "pendingDesc": "Awaiting community vote"
+    },
+    "wallet": {
+      "title": "Points Wallet",
+      "available": "Available",
+      "pending": "Pending",
+      "lifetime": "Lifetime"
+    },
+    "level": {
+      "label": "Current Level",
+      "pts": "pts"
+    },
+    "accuracy": {
+      "high": "High accuracy",
+      "getting": "Getting better",
+      "keep": "Keep going"
+    },
+    "submissions": "Your Submissions",
+    "noSubmissions": "No submissions yet",
+    "approved": "Approved",
+    "rejected": "Rejected",
+    "pendingStatus": "Pending"
+  },
+  "referrals": {
+    "title": "Refer & Earn",
+    "subtitle": "Earn free Pro months for every user you refer",
+    "howItWorks": "How it works",
+    "steps": {
+      "share": "Share your link",
+      "signup": "Friend signs up",
+      "earn": "They upgrade → you earn 1 month Pro free"
+    },
+    "yourCode": "Your Referral Code",
+    "referralLink": "Referral Link",
+    "copy": "Copy",
+    "copied": "Copied!",
+    "share": "Share",
+    "stats": {
+      "total": "Total Referrals",
+      "converted": "Converted",
+      "earned": "Months Earned"
+    },
+    "recent": "Recent Referrals",
+    "noReferrals": "No referrals yet — share your link!",
+    "converted": "Converted",
+    "freePlan": "Free plan",
+    "reward": "Reward"
+  },
+  "pricing": {
+    "title": "Pricing Plans",
+    "subtitle": "Choose the plan that fits your hustle",
+    "perMonth": "/mo",
+    "popular": "Most Popular",
+    "bestROI": "Best ROI",
+    "trial": "7-day free trial",
+    "included": "What's included",
+    "notIncluded": "Not included",
+    "plans": {
+      "free": { "btn": "Get Started" },
+      "pro":  { "btn": "Upgrade to Pro" },
+      "elite": { "btn": "Go Elite" }
+    },
+    "loading": "Processing...",
+    "currentPlan": "Current Plan",
+    "upgrade": "Upgrade"
+  },
+  "admin": {
+    "tabs": {
+      "scanner": "Scanner",
+      "deals": "Deals",
+      "users": "Users",
+      "aiLeaders": "AI Leaders",
+      "beta": "Beta",
+      "dataHealth": "Data Health",
+      "stores": "Stores",
+      "submitted": "Submitted"
+    },
+    "betaMetrics": "Beta Metrics",
+    "aiLeadersTitle": "AI Leaders Control",
+    "dataHealthTitle": "Data Health"
+  },
+  "common": {
+    "loading": "Loading...",
+    "error": "Something went wrong",
+    "save": "Save",
+    "cancel": "Cancel",
+    "close": "Close",
+    "back": "Back",
+    "refresh": "Refresh",
+    "viewAll": "View All",
+    "noData": "No data",
+    "submit": "Submit",
+    "confirm": "Confirm",
+    "delete": "Delete",
+    "edit": "Edit",
+    "enabled": "Enabled",
+    "disabled": "Disabled",
+    "on": "On",
+    "off": "Off",
+    "yes": "Yes",
+    "no": "No",
+    "search": "Search",
+    "plan": {
+      "free": "free",
+      "pro": "pro",
+      "elite": "elite"
+    }
+  },
+  "language": {
+    "en": "English",
+    "es": "Español",
+    "toggle": "Language"
+  },
+  "categories": {
+    "electronics": "Electronics",
+    "tools": "Tools",
+    "toys": "Toys",
+    "clothing": "Clothing",
+    "home": "Home & Garden",
+    "sports": "Sports",
+    "health": "Health & Beauty",
+    "automotive": "Automotive",
+    "office": "Office",
+    "food": "Food & Grocery",
+    "baby": "Baby",
+    "pet": "Pet Supplies",
+    "music": "Music",
+    "books": "Books",
+    "video_games": "Video Games",
+    "jewelry": "Jewelry",
+    "other": "Other"
+  }
+}

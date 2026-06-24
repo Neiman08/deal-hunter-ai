@@ -11,6 +11,7 @@ import { useAuth } from '../context/AuthContext';
 import StatCard from '../components/StatCard';
 import DealCard from '../components/DealCard';
 import FilterBar from '../components/FilterBar';
+import { useTranslation } from 'react-i18next';
 
 const LIMIT = 24;
 
@@ -39,16 +40,17 @@ function parseStats(raw) {
   };
 }
 
-const SCORE_BANDS = (stats) => [
-  { label: 'Excellent', range: '91–100', count: stats.excellent_deals,                                     color: '#00ff88' },
-  { label: 'Good',      range: '71–90',  count: Math.max(0, stats.good_deals - stats.excellent_deals),    color: '#00d4ff' },
-  { label: 'Fair',      range: '41–70',  count: Math.max(0, stats.total_deals - stats.good_deals),        color: '#fbbf24' },
-  { label: 'Skip',      range: '0–40',   count: 0,                                                        color: '#6b7280' },
+const SCORE_BANDS_DATA = (stats, t) => [
+  { label: t('dashboard.scores.excellent'), range: '91–100', count: stats.excellent_deals,                                     color: '#00ff88' },
+  { label: t('dashboard.scores.good'),      range: '71–90',  count: Math.max(0, stats.good_deals - stats.excellent_deals),    color: '#00d4ff' },
+  { label: t('dashboard.scores.fair'),      range: '41–70',  count: Math.max(0, stats.total_deals - stats.good_deals),        color: '#fbbf24' },
+  { label: t('dashboard.scores.skip'),      range: '0–40',   count: 0,                                                        color: '#6b7280' },
 ];
 
 export default function Dashboard() {
   const { user } = useAuth();
   const isAdmin = !!user?.is_admin;
+  const { t } = useTranslation();
 
   const [stats, setStats] = useState(null);
   const [deals, setDeals] = useState([]);
@@ -167,18 +169,18 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Deal Dashboard</h1>
+          <h1 className="text-2xl font-bold text-white">{t('dashboard.title')}</h1>
           <p className="text-gray-400 text-sm mt-0.5">
             <span className="text-neon-green font-semibold">{searchableCount.toLocaleString()}</span>
-            {' '}deals available
-            {stats.new_today > 0 && <> · <span className="text-neon-green">+{stats.new_today} today</span></>}
-            {isAdmin && <span className="text-gray-600"> · {stats.total_db_deals.toLocaleString()} cataloged</span>}
+            {' '}{t('dashboard.dealsAvailable')}
+            {stats.new_today > 0 && <> · <span className="text-neon-green">+{stats.new_today} {t('dashboard.today')}</span></>}
+            {isAdmin && <span className="text-gray-600"> · {stats.total_db_deals.toLocaleString()} {t('dashboard.labels.cataloged').toLowerCase()}</span>}
           </p>
         </div>
         <button onClick={handleRefresh} disabled={refreshing}
           className="btn-ghost flex items-center gap-2 text-sm">
           <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-          Refresh
+          {t('dashboard.refresh')}
         </button>
       </div>
 
@@ -189,12 +191,12 @@ export default function Dashboard() {
             <Shield size={12} /> Admin
           </div>
           {[
-            { label: 'Cataloged', value: stats.total_db_deals.toLocaleString() },
-            { label: 'Products',  value: stats.total_products.toLocaleString() },
-            { label: 'Searchable ≥20%', value: searchableCount.toLocaleString() },
-            { label: 'Low Discount <20%', value: stats.low_discount_deals.toLocaleString() },
-            { label: 'Error Prices', value: stats.error_prices },
-            { label: 'Stores Active', value: activeStores.length },
+            { label: t('dashboard.labels.cataloged'),      value: stats.total_db_deals.toLocaleString() },
+            { label: t('dashboard.labels.products'),       value: stats.total_products.toLocaleString() },
+            { label: t('dashboard.labels.searchable20'),   value: searchableCount.toLocaleString() },
+            { label: t('dashboard.labels.lowDiscount'),    value: stats.low_discount_deals.toLocaleString() },
+            { label: t('dashboard.labels.errorPricesLabel'), value: stats.error_prices },
+            { label: t('dashboard.labels.storesActive'),   value: activeStores.length },
           ].map(m => (
             <span key={m.label} className="text-xs text-gray-500">
               {m.label}: <span className="text-white font-mono">{m.value}</span>
@@ -207,29 +209,29 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           icon={<Flame size={18} />}
-          title="Searchable Deals"
+          title={t('dashboard.stats.searchable')}
           value={searchableCount.toLocaleString()}
           sub={`+${stats.new_this_hour} this hour`}
           color="green"
         />
-        <StatCard icon={<Star size={18} />}        title="High-Score Deals" value={stats.good_deals}  sub="Score 71+"  color="yellow" />
+        <StatCard icon={<Star size={18} />} title={t('dashboard.stats.highScore')} value={stats.good_deals} sub={t('dashboard.stats.score71')} color="yellow" />
         <StatCard
           icon={<DollarSign size={18} />}
-          title="Potential Profit"
+          title={t('dashboard.stats.profit')}
           value={`$${(stats.potential_profit_searchable / 1000).toFixed(1)}k`}
           sub="From searchable deals"
           color="blue"
         />
-        <StatCard icon={<AlertTriangle size={18} />} title="Error Prices" value={stats.error_prices} sub="Pricing mistakes" color="red" />
+        <StatCard icon={<AlertTriangle size={18} />} title={t('dashboard.stats.errorPrices')} value={stats.error_prices} sub={t('dashboard.stats.errorPricesSub')} color="red" />
       </div>
 
       {/* Freshness Breakdown */}
       <div className="grid grid-cols-4 gap-2">
         {[
-          { label: 'Verified Today', count: stats.fresh_24h,      color: '#00ff88', icon: <CheckCircle size={12} />, title: 'Seen in last 24h' },
-          { label: 'This Week',      count: stats.recent_7d,      color: '#00d4ff', icon: <Clock size={12} />,       title: 'Seen 1–7 days ago' },
-          { label: 'Needs Recheck', count: stats.aging_30d,      color: '#fbbf24', icon: <AlertCircle size={12} />, title: 'Seen 7–30 days ago' },
-          { label: 'Historical',    count: stats.historical_45d, color: '#ef4444', icon: <AlertTriangle size={12} />, title: '30+ days — verify before buying' },
+          { label: t('dashboard.freshness.verified'),   count: stats.fresh_24h,      color: '#00ff88', icon: <CheckCircle size={12} />, title: 'Seen in last 24h' },
+          { label: t('dashboard.freshness.week'),       count: stats.recent_7d,      color: '#00d4ff', icon: <Clock size={12} />,       title: 'Seen 1–7 days ago' },
+          { label: t('dashboard.freshness.recheck'),    count: stats.aging_30d,      color: '#fbbf24', icon: <AlertCircle size={12} />, title: 'Seen 7–30 days ago' },
+          { label: t('dashboard.freshness.historical'), count: stats.historical_45d, color: '#ef4444', icon: <AlertTriangle size={12} />, title: '30+ days — verify before buying' },
         ].map(f => (
           <div key={f.label} title={f.title}
             className="bg-dark-700 rounded-xl p-3 flex flex-col gap-1"
@@ -247,7 +249,7 @@ export default function Dashboard() {
 
       {/* Score Distribution */}
       <div className="grid grid-cols-4 gap-2">
-        {SCORE_BANDS(stats).map(s => (
+        {SCORE_BANDS_DATA(stats, t).map(s => (
           <div key={s.label}
             className="bg-dark-700 rounded-xl p-3 text-center"
             style={{ border: `1px solid rgba(255,255,255,0.08)`, borderTopWidth: '2px', borderTopColor: s.color }}>
@@ -263,9 +265,9 @@ export default function Dashboard() {
       {/* Charts row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="bg-dark-700 rounded-2xl p-5" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-          <h3 className="text-white font-semibold text-sm mb-4">Deals by Store</h3>
+          <h3 className="text-white font-semibold text-sm mb-4">{t('dashboard.charts.byStore')}</h3>
           {storeData.length === 0 ? (
-            <div className="h-40 flex items-center justify-center text-gray-400 text-sm">No store data yet</div>
+            <div className="h-40 flex items-center justify-center text-gray-400 text-sm">{t('dashboard.charts.noStore')}</div>
           ) : (
             <ResponsiveContainer width="100%" height={160}>
               <BarChart data={storeData} margin={{ top: 0, right: 0, left: -20, bottom: 0 }}>
@@ -281,9 +283,9 @@ export default function Dashboard() {
         </div>
 
         <div className="bg-dark-700 rounded-2xl p-5" style={{ border: '1px solid rgba(255,255,255,0.08)' }}>
-          <h3 className="text-white font-semibold text-sm mb-4">7-Day Deal Trend</h3>
+          <h3 className="text-white font-semibold text-sm mb-4">{t('dashboard.charts.trend')}</h3>
           {!hasTrend ? (
-            <div className="h-40 flex items-center justify-center text-gray-400 text-sm">No trend data yet</div>
+            <div className="h-40 flex items-center justify-center text-gray-400 text-sm">{t('dashboard.charts.noTrend')}</div>
           ) : (
             <ResponsiveContainer width="100%" height={160}>
               <LineChart data={trendData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
@@ -315,7 +317,7 @@ export default function Dashboard() {
 
         return (
           <div>
-            <h3 className="text-white font-semibold text-sm mb-3">Top Categories</h3>
+            <h3 className="text-white font-semibold text-sm mb-3">{t('dashboard.charts.categories')}</h3>
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {cats.map(cat => (
                 <button key={cat.slug}
@@ -342,9 +344,9 @@ export default function Dashboard() {
         <div className="flex items-center justify-between mb-3">
           <div className="flex gap-1.5">
             {[
-              ['all',   'All Deals'],
-              ['top',   '🔥 Score 91+'],
-              ['error', '⚠️ Price Errors'],
+              ['all',   t('dashboard.tabs.all')],
+              ['top',   `🔥 Score 91+`],
+              ['error', `⚠️ ${t('dashboard.tabs.error')}`],
             ].map(([id, label]) => (
               <button key={id} onClick={() => setActiveTab(id)}
                 className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all border ${
@@ -366,7 +368,7 @@ export default function Dashboard() {
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
           <input
             type="text"
-            placeholder="Search deals… laptop, Sony, Milwaukee, DeWalt"
+            placeholder={t('dashboard.search.placeholder')}
             value={searchQ}
             onChange={e => setSearchQ(e.target.value)}
             className="w-full bg-dark-700 border border-dark-400 rounded-xl pl-9 pr-10 py-2.5 text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-neon-green transition-colors"
@@ -397,7 +399,7 @@ export default function Dashboard() {
 
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mt-2">
           {deals.length === 0
-            ? <div className="col-span-3 text-center py-12 text-gray-600 text-sm">No deals match these filters</div>
+            ? <div className="col-span-3 text-center py-12 text-gray-600 text-sm">{t('dashboard.noDeals')}</div>
             : deals.map(deal => <DealCard key={deal.id} deal={deal} />)
           }
         </div>
@@ -410,7 +412,7 @@ export default function Dashboard() {
               disabled={loadingMore}
               className="btn-ghost flex items-center gap-2 text-sm px-8 py-2.5 disabled:opacity-50">
               {loadingMore ? <div className="w-4 h-4 border-2 border-neon-green border-t-transparent rounded-full animate-spin" /> : null}
-              {loadingMore ? 'Loading…' : `Load More (${totalDeals - deals.length} remaining)`}
+              {loadingMore ? t('common.loading') : `${t('dashboard.loadMore')} (${totalDeals - deals.length} remaining)`}
             </button>
           </div>
         )}

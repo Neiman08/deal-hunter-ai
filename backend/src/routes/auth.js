@@ -36,7 +36,7 @@ router.post('/register', async (req, res) => {
     const result = await query(
       `INSERT INTO users (email, password_hash, name, zip_code, plan, referred_by)
        VALUES ($1, $2, $3, $4, 'free', $5)
-       RETURNING id, email, name, plan, zip_code, created_at`,
+       RETURNING id, email, name, plan, zip_code, preferred_language, created_at`,
       [email.toLowerCase(), passwordHash, name, zip_code, ref_code || null]
     );
 
@@ -109,6 +109,23 @@ router.put('/profile', authenticate, async (req, res) => {
     res.json({ user: result.rows[0] });
   } catch (err) {
     res.status(500).json({ error: 'Error al actualizar perfil' });
+  }
+});
+
+// PATCH /api/auth/preferences
+router.patch('/preferences', authenticate, async (req, res) => {
+  try {
+    const { preferred_language } = req.body;
+    if (!['en', 'es'].includes(preferred_language)) {
+      return res.status(400).json({ error: 'Invalid language. Must be en or es.' });
+    }
+    await query(
+      `UPDATE users SET preferred_language = $1, updated_at = NOW() WHERE id = $2`,
+      [preferred_language, req.user.id]
+    );
+    res.json({ ok: true, preferred_language });
+  } catch (err) {
+    res.status(500).json({ error: 'Could not save preference' });
   }
 });
 

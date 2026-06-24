@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { Eye, EyeOff, Zap, TrendingUp, Bell, Gift } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 
 export default function Login() {
   const location = useLocation();
@@ -17,6 +18,7 @@ export default function Login() {
 
   const { login, register } = useAuth();
   const navigate = useNavigate();
+  const { t } = useTranslation();
 
   // If ref code present, default to register mode
   useEffect(() => {
@@ -36,16 +38,16 @@ export default function Login() {
       }
       navigate('/');
     } catch (err) {
-      setError(err.response?.data?.error || 'Something went wrong');
+      setError(err.response?.data?.error || t('common.error'));
     } finally {
       setLoading(false);
     }
   };
 
   const features = [
-    { icon: <Zap size={18} />, text: 'Real-time deal detection' },
-    { icon: <TrendingUp size={18} />, text: 'Resale profit calculator' },
-    { icon: <Bell size={18} />, text: 'Instant deal alerts' },
+    { icon: <Zap size={18} />, text: t('login.features.realtime') },
+    { icon: <TrendingUp size={18} />, text: t('login.features.calculator') },
+    { icon: <Bell size={18} />, text: t('login.features.alerts') },
   ];
 
   return (
@@ -60,10 +62,10 @@ export default function Login() {
             <span className="text-xl font-bold text-white">Deal Hunter AI</span>
           </div>
           <h1 className="text-4xl font-bold text-white leading-tight mb-4">
-            Find hidden deals<br />before anyone else.
+            {t('login.tagline')}
           </h1>
           <p className="text-dark-300 text-lg mb-10">
-            AI-powered price monitoring across Walmart, Home Depot, Target & more.
+            {t('login.description')}
           </p>
           <div className="space-y-4">
             {features.map((f, i) => (
@@ -108,17 +110,17 @@ export default function Login() {
           </div>
 
           <h2 className="text-2xl font-bold text-white mb-1">
-            {mode === 'login' ? 'Welcome back' : 'Create your account'}
+            {mode === 'login' ? t('login.welcomeBack') : t('login.createAccount')}
           </h2>
           <p className="text-dark-300 mb-8">
-            {mode === 'login' ? 'Sign in to your account' : 'Start hunting deals for free'}
+            {mode === 'login' ? t('login.signInDesc') : t('login.startFree')}
           </p>
 
           {/* Referral banner */}
           {mode === 'register' && form.ref_code && (
             <div className="flex items-center gap-2 bg-neon-green/10 border border-neon-green/30 text-neon-green rounded-xl px-4 py-3 text-sm mb-4">
               <Gift size={14} />
-              <span>Invitado con código <strong>{form.ref_code}</strong> — ¡bienvenido!</span>
+              <span>{t('login.referralBanner', { code: form.ref_code })}</span>
             </div>
           )}
 
@@ -131,7 +133,7 @@ export default function Login() {
           <div className="space-y-4">
             {mode === 'register' && (
               <div>
-                <label className="text-dark-200 text-sm mb-1.5 block">Full Name</label>
+                <label className="text-dark-200 text-sm mb-1.5 block">{t('login.fields.name')}</label>
                 <input
                   name="name"
                   value={form.name}
@@ -142,7 +144,7 @@ export default function Login() {
               </div>
             )}
             <div>
-              <label className="text-dark-200 text-sm mb-1.5 block">Email</label>
+              <label className="text-dark-200 text-sm mb-1.5 block">{t('login.fields.email')}</label>
               <input
                 name="email"
                 type="email"
@@ -153,7 +155,7 @@ export default function Login() {
               />
             </div>
             <div>
-              <label className="text-dark-200 text-sm mb-1.5 block">Password</label>
+              <label className="text-dark-200 text-sm mb-1.5 block">{t('login.fields.password')}</label>
               <div className="relative">
                 <input
                   name="password"
@@ -174,7 +176,7 @@ export default function Login() {
             </div>
             {mode === 'register' && (
               <div>
-                <label className="text-dark-200 text-sm mb-1.5 block">ZIP Code</label>
+                <label className="text-dark-200 text-sm mb-1.5 block">{t('login.fields.zipCode')}</label>
                 <input
                   name="zip_code"
                   value={form.zip_code}
@@ -186,7 +188,7 @@ export default function Login() {
             )}
             {mode === 'register' && (
               <div>
-                <label className="text-dark-200 text-sm mb-1.5 block">Referral Code <span className="text-dark-400">(optional)</span></label>
+                <label className="text-dark-200 text-sm mb-1.5 block">{t('login.fields.referralCode')} <span className="text-dark-400">{t('login.fields.optional')}</span></label>
                 <input
                   name="ref_code"
                   value={form.ref_code}
@@ -203,24 +205,24 @@ export default function Login() {
             disabled={loading}
             className="btn-primary w-full mt-6 py-3 text-base disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {loading ? 'Loading...' : mode === 'login' ? 'Sign In' : 'Create Account'}
+            {loading ? t('login.loading') : mode === 'login' ? t('login.signIn') : t('login.createBtn')}
           </button>
 
           {mode === 'login' && (
             <div className="mt-4 p-4 bg-dark-800/50 rounded-xl text-xs text-dark-300">
-              <p className="mb-1 font-semibold text-dark-200">Demo credentials:</p>
-              <p>Admin: admin@dealhunter.ai / admin123</p>
-              <p>User: demo@dealhunter.ai / user123</p>
+              <p className="mb-1 font-semibold text-dark-200">{t('login.demo.title')}</p>
+              <p>{t('login.demo.admin')}</p>
+              <p>{t('login.demo.user')}</p>
             </div>
           )}
 
           <p className="text-center text-dark-300 text-sm mt-6">
-            {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+            {mode === 'login' ? t('login.noAccount') + ' ' : t('login.hasAccount') + ' '}
             <button
               onClick={() => { setMode(mode === 'login' ? 'register' : 'login'); setError(''); }}
               className="text-neon-green hover:underline font-semibold"
             >
-              {mode === 'login' ? 'Sign up free' : 'Sign in'}
+              {mode === 'login' ? t('login.signUpFree') : t('login.signInLink')}
             </button>
           </p>
         </div>

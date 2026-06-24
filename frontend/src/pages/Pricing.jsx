@@ -3,6 +3,7 @@ import { Check, Zap, Star, Crown, ArrowRight, Shield, X, Loader } from 'lucide-r
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../utils/api';
+import { useTranslation } from 'react-i18next';
 
 const PLANS = [
   {
@@ -94,6 +95,7 @@ export default function Pricing() {
   const [loading, setLoading] = useState('');
   const [annual, setAnnual] = useState(false);
   const { user } = useAuth();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const success = params.get('success');
@@ -146,9 +148,9 @@ export default function Pricing() {
 
         {/* Header */}
         <div className="text-center">
-          <h1 className="text-4xl font-black text-white mb-3">Simple, Transparent Pricing</h1>
+          <h1 className="text-4xl font-black text-white mb-3">{t('pricing.title')}</h1>
           <p className="text-dark-300 text-lg max-w-lg mx-auto">
-            Start free. Upgrade when deals start paying for themselves.
+            {t('pricing.subtitle')}
           </p>
 
           {/* Annual toggle */}
@@ -227,7 +229,7 @@ export default function Pricing() {
                 {isCurrent ? (
                   <div className="space-y-2">
                     <div className="w-full py-3 rounded-xl text-center text-sm font-semibold border border-neon-green/40 text-neon-green">
-                      ✓ Current Plan
+                      ✓ {t('pricing.currentPlan')}
                     </div>
                     {plan.id !== 'free' && (
                       <button onClick={openPortal} className="w-full text-xs text-dark-400 hover:text-white underline">
@@ -245,7 +247,7 @@ export default function Pricing() {
                       'bg-dark-700 text-white hover:bg-dark-600'
                     } disabled:opacity-60 disabled:cursor-not-allowed`}>
                     {isLoading ? <Loader size={15} className="animate-spin" /> : null}
-                    {plan.price === 0 ? 'Get Started Free' : `Upgrade to ${plan.name}`}
+                    {plan.price === 0 ? t('pricing.plans.free.btn') : `${t('pricing.upgrade')} ${plan.name}`}
                     {!isLoading && plan.price > 0 && <ArrowRight size={14} />}
                   </button>
                 )}

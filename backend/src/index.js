@@ -187,6 +187,12 @@ app.listen(PORT, async () => {
   } catch (err) {
     logger.warn(`[startup] ai-leaders migration warning: ${err.message}`);
   }
+  try {
+    const { migrateI18n } = require('./db/migrate-i18n');
+    await migrateI18n();
+  } catch (err) {
+    logger.warn(`[startup] i18n migration warning: ${err.message}`);
+  }
   // Scan job runs only on the worker (deal-hunter-worker service).
   // Running it here caused OOM crashes on the web service.
   const { startWorkerMonitor } = require('./services/workerMonitor');

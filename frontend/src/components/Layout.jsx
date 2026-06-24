@@ -4,24 +4,29 @@ import {
   LayoutDashboard, Search, Map, Scan, Bell, Brain,
   Shield, Tag, Menu, LogOut, Zap, Eye, Crown,
   Crosshair, BarChart3, Gift, Flame, Star, Users, Briefcase,
-  Target, Wallet, GraduationCap, Bot, Trophy, BarChart2,
+  Target, Wallet, GraduationCap, Bot, Trophy, BarChart2, Globe,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useTranslation } from 'react-i18next';
+import api from '../utils/api';
 
-const NAV_PRIMARY = [
-  { to: '/', icon: <LayoutDashboard size={16} />, label: 'Dashboard', exact: true },
-  { to: '/search', icon: <Search size={16} />, label: 'Search' },
-  { to: '/pro-hunter', icon: <Crosshair size={16} />, label: 'Pro Hunter', plan: 'pro' },
-  { to: '/map', icon: <Map size={16} />, label: 'Map', plan: 'pro' },
-  { to: '/scanner', icon: <Scan size={16} />, label: 'Scanner' },
-];
-
-const NAV_TOOLS = [
-  { to: '/alerts', icon: <Bell size={16} />, label: 'Alerts' },
-  { to: '/watchlist', icon: <Eye size={16} />, label: 'Watchlist' },
-  { to: '/recommendations', icon: <Brain size={16} />, label: 'AI Recs' },
-  { to: '/analytics', icon: <BarChart3 size={16} />, label: 'Analytics' },
-];
+function useNavItems() {
+  const { t } = useTranslation();
+  const NAV_PRIMARY = [
+    { to: '/', icon: <LayoutDashboard size={16} />, label: t('nav.dashboard'), exact: true },
+    { to: '/search', icon: <Search size={16} />, label: t('nav.search') },
+    { to: '/pro-hunter', icon: <Crosshair size={16} />, label: t('nav.proHunter'), plan: 'pro' },
+    { to: '/map', icon: <Map size={16} />, label: t('nav.map'), plan: 'pro' },
+    { to: '/scanner', icon: <Scan size={16} />, label: t('nav.scanner') },
+  ];
+  const NAV_TOOLS = [
+    { to: '/alerts', icon: <Bell size={16} />, label: t('nav.alerts') },
+    { to: '/watchlist', icon: <Eye size={16} />, label: t('nav.watchlist') },
+    { to: '/recommendations', icon: <Brain size={16} />, label: t('nav.aiRecs') },
+    { to: '/analytics', icon: <BarChart3 size={16} />, label: t('nav.analytics') },
+  ];
+  return { NAV_PRIMARY, NAV_TOOLS };
+}
 
 const PLAN_STYLE = {
   free: 'text-dark-400 bg-dark-700',
@@ -53,9 +58,20 @@ export default function Layout() {
   const [open, setOpen] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { t, i18n } = useTranslation();
+  const { NAV_PRIMARY, NAV_TOOLS } = useNavItems();
 
   function doLogout() { logout(); navigate('/login'); }
   const close = () => setOpen(false);
+
+  function toggleLanguage() {
+    const next = i18n.language === 'es' ? 'en' : 'es';
+    i18n.changeLanguage(next);
+    localStorage.setItem('dealhunter_language', next);
+    if (user) {
+      api.patch('/auth/preferences', { preferred_language: next }).catch(() => {});
+    }
+  }
 
   const SidebarContent = () => (
     <div className="h-full flex flex-col overflow-hidden">
@@ -65,10 +81,18 @@ export default function Layout() {
           <div className="w-9 h-9 rounded-xl bg-neon-green/15 flex items-center justify-center flex-shrink-0">
             <Zap size={18} className="text-neon-green" />
           </div>
-          <div>
+          <div className="flex-1 min-w-0">
             <p className="text-white font-black text-sm leading-none">Deal Hunter AI</p>
             <p className="text-gray-500 text-xs mt-0.5">v4.0 · Launch Ready</p>
           </div>
+          <button
+            onClick={toggleLanguage}
+            title={t('language.toggle')}
+            className="flex items-center gap-1 text-gray-400 hover:text-neon-green transition-colors flex-shrink-0"
+          >
+            <Globe size={13} />
+            <span className="text-[10px] font-bold uppercase">{i18n.language === 'es' ? 'ES' : 'EN'}</span>
+          </button>
         </div>
       </div>
 
@@ -77,7 +101,7 @@ export default function Layout() {
         {NAV_PRIMARY.map(item => <NavItem key={item.to} item={item} onClick={close} />)}
 
         <div className="pt-2 pb-0.5 px-3">
-          <p className="text-gray-500 text-[10px] uppercase tracking-wider font-semibold">Tools</p>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider font-semibold">{t('nav.tools')}</p>
         </div>
         {NAV_TOOLS.map(item => <NavItem key={item.to} item={item} onClick={close} />)}
 
@@ -85,35 +109,35 @@ export default function Layout() {
         <div className="pt-2 pb-0.5 px-3">
           <p className="text-[10px] uppercase tracking-wider font-bold"
             style={{ color: '#4ADE80', opacity: 0.7 }}>
-            ⚡ Business
+            ⚡ {t('nav.business')}
           </p>
         </div>
-        <NavItem item={{ to: '/business', icon: <Briefcase size={16} />, label: 'Business Home' }} onClick={close} />
-        <NavItem item={{ to: '/business/university', icon: <GraduationCap size={16} />, label: 'Universidad' }} onClick={close} />
-        <NavItem item={{ to: '/business/coach', icon: <Bot size={16} />, label: 'Coach IA' }} onClick={close} />
-        <NavItem item={{ to: '/business/hall-of-fame', icon: <Trophy size={16} />, label: 'Hall of Fame' }} onClick={close} />
-        <NavItem item={{ to: '/business/stats', icon: <BarChart2 size={16} />, label: 'Stats' }} onClick={close} />
-        <NavItem item={{ to: '/business/crm', icon: <Users size={16} />, label: 'Team CRM' }} onClick={close} />
-        <NavItem item={{ to: '/business/notifications', icon: <Bell size={16} />, label: 'Notifications' }} onClick={close} />
-        <NavItem item={{ to: '/referrals', icon: <Gift size={16} />, label: 'Refer & Earn' }} onClick={close} />
-        <NavItem item={{ to: '/teams', icon: <Users size={16} />, label: 'Teams' }} onClick={close} />
-        <NavItem item={{ to: '/collaborator/leaderboard', icon: <Target size={16} />, label: 'Ranking' }} onClick={close} />
+        <NavItem item={{ to: '/business', icon: <Briefcase size={16} />, label: t('nav.businessHome') }} onClick={close} />
+        <NavItem item={{ to: '/business/university', icon: <GraduationCap size={16} />, label: t('nav.university') }} onClick={close} />
+        <NavItem item={{ to: '/business/coach', icon: <Bot size={16} />, label: t('nav.aiCoach') }} onClick={close} />
+        <NavItem item={{ to: '/business/hall-of-fame', icon: <Trophy size={16} />, label: t('nav.hallOfFame') }} onClick={close} />
+        <NavItem item={{ to: '/business/stats', icon: <BarChart2 size={16} />, label: t('nav.stats') }} onClick={close} />
+        <NavItem item={{ to: '/business/crm', icon: <Users size={16} />, label: t('nav.teamCRM') }} onClick={close} />
+        <NavItem item={{ to: '/business/notifications', icon: <Bell size={16} />, label: t('nav.notifications') }} onClick={close} />
+        <NavItem item={{ to: '/referrals', icon: <Gift size={16} />, label: t('nav.referEarn') }} onClick={close} />
+        <NavItem item={{ to: '/teams', icon: <Users size={16} />, label: t('nav.teams') }} onClick={close} />
+        <NavItem item={{ to: '/collaborator/leaderboard', icon: <Target size={16} />, label: t('nav.ranking') }} onClick={close} />
 
         {/* ── Community ────────────────────────────────────────────────── */}
         <div className="pt-2 pb-0.5 px-3">
-          <p className="text-gray-500 text-[10px] uppercase tracking-wider font-semibold">Community</p>
+          <p className="text-gray-500 text-[10px] uppercase tracking-wider font-semibold">{t('nav.community')}</p>
         </div>
-        <NavItem item={{ to: '/community', icon: <Users size={16} />, label: 'Community' }} onClick={close} />
-        <NavItem item={{ to: '/feed', icon: <Flame size={16} />, label: 'Deal Feed' }} onClick={close} />
-        <NavItem item={{ to: '/collaborator', icon: <Star size={16} />, label: 'Collaborator' }} onClick={close} />
+        <NavItem item={{ to: '/community', icon: <Users size={16} />, label: t('nav.community') }} onClick={close} />
+        <NavItem item={{ to: '/feed', icon: <Flame size={16} />, label: t('nav.dealFeed') }} onClick={close} />
+        <NavItem item={{ to: '/collaborator', icon: <Star size={16} />, label: t('nav.collaborator') }} onClick={close} />
 
         <div className="pt-2 border-t border-dark-700 mt-1 space-y-0.5">
-          <NavItem item={{ to: '/pricing', icon: <Tag size={16} />, label: 'Pricing' }} onClick={close} />
+          <NavItem item={{ to: '/pricing', icon: <Tag size={16} />, label: t('nav.pricing') }} onClick={close} />
           {user?.is_admin && (
-            <NavItem item={{ to: '/admin', icon: <Shield size={16} />, label: 'Admin Panel' }} onClick={close} />
+            <NavItem item={{ to: '/admin', icon: <Shield size={16} />, label: t('nav.adminPanel') }} onClick={close} />
           )}
           {user?.is_admin && (
-            <NavItem item={{ to: '/admin/submitted-deals', icon: <Flame size={16} />, label: 'Offered Deals' }} onClick={close} />
+            <NavItem item={{ to: '/admin/submitted-deals', icon: <Flame size={16} />, label: t('nav.offeredDeals') }} onClick={close} />
           )}
         </div>
       </nav>
@@ -123,12 +147,12 @@ export default function Layout() {
         <div className="mx-2 mb-2 p-3 rounded-xl bg-neon-green/8 border border-neon-green/20 flex-shrink-0">
           <div className="flex items-center gap-2 mb-1">
             <Crown size={13} className="text-neon-green" />
-            <span className="text-neon-green text-xs font-bold">Upgrade to Pro — $19/mo</span>
+            <span className="text-neon-green text-xs font-bold">{t('upgrade.cta')}</span>
           </div>
-          <p className="text-gray-400 text-xs mb-2">Pro Hunter, unlimited alerts, map view, AI recs.</p>
+          <p className="text-gray-400 text-xs mb-2">{t('upgrade.desc')}</p>
           <NavLink to="/pricing" onClick={close}
             className="block text-center py-1.5 rounded-lg bg-neon-green text-dark-900 text-xs font-black hover:bg-neon-green/90 transition-colors">
-            Start Free Trial →
+            {t('upgrade.btn')}
           </NavLink>
         </div>
       )}
@@ -181,11 +205,17 @@ export default function Layout() {
           </button>
           <Zap size={15} className="text-neon-green" />
           <span className="text-white font-black text-sm">Deal Hunter AI</span>
-          {user && (
-            <span className={`ml-auto text-[10px] px-1.5 py-0.5 rounded-full font-bold capitalize ${PLAN_STYLE[user.plan] || PLAN_STYLE.free}`}>
-              {user.plan}
-            </span>
-          )}
+          <div className="ml-auto flex items-center gap-2">
+            <button onClick={toggleLanguage} className="flex items-center gap-1 text-gray-400 hover:text-neon-green transition-colors">
+              <Globe size={13} />
+              <span className="text-[10px] font-bold uppercase">{i18n.language === 'es' ? 'ES' : 'EN'}</span>
+            </button>
+            {user && (
+              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold capitalize ${PLAN_STYLE[user.plan] || PLAN_STYLE.free}`}>
+                {user.plan}
+              </span>
+            )}
+          </div>
         </div>
         <main className="flex-1 overflow-y-auto">
           <Outlet />

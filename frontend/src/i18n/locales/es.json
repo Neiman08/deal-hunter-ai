@@ -1,0 +1,320 @@
+{
+  "nav": {
+    "dashboard": "Panel",
+    "search": "Buscar",
+    "proHunter": "Pro Hunter",
+    "map": "Mapa",
+    "scanner": "Escáner",
+    "tools": "Herramientas",
+    "alerts": "Alertas",
+    "watchlist": "Lista de Seguimiento",
+    "aiRecs": "IA Recs",
+    "analytics": "Analíticas",
+    "business": "Negocio",
+    "businessHome": "Inicio Negocio",
+    "university": "Universidad",
+    "aiCoach": "Coach IA",
+    "hallOfFame": "Hall of Fame",
+    "stats": "Estadísticas",
+    "teamCRM": "Team CRM",
+    "notifications": "Notificaciones",
+    "referEarn": "Referir y Ganar",
+    "teams": "Equipos",
+    "ranking": "Ranking",
+    "community": "Comunidad",
+    "dealFeed": "Feed de Deals",
+    "collaborator": "Colaborador",
+    "pricing": "Precios",
+    "adminPanel": "Panel Admin",
+    "offeredDeals": "Deals Ofrecidos"
+  },
+  "upgrade": {
+    "cta": "Upgrade a Pro — $19/mes",
+    "desc": "Pro Hunter, alertas ilimitadas, mapa, IA recs.",
+    "btn": "Prueba Gratis →"
+  },
+  "login": {
+    "tagline": "Encuentra deals ocultos antes que nadie.",
+    "description": "Monitoreo de precios con IA en Walmart, Home Depot, Target y más.",
+    "features": {
+      "realtime": "Detección de deals en tiempo real",
+      "calculator": "Calculadora de profit de reventa",
+      "alerts": "Alertas instantáneas de deals"
+    },
+    "welcomeBack": "Bienvenido de vuelta",
+    "createAccount": "Crea tu cuenta",
+    "signInDesc": "Inicia sesión en tu cuenta",
+    "startFree": "Empieza a cazar deals gratis",
+    "referralBanner": "Invitado con código {{code}} — ¡bienvenido!",
+    "fields": {
+      "name": "Nombre Completo",
+      "email": "Correo electrónico",
+      "password": "Contraseña",
+      "zipCode": "Código ZIP",
+      "referralCode": "Código de Referido",
+      "optional": "(opcional)"
+    },
+    "loading": "Cargando...",
+    "signIn": "Iniciar Sesión",
+    "createBtn": "Crear Cuenta",
+    "demo": {
+      "title": "Credenciales demo:",
+      "admin": "Admin: admin@dealhunter.ai / admin123",
+      "user": "User: demo@dealhunter.ai / user123"
+    },
+    "noAccount": "¿No tienes cuenta?",
+    "hasAccount": "¿Ya tienes cuenta?",
+    "signUpFree": "Regístrate gratis",
+    "signInLink": "Iniciar sesión"
+  },
+  "dashboard": {
+    "title": "Panel de Deals",
+    "dealsAvailable": "deals disponibles",
+    "today": "hoy",
+    "refresh": "Actualizar",
+    "tabs": {
+      "all": "Todos los Deals",
+      "top": "Top Deals",
+      "error": "Precios Error"
+    },
+    "stats": {
+      "searchable": "Deals Buscables",
+      "highScore": "Deals Alta Puntuación",
+      "profit": "Profit Potencial",
+      "errorPrices": "Precios Error",
+      "errorPricesSub": "Errores de precio",
+      "score71": "Puntuación 71+"
+    },
+    "freshness": {
+      "verified": "Verificado Hoy",
+      "week": "Esta Semana",
+      "recheck": "Necesita Revisión",
+      "historical": "Histórico"
+    },
+    "scores": {
+      "excellent": "Excelente",
+      "good": "Bueno",
+      "fair": "Regular",
+      "skip": "Omitir"
+    },
+    "charts": {
+      "byStore": "Deals por Tienda",
+      "trend": "Tendencia 7 Días",
+      "categories": "Top Categorías",
+      "noStore": "Sin datos de tiendas aún",
+      "noTrend": "Sin datos de tendencia aún",
+      "deals": "Deals",
+      "profit": "Profit"
+    },
+    "search": {
+      "placeholder": "Buscar deals… laptop, Sony, Milwaukee, DeWalt"
+    },
+    "loadMore": "Cargar Más",
+    "noDeals": "No se encontraron deals",
+    "labels": {
+      "cataloged": "Catalogados",
+      "products": "Productos",
+      "searchable20": "Buscables ≥20%",
+      "lowDiscount": "Desc. bajo <20%",
+      "errorPricesLabel": "Precios Error",
+      "storesActive": "Tiendas Activas"
+    }
+  },
+  "scanner": {
+    "title": "Escáner UPC",
+    "subtitle": "Escanea cualquier código o ingresa el UPC manualmente",
+    "placeholder": "Ingresa UPC, EAN, código de barras...",
+    "scan": "Escanear",
+    "camera": "Cámara",
+    "history": "Historial",
+    "submitDeal": "Enviar Deal",
+    "noHistory": "Sin historial de escaneos aún",
+    "enterUPC": "Ingresa un UPC para empezar",
+    "recommendation": {
+      "BUY": "COMPRAR",
+      "MAYBE": "QUIZÁS",
+      "SKIP": "OMITIR",
+      "INSUFFICIENT_DATA": "DATOS INSUFICIENTES"
+    },
+    "priceType": {
+      "live": "Precio en Vivo",
+      "estimated": "Precio Estimado",
+      "ebay": "Estimado eBay",
+      "recovery": "Estimado Mercado"
+    },
+    "labels": {
+      "score": "Puntuación",
+      "dealPrice": "Precio Deal",
+      "retailPrice": "Precio Retail",
+      "discount": "Descuento",
+      "profitEst": "Profit Estimado",
+      "resalePrice": "Precio Reventa",
+      "store": "Tienda",
+      "selectStore": "Selecciona tienda",
+      "price": "Precio",
+      "roi": "ROI",
+      "fees": "Comisiones"
+    }
+  },
+  "feed": {
+    "title": "Feed de Deals",
+    "postPlaceholder": "Comparte un deal que encontraste...",
+    "post": "Publicar",
+    "comments": "comentarios",
+    "like": "Me gusta",
+    "missions": "Misiones Activas",
+    "aiLabel": "Líder IA",
+    "noMissions": "Sin misiones activas por ahora",
+    "comment": "Comentar",
+    "addComment": "Agrega un comentario...",
+    "loadMore": "Cargar Más",
+    "noPosts": "Sin publicaciones aún. ¡Sé el primero!",
+    "progress": "Progreso",
+    "complete": "Completo"
+  },
+  "collaborator": {
+    "dashboard": "Panel de Colaborador",
+    "welcome": "Bienvenido, {{name}}",
+    "joinTitle": "Únete como Colaborador",
+    "joinDesc": "Escanea deals de clearance, gana puntos, construye tu reputación.",
+    "hunterPlaceholder": "Tu nombre de cazador...",
+    "joinBtn": "Unirse al Programa",
+    "submitDeal": "Enviar Deal",
+    "stats": {
+      "verified": "Deals Verificados",
+      "accuracy": "Precisión",
+      "trust": "Nivel de Confianza",
+      "pending": "Pendientes",
+      "pendingDesc": "Esperando voto de la comunidad"
+    },
+    "wallet": {
+      "title": "Billetera de Puntos",
+      "available": "Disponibles",
+      "pending": "Pendientes",
+      "lifetime": "Total Ganados"
+    },
+    "level": {
+      "label": "Nivel Actual",
+      "pts": "pts"
+    },
+    "accuracy": {
+      "high": "Alta precisión",
+      "getting": "Mejorando",
+      "keep": "Sigue intentando"
+    },
+    "submissions": "Tus Envíos",
+    "noSubmissions": "Sin envíos aún",
+    "approved": "Aprobado",
+    "rejected": "Rechazado",
+    "pendingStatus": "Pendiente"
+  },
+  "referrals": {
+    "title": "Referir y Ganar",
+    "subtitle": "Gana meses de Pro gratis por cada usuario que refieras",
+    "howItWorks": "Cómo funciona",
+    "steps": {
+      "share": "Comparte tu enlace",
+      "signup": "Tu amigo se registra",
+      "earn": "Hace upgrade → tú ganas 1 mes de Pro gratis"
+    },
+    "yourCode": "Tu Código de Referido",
+    "referralLink": "Enlace de Referido",
+    "copy": "Copiar",
+    "copied": "¡Copiado!",
+    "share": "Compartir",
+    "stats": {
+      "total": "Total Referidos",
+      "converted": "Convertidos",
+      "earned": "Meses Ganados"
+    },
+    "recent": "Referidos Recientes",
+    "noReferrals": "Sin referidos aún — ¡comparte tu enlace!",
+    "converted": "Convertido",
+    "freePlan": "Plan gratuito",
+    "reward": "Recompensa"
+  },
+  "pricing": {
+    "title": "Planes y Precios",
+    "subtitle": "Elige el plan que se adapte a tu ritmo",
+    "perMonth": "/mes",
+    "popular": "Más Popular",
+    "bestROI": "Mejor ROI",
+    "trial": "7 días de prueba gratis",
+    "included": "Qué incluye",
+    "notIncluded": "No incluido",
+    "plans": {
+      "free": { "btn": "Comenzar" },
+      "pro":  { "btn": "Upgrade a Pro" },
+      "elite": { "btn": "Ir Elite" }
+    },
+    "loading": "Procesando...",
+    "currentPlan": "Plan Actual",
+    "upgrade": "Mejorar"
+  },
+  "admin": {
+    "tabs": {
+      "scanner": "Escáner",
+      "deals": "Deals",
+      "users": "Usuarios",
+      "aiLeaders": "Líderes IA",
+      "beta": "Beta",
+      "dataHealth": "Salud de Datos",
+      "stores": "Tiendas",
+      "submitted": "Enviados"
+    },
+    "betaMetrics": "Métricas Beta",
+    "aiLeadersTitle": "Control de Líderes IA",
+    "dataHealthTitle": "Salud de Datos"
+  },
+  "common": {
+    "loading": "Cargando...",
+    "error": "Algo salió mal",
+    "save": "Guardar",
+    "cancel": "Cancelar",
+    "close": "Cerrar",
+    "back": "Volver",
+    "refresh": "Actualizar",
+    "viewAll": "Ver Todo",
+    "noData": "Sin datos",
+    "submit": "Enviar",
+    "confirm": "Confirmar",
+    "delete": "Eliminar",
+    "edit": "Editar",
+    "enabled": "Habilitado",
+    "disabled": "Deshabilitado",
+    "on": "Activado",
+    "off": "Desactivado",
+    "yes": "Sí",
+    "no": "No",
+    "search": "Buscar",
+    "plan": {
+      "free": "gratis",
+      "pro": "pro",
+      "elite": "elite"
+    }
+  },
+  "language": {
+    "en": "English",
+    "es": "Español",
+    "toggle": "Idioma"
+  },
+  "categories": {
+    "electronics": "Electrónica",
+    "tools": "Herramientas",
+    "toys": "Juguetes",
+    "clothing": "Ropa",
+    "home": "Hogar y Jardín",
+    "sports": "Deportes",
+    "health": "Salud y Belleza",
+    "automotive": "Automotriz",
+    "office": "Oficina",
+    "food": "Alimentos",
+    "baby": "Bebé",
+    "pet": "Mascotas",
+    "music": "Música",
+    "books": "Libros",
+    "video_games": "Videojuegos",
+    "jewelry": "Joyería",
+    "other": "Otro"
+  }
+}
